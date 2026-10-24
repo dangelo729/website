@@ -50,24 +50,21 @@
     // a letter is one object: its glyph from font.js cut to its ink, a home
     // position in continuous world space, a scale and a tilt, and slow sines
     // of its own on each, at rates and phases seeded from its place in the
-    // text. it is drawn as daedalus's head is: every world pixel in its box
-    // is carried back through the transform into the glyph and asks what is
-    // there, so a sub-pixel move or a touch of scale shows as edge pixels
-    // popping, never as the block stepping. a pixel lights by coverage: it is
-    // asked at a grid of points and lit when enough of them land on ink, so
-    // a 1 px stroke at these scales always lights one pixel and only doubles
-    // when it sits almost exactly between two (one point a pixel would be
-    // nearest neighbour, which drops a stroke that falls between centres;
-    // any hit at all doubles nearly every stroke).
+    // text. it is drawn as a sprite (js/raster.js), as daedalus's head is:
+    // every world pixel in its box is carried back through the transform
+    // into the glyph and lit when enough of it lands on ink, so a sub-pixel
+    // move or a touch of scale shows as edge pixels popping, never as the
+    // block stepping, and a 1 px stroke at these scales always lights one
+    // pixel and only doubles when it sits almost exactly between two. the
+    // bubble's face goes through the same sampler.
     const LETTER_SCALE = 0.88;
-    const SAMPLE_GRID  = 4;   // points per pixel side: 16 a pixel
-    const MIN_HITS     = 6;   // of 16 on ink lights the pixel: 37.5 % coverage
     const SWAY_PX  = 0.5,  SWAY_HZ    = 0.4;  // along x
     const BOB_PX   = 0.5,  BOB_HZ     = 0.23; // along y
     const BREATHE  = 0.04, BREATHE_HZ = 0.31; // of the scale: 0.845 to 0.915
     const TILT_RAD = 0.03, TILT_HZ    = 0.17; // about the centre
 
-    // the glyph cut to its ink columns as a bit array, or null for a blank
+    // the glyph cut to its ink columns as a sprite's bitmap, or null for a
+    // blank
     function glyphInk(ch) {
       const rows = typeof FONT !== 'undefined' && FONT.glyphs[ch];
       if (!rows) return null;
@@ -75,31 +72,7 @@
       for (const r of rows) for (let i = 0; i < r.length; i++)
         if (r[i] === '#') { if (i < lo) lo = i; if (i > hi) hi = i; }
       if (hi < 0) return null;
-      const w = hi - lo + 1, h = rows.length, ink = new Uint8Array(w * h);
-      for (let r = 0; r < h; r++) for (let i = 0; i < w; i++) ink[r * w + i] = rows[r][lo + i] === '#' ? 1 : 0;
-      return { ink, w, h };
-    }
-
-    // the glyph with its centre at (cx, cy), scaled by s and turned by a
-    // radians (clockwise on screen), through the inverse transform
-    const SUB = [];
-    for (let i = 0; i < SAMPLE_GRID; i++) for (let j = 0; j < SAMPLE_GRID; j++)
-      SUB.push([(i + 0.5) / SAMPLE_GRID - 0.5, (j + 0.5) / SAMPLE_GRID - 0.5]);
-    function drawGlyph(g, cx, cy, s, a) {
-      const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
-      const hw = g.w * s / 2, hh = g.h * s / 2;
-      const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
-      const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
-      for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
-        let hits = 0;
-        for (let k = 0; k < SUB.length && hits < MIN_HITS; k++) {
-          const tx = px + 0.5 + SUB[k][0] - cx, ty = py + 0.5 + SUB[k][1] - cy;
-          const u = (cos * tx + sin * ty) * inv + g.w / 2, v = (-sin * tx + cos * ty) * inv + g.h / 2;
-          const gx = Math.floor(u), gy = Math.floor(v);
-          if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
-        }
-        if (hits >= MIN_HITS) fb.set(px, py);
-      }
+      return Framebuffer.ink(rows.map((r) => r.slice(lo, hi + 1)));
     }
 
     // a stable number in [0, 1) from two integers
@@ -117,7 +90,7 @@
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
         draw(t) {
           const w = 2 * Math.PI * t;
-          drawGlyph(this.g,
+          fb.sprite(this.g,
             this.cx + SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
             this.cy + BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
             LETTER_SCALE * (1 + BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
@@ -197,16 +170,21 @@
     }
 
     // --- the bubble --------------------------------------------------------------
-    // the centre object is cicada's bubble at 1:1: a ring of verlet points
-    // (js/softbody.js) locked to the middle, which gives when pulled and
-    // wobbles home. it lives in a world the size of the viewport that runs
-    // whole 60 hz steps from wall time, so a 120 hz screen does not run it
-    // twice as fast and a slow frame catches up. it is filled dark and then
-    // outlined, so it covers whatever is under it as a solid thing, and its
+    // the centre object is cicada's bubble at 80 % of its size: a ring of
+    // verlet points (js/softbody.js) locked to the middle, which gives when
+    // pulled and wobbles home. it lives in a world the size of the viewport
+    // that runs whole 60 hz steps from wall time, so a 120 hz screen does
+    // not run it twice as fast and a slow frame catches up. it is filled
+    // dark and then outlined, the skin a bresenham line from point to
+    // point, so it covers whatever is under it as a solid thing, and its
     // face (js/face.js) goes on top, trailing the skin when it moves.
-    // its radius in world px, its points, and its air: the area it fills
-    // over its circle's
-    const BUBBLE_R = 36, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
+    // cicada's bubble is radius 36 with the face's art put down 1:1. at 0.8
+    // nothing lands 1:1: the face scales with the radius and goes through
+    // the letters' sampler, its 1 px strokes as 0.8 px ones.
+    const BUBBLE_SCALE = 0.8;
+    // its radius in world px (28.8, left a float), its points, and its
+    // air: the area it fills over its circle's
+    const BUBBLE_R = 36 * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
 
     // --- the drag ----------------------------------------------------------------

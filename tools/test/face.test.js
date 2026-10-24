@@ -1,11 +1,12 @@
 // node tools/test/face.test.js
 //
-// loads js/face-art.js and js/face.js the way the page does, two classic
-// scripts sharing one global scope, in a vm context with no dom, no
+// loads js/raster.js, js/face-art.js and js/face.js the way the page does,
+// classic scripts sharing one global scope, in a vm context with no dom, no
 // performance and a Date that throws, so the face cannot quietly lean on
 // any of them. Math.random is counted and pinned to 0.5, which puts the
-// blink wait at 5 s. a fake blob, world and framebuffer stand in for
-// softbody.js and raster.js. prints the face as ascii; exits 1 on failure.
+// blink wait at 5 s. the face draws into a real framebuffer (ImageData is
+// stubbed); a fake blob and world stand in for softbody.js. prints the face
+// as ascii; exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -26,15 +27,19 @@ const fmt = (p) => '(' + p.x.toFixed(4) + ', ' + p.y.toFixed(4) + ')';
 let randoms = 0;
 const math = Object.create(Math);
 math.random = () => { randoms++; return 0.5; };
-const sandbox = { Math: math };
+// the browser's ImageData, as much of it as a Framebuffer makes
+class ImageData {
+  constructor(w, h) { this.width = w; this.height = h; this.data = new Uint8ClampedArray(w * h * 4); }
+}
+const sandbox = { Math: math, ImageData };
 for (const name of ['Date', 'performance', 'window', 'document', 'requestAnimationFrame']) {
   Object.defineProperty(sandbox, name, { get() { throw new Error('the face read ' + name); } });
 }
 const ctx = vm.createContext(sandbox);
-for (const file of ['js/face-art.js', 'js/face.js']) {
+for (const file of ['js/raster.js', 'js/face-art.js', 'js/face.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), ctx, { filename: file });
 }
-const { FACE_ART, FACE, Face } = vm.runInContext('({ FACE_ART, FACE, Face })', ctx);
+const { FACE_ART, FACE, Face, Framebuffer } = vm.runInContext('({ FACE_ART, FACE, Face, Framebuffer })', ctx);
 
 // --- fakes -------------------------------------------------------------------
 function fakeBlob(x, y, radius) {
@@ -44,32 +49,27 @@ function fakeBlob(x, y, radius) {
 function fakeWorld(nearest, px = null, py = null) {
   return { nearestTo: () => nearest, pointerX: px, pointerY: py };
 }
-// records lit pixels; circle is cicada's drawCircle, the contract's fb.circle
-function fakeFb() {
-  const lit = new Set();
-  const fb = {
-    lit,
-    set(x, y, v = 1) {
-      if (x !== Math.floor(x) || y !== Math.floor(y)) throw new Error('fb.set off the grid: ' + x + ', ' + y);
-      if (v) lit.add(x + ',' + y); else lit.delete(x + ',' + y);
-    },
-    get: (x, y) => (lit.has(x + ',' + y) ? 1 : 0),
-    blitRows(rows, x, y, v = 1) {
-      for (let j = 0; j < rows.length; j++) {
-        for (let i = 0; i < rows[j].length; i++) if (rows[j][i] === '#') fb.set(x + i, y + j, v);
-      }
-    },
-    circle(cx, cy, r, v = 1) {
-      let x = r, y = 0, err = 1 - x;
-      while (x >= y) {
-        for (const [dx, dy] of [[x, y], [y, x], [-y, x], [-x, y], [-x, -y], [-y, -x], [y, -x], [x, -y]]) fb.set(cx + dx, cy + dy, v);
-        y++;
-        if (err < 0) err += 2 * y + 1;
-        else { x--; err += 2 * (y - x) + 1; }
-      }
-    },
+// a real framebuffer, big enough for every face here. a set off the grid
+// would land nowhere in a Uint8Array, silently, so it throws instead
+function makeFb() {
+  const fb = new Framebuffer(240, 240), set = fb.set;
+  fb.set = function (x, y, v = 1) {
+    if (x !== Math.floor(x) || y !== Math.floor(y)) throw new Error('fb.set off the grid: ' + x + ', ' + y);
+    set.call(this, x, y, v);
   };
   return fb;
+}
+// its lit pixels as "x,y"
+function litSet(fb) {
+  const out = new Set();
+  for (let y = 0; y < fb.h; y++) for (let x = 0; x < fb.w; x++) if (fb.bits[y * fb.w + x]) out.add(x + ',' + y);
+  return out;
+}
+// a pupil as draw should put it: the 3x3 plus on eye + offset, at the face's scale
+function pupilPx(face, eye, pupil) {
+  const fb = makeFb();
+  fb.sprite(Framebuffer.ink(FACE.PUPILS.ART), eye.x + (pupil.x + 0.5) * face.scale, eye.y + (pupil.y + 0.5) * face.scale, face.scale, 0, 1, FACE.MIN_HITS);
+  return litSet(fb);
 }
 function dump(fb, x0, y0, w, h) {
   const out = [];
@@ -224,17 +224,18 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   check('radius 72: nose stays at (100, 100), mouth eases to (100, 136)',
     near(g.nose.x, 100, 0.01) && near(g.nose.y, 100, 0.01) && near(g.mouf.x, 100, 0.01) && near(g.mouf.y, 136, 0.01),
     fmt(g.nose) + ' ' + fmt(g.mouf));
-  check('radius 72: pupils are not scaled', near(g.leftPupil.y, -3, 0.01), fmt(g.leftPupil));
+  check('radius 72: the pupil offsets stay in art pixels', near(g.leftPupil.y, -3, 0.01), fmt(g.leftPupil));
 }
 
 // --- drawing -------------------------------------------------------------------
-const plus = (cx, cy) => [[cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]];
+// at radius 36 on whole pixels each feature is its art 1:1, top-left at
+// pos - size / 2; the pupils are whatever their sprite makes
 function expected(sprites, pupils) {
   const want = new Set();
   for (const [rows, x, y] of sprites) {
     rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#') want.add((x + i) + ',' + (y + j)); });
   }
-  for (const [cx, cy] of pupils) for (const [x, y] of plus(cx, cy)) want.add(x + ',' + y);
+  for (const p of pupils) for (const k of p) want.add(k);
   return want;
 }
 function same(a, b) {
@@ -243,22 +244,23 @@ function same(a, b) {
     (extra.length ? ' e.g. extra ' + extra[0] : '') + (missing.length ? ' e.g. missing ' + missing[0] : '') };
 }
 {
-  const fb = fakeFb();
+  const fb = makeFb();
   rest.draw(fb);
   const eye = FACE_ART.eyes.frames[6];
-  // eye top-left: round(85 - 14), round(90 - 9); pupils on (85, 87) and (115, 87)
+  // eye top-left: 85 - 14, 90 - 9; pupils on (85, 87) and (115, 87)
   let ring = true;
   for (const ex of [71, 101]) {
     eye.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#' && !fb.get(ex + i, 81 + j)) ring = false; });
   }
   check('draw: open eye rings at (71, 81) and (101, 81)', ring);
-  const pupilsLit = plus(85, 87).concat(plus(115, 87)).every(([x, y]) => fb.get(x, y));
-  check('draw: pupils are 4-pixel pluses round (85, 87) and (115, 87)', pupilsLit && !fb.get(85, 87) && !fb.get(115, 87));
-  const s = same(fb.lit, expected([
+  const pl = pupilPx(rest, rest.leftEye, rest.leftPupil), pr = pupilPx(rest, rest.rightEye, rest.rightPupil), on = litSet(fb);
+  check('draw: pupils are the 3x3 plus as a sprite on (85, 87) and (115, 87)', pl.size > 0 && pr.size > 0 && [...pl, ...pr].every((k) => on.has(k)),
+    [...pl].join(' ') + ' / ' + [...pr].join(' '));
+  const s = same(on, expected([
     [eye, 71, 81], [eye, 101, 81],
     [FACE_ART.nose.frames[0], 88, 88],
     [FACE_ART.mouf.frames[0], 80, 106],
-  ], [[85, 87], [115, 87]]));
+  ], [pl, pr]));
   check('draw: nothing lit but eyes, pupils, nose at (88, 88) and mouth at (80, 106)', s.ok, s.detail);
   console.log('\nat rest, blob centre (100, 100) r 36, window x 60..139 y 78..127:\n' + dump(fb, 60, 78, 80, 50) + '\n');
 }
@@ -268,20 +270,59 @@ function same(a, b) {
   const touching = { blob: other, dist: 60, edgeDist: 60 - 36 - 12 };
   const keen = new Face(blob);
   run(keen, blob, fakeWorld(touching), 200);
-  const fb = fakeFb();
+  const fb = makeFb();
   keen.draw(fb);
   const nf = Face.frame(FACE_ART.nose, keen.noseFrame);
-  const lp = { x: Math.round(keen.leftEye.x + keen.leftPupil.x), y: Math.round(keen.leftEye.y + keen.leftPupil.y) };
-  const rp = { x: Math.round(keen.rightEye.x + keen.rightPupil.x), y: Math.round(keen.rightEye.y + keen.rightPupil.y) };
+  const lp = pupilPx(keen, keen.leftEye, keen.leftPupil), rp = pupilPx(keen, keen.rightEye, keen.rightPupil);
+  // the middle of a pupil's pixels, which looking right is right of the eye's
+  const midX = (p) => [...p].reduce((sum, k) => sum + Number(k.split(',')[0]) + 0.5, 0) / p.size;
   const eye = FACE_ART.eyes.frames[6];
-  const s = same(fb.lit, expected([
+  const s = same(litSet(fb), expected([
     [eye, 71, 81], [eye, 101, 81],
     [FACE_ART.nose.frames[nf], 88, 88],
     [FACE_ART.mouf.frames[9], 80, 106],
-  ], [[lp.x, lp.y], [rp.x, rp.y]]));
-  check('draw, blob close on the right: mouth frame 9, pupils looking right', s.ok && keen.moufFrame === 9 && lp.x > 85 && rp.x > 115,
-    s.detail + '; pupils ' + lp.x + ',' + lp.y + ' ' + rp.x + ',' + rp.y + '; nose frame ' + nf);
+  ], [lp, rp]));
+  check('draw, blob close on the right: mouth frame 9, pupils looking right', s.ok && keen.moufFrame === 9 && midX(lp) > 86 && midX(rp) > 116,
+    s.detail + '; pupils ' + [...lp].join(' ') + ' / ' + [...rp].join(' ') + '; nose frame ' + nf);
   console.log('\na blob touching on the right (nose frame ' + nf + ', mouth 9), same window:\n' + dump(fb, 60, 78, 80, 50) + '\n');
+}
+
+// --- at 0.8: the page's bubble -------------------------------------------------
+// radius 28.8: nothing lands 1:1, every feature is resampled. each one alone
+// keeps between 0.6 and 1.4 times its art's ink, and the face is those
+// sprites and nothing else
+{
+  const small = fakeBlob(100, 100, 36 * 0.8);
+  const f = new Face(small);
+  run(f, small, empty, 200);
+  check('radius 28.8: scale 0.8, eyes at (88, 92) and (112, 92), mouth at (100, 114.4)',
+    near(f.scale, 0.8, 1e-12) && near(f.leftEye.x, 88, 1e-9) && near(f.leftEye.y, 92, 1e-9) && near(f.rightEye.x, 112, 1e-9) &&
+    near(f.mouf.x, 100, 1e-9) && near(f.mouf.y, 114.4, 1e-9), f.scale + ' ' + fmt(f.leftEye) + ' ' + fmt(f.rightEye) + ' ' + fmt(f.mouf));
+  const fb = makeFb();
+  f.draw(fb);
+  const s = f.scale, I = f.ink;
+  const parts = [
+    ['left eye', I.eyes[6], f.leftEye],
+    ['right eye', I.eyes[6], f.rightEye],
+    ['left pupil', I.pupil, { x: f.leftEye.x + f.leftPupil.x * s, y: f.leftEye.y + f.leftPupil.y * s }],
+    ['right pupil', I.pupil, { x: f.rightEye.x + f.rightPupil.x * s, y: f.rightEye.y + f.rightPupil.y * s }],
+    ['nose', I.nose[0], f.nose],
+    ['mouth', I.mouf[0], f.mouf],
+  ];
+  const union = new Set();
+  for (const [name, g, at] of parts) {
+    const one = makeFb();
+    one.sprite(g, at.x, at.y, s, 0, 1, FACE.MIN_HITS);
+    const px = litSet(one);
+    for (const k of px) union.add(k);
+    let ink = 0;
+    for (const b of g.ink) ink += b;
+    check('radius 28.8: ' + name + ' lit 0.6x..1.4x its ink', px.size > 0 && px.size >= 0.6 * ink && px.size <= 1.4 * ink,
+      px.size + ' lit of ' + ink + ' ink, ' + (px.size / ink).toFixed(2) + 'x');
+  }
+  const u = same(litSet(fb), union);
+  check('radius 28.8: the face is those sprites and nothing else', u.ok, u.detail);
+  console.log('\nat rest, blob centre (100, 100) r 28.8, window x 60..139 y 78..127:\n' + dump(fb, 60, 78, 80, 50) + '\n');
 }
 
 // --- blinking ------------------------------------------------------------------
@@ -295,7 +336,7 @@ function same(a, b) {
     const drawn = Face.frame(FACE_ART.eyes, f.eyeFrame);
     if (firstShut < 0 && drawn === 0) {
       firstShut = i;
-      shutFb = fakeFb();
+      shutFb = makeFb();
       f.draw(shutFb);
     }
     if (firstShut >= 0 && openAgain < 0 && f.eyeFrame === 6) openAgain = i;
@@ -305,7 +346,7 @@ function same(a, b) {
     'shut at ' + shutS.toFixed(3) + ' s, fully open at ' + openS.toFixed(3) + ' s');
   check('blink: a second wait was drawn', randoms === r0 + 2, randoms - r0 + ' calls');
   const shutEye = FACE_ART.eyes.frames[0];
-  const s = shutFb && same(shutFb.lit, expected([
+  const s = shutFb && same(litSet(shutFb), expected([
     [shutEye, 71, 81], [shutEye, 101, 81],
     [FACE_ART.nose.frames[0], 88, 88],
     [FACE_ART.mouf.frames[0], 80, 106],

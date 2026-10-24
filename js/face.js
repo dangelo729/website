@@ -1,30 +1,36 @@
 // --- the face ----------------------------------------------------------------
 // cicada's face, on the bubble: two eyes with pupils, a nose and a mouth, each
-// a bitmap from face-art.js put down 1:1. every feature trails its own place
-// on the bubble at its own rate, so when the bubble is pulled about the face
-// lags behind it, comes apart a little and settles back together. the frames
-// ease the same way: while another blob is close the nose sniffs and the
-// mouth falls open, the pupils follow the nearest blob (the pointer when
-// there is none), and now and then the eyes blink. the maths is cicada's, run
-// in whole 60 hz steps; the face never asks the clock or the pointer itself,
-// the world and the time gone by are handed to it.
+// a bitmap from face-art.js drawn as a sprite (js/raster.js) the way the
+// letters are, on its float position and scaled with the bubble: at radius
+// 36 on whole pixels that is the art 1:1, at any other size it is resampled,
+// never stamped. every feature trails its own place on the bubble at its own
+// rate, so when the bubble is pulled about the face lags behind it, comes
+// apart a little and settles back together. the frames ease the same way:
+// while another blob is close the nose sniffs and the mouth falls open, the
+// pupils follow the nearest blob (the pointer when there is none), and now
+// and then the eyes blink. the maths is cicada's, run in whole 60 hz steps;
+// the face never asks the clock or the pointer itself, the world and the
+// time gone by are handed to it.
 
 const FACE = {
   STEP_S: 1 / 60, MAX_CATCHUP_S: 0.1, // cicada's rates are per 60 hz frame, whatever the screen's rate
   DEFAULT_RADIUS: 36,                 // the offsets below are for this radius and scale with the bubble
+  MIN_HITS: 6,                        // the letters' threshold: 6 of a pixel's 16 points on ink light it
   EYES: { LEFT: { x: -15, y: -10 }, RIGHT: { x: 15, y: -10 }, LEFT_RATE: 0.09, RIGHT_RATE: 0.10, FRAME_RATE: 0.3,
           OPEN_FRAME: 6, BLINK: true, BLINK_MIN_S: 3, BLINK_MAX_S: 7 }, // cicada drew the lids but never shut them
   NOSE: { x: 0, y: 0, RATE: 0.05, SNIFF_RATE: 0.4, SNIFF_TOP: 3, PROXIMITY: 2.5 },
   MOUF: { x: 0, y: 18, RATE: 0.01, OPEN_SPEED: 0.15, OPEN_FRAME: 9, PROXIMITY: 2.5 },
-  PUPILS: { TRACK: 'blob-then-pointer', RADIUS: 1, ELLIPSE_W: 5, ELLIPSE_H: 3, OFFSET_X: 0, OFFSET_Y: -3,
+  PUPILS: { TRACK: 'blob-then-pointer', ELLIPSE_W: 5, ELLIPSE_H: 3, OFFSET_X: 0, OFFSET_Y: -3,
             MAX_DISTANCE: 150, RATE: 0.15, LEFT_LAZINESS: 1.0, RIGHT_LAZINESS: 0.85, RECENTER_RATE: 0.1,
-            MIN_EYE_FRAME: 4 }, // below this the lid is under where a pupil sits, so mid-blink they go
+            MIN_EYE_FRAME: 4,              // below this the lid is under where a pupil sits, so mid-blink they go
+            ART: ['.#.', '#.#', '.#.'] },  // the ring cicada's radius 1 circle made: four pixels round an empty middle
 };
 
 class Face {
   constructor(blob) {
     const c = blob.getCenter();
-    const s = blob.radius / FACE.DEFAULT_RADIUS;
+    this.scale = blob.radius / FACE.DEFAULT_RADIUS;
+    const s = this.scale;
     const at = (o) => ({ x: c.x + o.x * s, y: c.y + o.y * s });
     this.leftEye = at(FACE.EYES.LEFT);
     this.rightEye = at(FACE.EYES.RIGHT);
@@ -45,6 +51,9 @@ class Face {
     this.rightPupil = { x: 0, y: 0 };
     this.blinkIn = Face.blinkWait();
     this.owed = 0;
+    // every frame as a sprite's bitmap, made once, not each draw
+    const ink = (art) => art.frames.map((rows) => Framebuffer.ink(rows));
+    this.ink = { eyes: ink(FACE_ART.eyes), nose: ink(FACE_ART.nose), mouf: ink(FACE_ART.mouf), pupil: Framebuffer.ink(FACE.PUPILS.ART) };
   }
 
   // dtS of time gone by runs that many whole steps, so calling this once a
@@ -71,7 +80,8 @@ class Face {
   step(blob, world) {
     const E = FACE.EYES, N = FACE.NOSE, M = FACE.MOUF;
     const c = blob.getCenter();
-    const s = blob.radius / FACE.DEFAULT_RADIUS;
+    this.scale = blob.radius / FACE.DEFAULT_RADIUS;
+    const s = this.scale;
 
     // close is edge to edge, in units of the bubble's own radius
     const near = world.nearestTo(blob);
@@ -131,18 +141,23 @@ class Face {
     }
   }
 
+  // every feature a sprite on its float position at the bubble's scale,
+  // nothing rounded but the frame
   draw(fb) {
-    const A = FACE_ART, P = FACE.PUPILS;
+    const A = FACE_ART, I = this.ink, P = FACE.PUPILS, s = this.scale, m = FACE.MIN_HITS;
     const eyes = Face.frame(A.eyes, this.eyeFrame);
-    Face.blit(fb, A.eyes, eyes, this.leftEye);
-    Face.blit(fb, A.eyes, eyes, this.rightEye);
-    // cicada's radius 1 circle: four pixels round an empty middle
+    fb.sprite(I.eyes[eyes], this.leftEye.x, this.leftEye.y, s, 0, 1, m);
+    fb.sprite(I.eyes[eyes], this.rightEye.x, this.rightEye.y, s, 0, 1, m);
+    // the pupil's ellipse is in art pixels: its offset scales with the
+    // face, so the pupil stays inside the eye. the half pixel is cicada's:
+    // its plus sat on a whole pixel, whose middle is half a pixel on, which
+    // is also the middle of the art's eye ring
     if (eyes >= P.MIN_EYE_FRAME) {
-      fb.circle(Math.round(this.leftEye.x + this.leftPupil.x), Math.round(this.leftEye.y + this.leftPupil.y), P.RADIUS, 1);
-      fb.circle(Math.round(this.rightEye.x + this.rightPupil.x), Math.round(this.rightEye.y + this.rightPupil.y), P.RADIUS, 1);
+      fb.sprite(I.pupil, this.leftEye.x + (this.leftPupil.x + 0.5) * s, this.leftEye.y + (this.leftPupil.y + 0.5) * s, s, 0, 1, m);
+      fb.sprite(I.pupil, this.rightEye.x + (this.rightPupil.x + 0.5) * s, this.rightEye.y + (this.rightPupil.y + 0.5) * s, s, 0, 1, m);
     }
-    Face.blit(fb, A.nose, Face.frame(A.nose, this.noseFrame), this.nose);
-    Face.blit(fb, A.mouf, Face.frame(A.mouf, this.moufFrame), this.mouf);
+    fb.sprite(I.nose[Face.frame(A.nose, this.noseFrame)], this.nose.x, this.nose.y, s, 0, 1, m);
+    fb.sprite(I.mouf[Face.frame(A.mouf, this.moufFrame)], this.mouf.x, this.mouf.y, s, 0, 1, m);
   }
 
   // cicada's frame easing: a fraction of the gap each step, snapped when tiny
@@ -182,11 +197,6 @@ class Face {
 
   static frame(art, f) {
     return Math.max(0, Math.min(art.frames.length - 1, Math.round(f)));
-  }
-
-  // centred on pos the way cicada rounds it: round(pos - w/2) + bx
-  static blit(fb, art, i, pos) {
-    fb.blitRows(art.frames[i], Math.round(pos.x - art.w / 2), Math.round(pos.y - art.h / 2), 1);
   }
 
   static blinkWait() {

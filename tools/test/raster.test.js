@@ -1,5 +1,6 @@
-// checks js/raster.js against hand-worked cases and against a straight
-// port of cicada's renderer. node tools/test/raster.test.js
+// checks js/raster.js against hand-worked cases, against a straight port
+// of cicada's renderer, and its sprites against the page's old drawGlyph.
+// node tools/test/raster.test.js
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -288,6 +289,122 @@ const between = (a, b) => a + (b - a) * rand();
   fb.present(ctx);
   check(calls[1].img === calls[0].img, 'present reuses one image');
   check(calls[1].px[0] === D, 'present follows the bits');
+}
+
+// --- sprites
+{
+  // index.html's drawGlyph word for word, as it was before it moved here
+  // as sprite(), with the page's fb, SAMPLE_GRID and MIN_HITS round it
+  let fb = null;
+  const SAMPLE_GRID  = 4;   // points per pixel side: 16 a pixel
+  const MIN_HITS     = 6;   // of 16 on ink lights the pixel: 37.5 % coverage
+  // the glyph with its centre at (cx, cy), scaled by s and turned by a
+  // radians (clockwise on screen), through the inverse transform
+  const SUB = [];
+  for (let i = 0; i < SAMPLE_GRID; i++) for (let j = 0; j < SAMPLE_GRID; j++)
+    SUB.push([(i + 0.5) / SAMPLE_GRID - 0.5, (j + 0.5) / SAMPLE_GRID - 0.5]);
+  function drawGlyph(g, cx, cy, s, a) {
+    const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
+    const hw = g.w * s / 2, hh = g.h * s / 2;
+    const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
+    const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
+    for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
+      let hits = 0;
+      for (let k = 0; k < SUB.length && hits < MIN_HITS; k++) {
+        const tx = px + 0.5 + SUB[k][0] - cx, ty = py + 0.5 + SUB[k][1] - cy;
+        const u = (cos * tx + sin * ty) * inv + g.w / 2, v = (-sin * tx + cos * ty) * inv + g.h / 2;
+        const gx = Math.floor(u), gy = Math.floor(v);
+        if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
+      }
+      if (hits >= MIN_HITS) fb.set(px, py);
+    }
+  }
+
+  check(Framebuffer.SAMPLE.GRID === 4 && Framebuffer.SAMPLE.MIN_HITS === 6 && Framebuffer.SUB.length === 16 &&
+    Framebuffer.SUB.every((p, k) => p[0] === SUB[k][0] && p[1] === SUB[k][1]), 'sample: 4x4 points, 6 to light, the page\'s offsets');
+  const g0 = Framebuffer.ink(['#..', '.##', '#']);
+  check(g0.w === 3 && g0.h === 3 && same(Array.from(g0.ink).map(String), '100011100'.split('')), 'ink: rows to bits, untrimmed, short rows dark');
+  const randomRows = (w, h, p) => Array.from({ length: h }, () => Array.from({ length: w }, () => (rand() < p ? '#' : '.')).join(''));
+
+  // at scale 1 with no turn a sprite whose cells land on pixels is its
+  // bitmap: even sides on a whole-pixel centre, odd ones on a pixel's middle
+  for (const odd of [false, true]) {
+    let ok = true;
+    for (let n = 0; n < 100 && ok; n++) {
+      const w = 2 * (1 + Math.floor(rand() * 8)) - (odd ? 1 : 0), h = 2 * (1 + Math.floor(rand() * 8)) - (odd ? 1 : 0);
+      const rows = randomRows(w, h, 0.4), x = Math.floor(between(-4, 30)), y = Math.floor(between(-4, 24));
+      const a = new Framebuffer(32, 26), b = new Framebuffer(32, 26);
+      a.sprite(Framebuffer.ink(rows), x + w / 2, y + h / 2, 1, 0);
+      b.blitRows(rows, x, y);
+      ok = same(lit(a), lit(b));
+      if (!ok) failures.push('sprite at scale 1 vs its rows: ' + w + 'x' + h + ' at ' + x + ',' + y + ' ' + JSON.stringify(rows));
+    }
+    check(ok, odd ? 'sprite, odd sides, scale 1 on a pixel\'s middle, is its bitmap' : 'sprite, even sides, scale 1 on an integer centre, is its bitmap');
+  }
+
+  // the old drawGlyph, pixel for pixel, placed anywhere, part off the
+  // bitmap too, at the letters' and the face's scales, tilted and turned
+  {
+    let ok = true;
+    for (let n = 0; n < 300 && ok; n++) {
+      const w = 1 + Math.floor(rand() * 14), h = 1 + Math.floor(rand() * 16), g = Framebuffer.ink(randomRows(w, h, 0.45));
+      const cx = between(-6, 46), cy = between(-6, 36), s = between(0.8, 1.0), t = n % 2 ? between(-0.03, 0.03) : between(-Math.PI, Math.PI);
+      const a = new Framebuffer(40, 30);
+      a.sprite(g, cx, cy, s, t);
+      fb = new Framebuffer(40, 30);
+      drawGlyph(g, cx, cy, s, t);
+      ok = a.bits.every((b, i) => b === fb.bits[i]);
+      if (!ok) failures.push('sprite vs drawGlyph at ' + [w, h, cx, cy, s, t].join(' '));
+    }
+    check(ok, 'sprite vs the old drawGlyph, 300 places, scales 0.8..1, turns');
+  }
+
+  // v is what is written; minHits is how much ink it takes
+  {
+    const g = Framebuffer.ink(randomRows(9, 7, 0.5));
+    const light = new Framebuffer(20, 16), dark = new Framebuffer(20, 16);
+    light.sprite(g, 10.3, 7.6, 0.9, 0.2);
+    dark.bits.fill(1);
+    dark.sprite(g, 10.3, 7.6, 0.9, 0.2, 0);
+    check(light.bits.some((b) => b) && light.bits.every((b, i) => b === 1 - dark.bits[i]), 'sprite writes v: dark over lit clears what it would light');
+    const any = new Framebuffer(20, 16), all = new Framebuffer(20, 16);
+    any.sprite(g, 10.3, 7.6, 0.9, 0.2, 1, 1);
+    all.sprite(g, 10.3, 7.6, 0.9, 0.2, 1, 16);
+    check(light.bits.every((b, i) => (!b || any.bits[i]) && (!all.bits[i] || b)) && lit(any).length > lit(light).length,
+      'sprite minHits: 1 lights more, 16 less, each inside the other');
+  }
+
+  // a 1 px stroke at 0.8 never drops out: every pixel row (column) it
+  // covers whole has a lit pixel in it, and never more than two
+  {
+    const L = 12, vert = Framebuffer.ink(Array(L).fill('#')), horiz = Framebuffer.ink(['#'.repeat(L)]);
+    let gaps = 0, wide = 0, doubled = 0, rows = 0, where = '';
+    for (let n = 0; n < 200; n++) {
+      const cx = 20 + rand(), cy = 20 + rand();
+      const a = new Framebuffer(40, 40), b = new Framebuffer(40, 40);
+      a.sprite(vert, cx, cy, 0.8, 0);
+      b.sprite(horiz, cx, cy, 0.8, 0);
+      // the stroke runs from c - 4.8 to c + 4.8: the pixels it covers whole
+      for (let k = Math.ceil(cy - L * 0.8 / 2); k + 1 <= cy + L * 0.8 / 2; k++) {
+        let across = 0;
+        for (let x = 0; x < 40; x++) across += a.get(x, k);
+        rows++;
+        if (across === 0) { gaps++; where = 'vertical at ' + cx.toFixed(3) + ',' + cy.toFixed(3) + ' row ' + k; }
+        if (across > 2) wide++;
+        if (across === 2) doubled++;
+      }
+      for (let k = Math.ceil(cx - L * 0.8 / 2); k + 1 <= cx + L * 0.8 / 2; k++) {
+        let across = 0;
+        for (let y = 0; y < 40; y++) across += b.get(k, y);
+        rows++;
+        if (across === 0) { gaps++; where = 'horizontal at ' + cx.toFixed(3) + ',' + cy.toFixed(3) + ' column ' + k; }
+        if (across > 2) wide++;
+        if (across === 2) doubled++;
+      }
+    }
+    check(gaps === 0 && wide === 0, 'a 1 px stroke at 0.8 never drops out, 200 offsets: ' + gaps + ' gaps, ' + wide + ' wider than 2 of ' + rows + ' cross-sections' + (where ? ' (' + where + ')' : ''));
+    console.log('a 1 px stroke at 0.8: ' + doubled + ' of ' + rows + ' cross-sections two pixels wide');
+  }
 }
 
 if (failures.length) {
