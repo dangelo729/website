@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>font editor</title>
+  <style>
+    :root { --bg: #111; --fg: #eee; --muted: #777; --line: #333; --accent: #e33; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+                 font: 14px/1.4 system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; height: 100vh; }
+    header { display: flex; gap: 14px; align-items: center; padding: 8px 12px;
+             border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    header label { color: var(--muted); }
+    input[type=number] { width: 3.2em; background: #222; color: var(--fg); border: 1px solid #444; padding: 2px 4px; }
+    button { background: #222; color: var(--fg); border: 1px solid #444; padding: 3px 9px; cursor: pointer; }
+    button:hover { background: #333; }
+    #status { color: var(--muted); margin-left: auto; }
+    #status.dirty { color: var(--accent); }
+    main { flex: 1; display: flex; align-items: center; justify-content: center; gap: 40px;
+           min-height: 0; padding: 12px; }
+    #glyphname { font-size: 56px; min-width: 1.4em; text-align: center; color: var(--muted); }
+    #big { display: block; cursor: crosshair; touch-action: none; }
+    #help { color: var(--muted); max-width: 16em; line-height: 1.7; }
+    #help kbd { color: var(--fg); }
+    #preview { padding: 8px 12px; border-top: 1px solid var(--line); }
+    #sample { width: 100%; box-sizing: border-box; background: #222; color: var(--fg);
+              border: 1px solid #444; padding: 4px 6px; margin-bottom: 8px; font: inherit; }
+    #previewcanvas { display: block; image-rendering: pixelated; background: #000; }
+    #strip { display: flex; flex-wrap: wrap; gap: 3px; padding: 8px 12px; border-top: 1px solid var(--line);
+             max-height: 32vh; overflow-y: auto; }
+    .cell { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
+            padding: 3px; border: 1px solid transparent; border-radius: 3px; }
+    .cell:hover { border-color: #555; }
+    .cell.sel { border-color: var(--accent); }
+    .cell canvas { image-rendering: pixelated; background: #000; display: block; }
+    .cell span { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>font</strong>
+    <label>w <input id="w" type="number" min="1" max="64"></label>
+    <label>h <input id="h" type="number" min="1" max="64"></label>
+    <label>baseline <input id="b" type="number" min="0" max="64"></label>
+    <button id="clearbtn">clear</button>
+    <button id="flipbtn">flip ↔</button>
+    <button id="vflipbtn">flip ↕</button>
+    <button id="savebtn">save</button>
+    <span id="status"></span>
+  </header>
+  <main>
+    <div id="glyphname"></div>
+    <canvas id="big"></canvas>
+    <div id="help">
+      click or drag to paint<br>
+      <kbd>←</kbd> <kbd>→</kbd> previous / next glyph<br>
+      type a character to jump to it<br>
+      <kbd>shift</kbd>+arrows nudge the glyph<br>
+      <kbd>⌘S</kbd> save &nbsp; <kbd>⌘Z</kbd> undo<br>
+      <kbd>⌘C</kbd> <kbd>⌘V</kbd> copy / paste glyph<br>
+      <kbd>⌫</kbd> clear the glyph
+    </div>
+  </main>
+  <div id="preview">
+    <input id="sample" value="The quick brown fox jumps over the lazy dog. 0123456789 !?">
+    <canvas id="previewcanvas"></canvas>
+  </div>
+  <div id="strip"></div>
+
+  <script src="../../font.js"></script>
+  <script>
+    // the font: a fixed cell per glyph, 1 = ink. in memory a glyph is a
+    // Uint8Array of width*height; in font.js it is rows of '.' and '#', and
+    // empty glyphs are left out. the editor loads font.js, keeps an unsaved
+    // draft in localStorage, and ⌘S writes font.js back through serve.py.
+    const DEFAULT = { width: 12, height: 14, baseline: 11, glyphs: {} };
+    const DRAFT_KEY = 'font-editor-draft';
+    const CELL = 28;  // css px per grid cell in the big view
+
+    // letters, digits, then every other printable ascii character
+    const CHARSET = (() => {
+      const s = [];
+      for (const [a, z] of [['A', 'Z'], ['a', 'z'], ['0', '9']])
+        for (let c = a.charCodeAt(0); c <= z.charCodeAt(0); c++) s.push(String.fromCharCode(c));
+      for (let c = 32; c < 127; c++) { const ch = String.fromCharCode(c); if (!s.includes(ch)) s.push(ch); }
+      return s;
+    })();
+
+    // --- model ------------------------------------------------------------------
+    function fromSrc(src) {
+      const f = { width: src.width, height: src.height, baseline: src.baseline, glyphs: {} };
+      for (const ch of CHARSET) {
+        const g = new Uint8Array(f.width * f.height);
+        const rows = src.glyphs && src.glyphs[ch];
+        if (rows) for (let y = 0; y < f.height; y++) for (let x = 0; x < f.width; x++)
+          g[y * f.width + x] = rows[y] && rows[y][x] === '#' ? 1 : 0;
+        f.glyphs[ch] = g;
+      }
+      return f;
+    }
+
+    function isEmpty(g) { for (let i = 0; i < g.length; i++) if (g[i]) return false; return true; }
+
+    function toSrc(f) {
+      const src = { width: f.width, height: f.height, baseline: f.baseline, glyphs: {} };
+      for (const ch of CHARSET) {
+        const g = f.glyphs[ch];
+        if (isEmpty(g)) continue;
+        const rows = [];
+        for (let y = 0; y < f.height; y++) {
+          let row = '';
+          for (let x = 0; x < f.width; x++) row += g[y * f.width + x] ? '#' : '.';
+          rows.push(row);
+        }
+        src.glyphs[ch] = rows;
+      }
+      return src;
+    }
+
+    function serialize(f) {
+      const src = toSrc(f);
+      const out = [
+        "// the site's pixel font. written by tools/font/editor.html: edit there, not here.",
+        'const FONT = {',
+        `  width: ${src.width},`,
+        `  height: ${src.height},`,
+        `  baseline: ${src.baseline},`,
+        '  glyphs: {',
+      ];
+      for (const ch of CHARSET) {
+        const rows = src.glyphs[ch];
+        if (!rows) continue;
+        out.push(`    ${JSON.stringify(ch)}: [`);
+        for (const r of rows) out.push(`      "${r}",`);
+        out.push('    ],');
+      }
+      out.push('  },', '};', '');
+      return out.join('\n');
+    }
+
+    // the file's font, then a newer draft over it if one was left unsaved
+    const fileSrc = typeof FONT !== 'undefined' ? FONT : DEFAULT;
+    let font = fromSrc(fileSrc);
+    let savedText = serialize(font);
+    let draftRestored = false;
+    try {
+      const d = localStorage.getItem(DRAFT_KEY);
+      if (d) {
+        const draft = fromSrc(JSON.parse(d));
+        if (serialize(draft) !== savedText) { font = draft; draftRestored = true; }
+      }
+    } catch (e) {}
+
+    let cur = CHARSET[0];
+    let dirty = false;
+    const undoStack = [];
+    let clip = null;
+
+    // --- dom ----------------------------------------------------------------------
+    const $ = (id) => document.getElementById(id);
+    const big = $('big'), bctx = big.getContext('2d');
+    const strip = $('strip'), status = $('status'), glyphname = $('glyphname');
+    const sample = $('sample'), pre = $('previewcanvas'), pctx = pre.getContext('2d');
+    const cells = {};
+
+    function setStatus(text, isDirty) {
+      status.textContent = text;
+      status.className = isDirty ? 'dirty' : '';
+    }
+
+    function label(ch) { return ch === ' ' ? '␣' : ch; }
+
+    // --- drawing --------------------------------------------------------------------
+    function drawGlyphInto(ctx, g, ox, oy) {
+      const w = font.width, h = font.height;
+      ctx.fillStyle = '#fff';
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+        if (g[y * w + x]) ctx.fillRect(ox + x, oy + y, 1, 1);
+    }
+
+    function drawBig() {
+      const w = font.width, h = font.height, dpr = window.devicePixelRatio || 1;
+      const pw = w * CELL + 1, ph = h * CELL + 1;
+      big.width = Math.round(pw * dpr); big.height = Math.round(ph * dpr);
+      big.style.width = pw + 'px'; big.style.height = ph + 'px';
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      bctx.fillStyle = '#000'; bctx.fillRect(0, 0, pw, ph);
+      const g = font.glyphs[cur];
+      bctx.fillStyle = '#fff';
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+        if (g[y * w + x]) bctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      // the cell under the pointer: a ghost of what a click would make it
+      if (hover) {
+        const on = g[hover[1] * w + hover[0]];
+        bctx.fillStyle = on ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.4)';
+        bctx.fillRect(hover[0] * CELL, hover[1] * CELL, CELL, CELL);
+      }
+      bctx.strokeStyle = '#333'; bctx.lineWidth = 1;
+      bctx.beginPath();
+      for (let x = 0; x <= w; x++) { bctx.moveTo(x * CELL + 0.5, 0); bctx.lineTo(x * CELL + 0.5, ph); }
+      for (let y = 0; y <= h; y++) { bctx.moveTo(0, y * CELL + 0.5); bctx.lineTo(pw, y * CELL + 0.5); }
+      bctx.stroke();
+      // the baseline: the bottom edge of row `baseline`
+      const by = (font.baseline + 1) * CELL + 0.5;
+      bctx.strokeStyle = '#e33'; bctx.beginPath(); bctx.moveTo(0, by); bctx.lineTo(pw, by); bctx.stroke();
+      glyphname.textContent = label(cur);
+    }
+
+    function drawCell(ch) {
+      const c = cells[ch];
+      const cv = c.canvas, ctx = cv.getContext('2d');
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+      drawGlyphInto(ctx, font.glyphs[ch], 0, 0);
+    }
+
+    function buildStrip() {
+      strip.innerHTML = '';
+      for (const ch of CHARSET) {
+        const div = document.createElement('div');
+        div.className = 'cell' + (ch === cur ? ' sel' : '');
+        const cv = document.createElement('canvas');
+        cv.width = font.width; cv.height = font.height;
+        cv.style.width = font.width * 2 + 'px'; cv.style.height = font.height * 2 + 'px';
+        const span = document.createElement('span');
+        span.textContent = label(ch);
+        div.append(cv, span);
+        div.addEventListener('click', () => select(ch));
+        strip.append(div);
+        cells[ch] = { div, canvas: cv };
+        drawCell(ch);
+      }
+    }
+
+    // the sample line, proportional: each glyph trimmed to its ink columns
+    // plus one column of air, an empty glyph half a cell wide
+    function inkBounds(g) {
+      const w = font.width, h = font.height;
+      let lo = w, hi = -1;
+      for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) if (g[y * w + x]) { if (x < lo) lo = x; if (x > hi) hi = x; }
+      return hi < 0 ? null : [lo, hi];
+    }
+
+    function drawPreview() {
+      const text = sample.value, w = font.width, h = font.height, SC = 3;
+      const runs = [];
+      let total = 0;
+      for (const ch of text) {
+        const g = font.glyphs[ch];
+        if (!g) { total += (w >> 1); runs.push(null); continue; }
+        const b = inkBounds(g);
+        runs.push(b ? { g, lo: b[0], x: total } : null);
+        total += b ? (b[1] - b[0] + 2) : (w >> 1);
+      }
+      pre.width = Math.max(1, total); pre.height = h;
+      pre.style.width = pre.width * SC + 'px'; pre.style.height = h * SC + 'px';
+      pctx.fillStyle = '#000'; pctx.fillRect(0, 0, pre.width, pre.height);
+      for (const r of runs) if (r) drawGlyphInto(pctx, r.g, r.x - r.lo, 0);
+    }
+
+    // --- editing ------------------------------------------------------------------
+    function select(ch) {
+      if (cells[cur]) cells[cur].div.classList.remove('sel');
+      cur = ch;
+      cells[cur].div.classList.add('sel');
+      cells[cur].div.scrollIntoView({ block: 'nearest' });
+      drawBig();
+    }
+
+    function changed() {
+      drawBig(); drawCell(cur); drawPreview();
+      dirty = serialize(font) !== savedText;
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify(toSrc(font))); } catch (e) {}
+      setStatus(dirty ? 'unsaved' : 'saved', dirty);
+    }
+
+    function pushUndo() {
+      undoStack.push({ ch: cur, g: font.glyphs[cur].slice() });
+      if (undoStack.length > 200) undoStack.shift();
+    }
+
+    function undo() {
+      const u = undoStack.pop();
+      if (!u) return;
+      font.glyphs[u.ch].set(u.g);
+      if (u.ch !== cur) select(u.ch);
+      changed();
+    }
+
+    function nudge(dx, dy) {
+      const w = font.width, h = font.height, g = font.glyphs[cur], n = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const sx = x - dx, sy = y - dy;
+        if (sx >= 0 && sx < w && sy >= 0 && sy < h) n[y * w + x] = g[sy * w + sx];
+      }
+      pushUndo(); g.set(n); changed();
+    }
+
+    function flip() {
+      const w = font.width, h = font.height, g = font.glyphs[cur], n = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) n[y * w + x] = g[y * w + (w - 1 - x)];
+      pushUndo(); g.set(n); changed();
+    }
+
+    function vflip() {
+      const w = font.width, h = font.height, g = font.glyphs[cur], n = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) n[y * w + x] = g[(h - 1 - y) * w + x];
+      pushUndo(); g.set(n); changed();
+    }
+
+    function clearGlyph() { pushUndo(); font.glyphs[cur].fill(0); changed(); }
+
+    // a new cell size: every glyph keeps what fits from its top-left corner
+    function resizeFont(w, h, b) {
+      const old = font;
+      const f = { width: w, height: h, baseline: Math.min(b, h - 1), glyphs: {} };
+      for (const ch of CHARSET) {
+        const g = new Uint8Array(w * h), og = old.glyphs[ch];
+        for (let y = 0; y < Math.min(h, old.height); y++) for (let x = 0; x < Math.min(w, old.width); x++)
+          g[y * w + x] = og[y * old.width + x];
+        f.glyphs[ch] = g;
+      }
+      font = f;
+      undoStack.length = 0;
+      syncInputs(); buildStrip(); changed();
+    }
+
+    // --- painting ------------------------------------------------------------------
+    let painting = false, paintValue = 1;
+    let hover = null; // [x, y] under the pointer, or null
+
+    function setHover(c) {
+      if ((c && hover && c[0] === hover[0] && c[1] === hover[1]) || (!c && !hover)) return;
+      hover = c;
+      drawBig();
+    }
+
+    function cellAt(e) {
+      const r = big.getBoundingClientRect();
+      const x = Math.floor((e.clientX - r.left) / CELL), y = Math.floor((e.clientY - r.top) / CELL);
+      return (x >= 0 && x < font.width && y >= 0 && y < font.height) ? [x, y] : null;
+    }
+
+    function paint(x, y) {
+      const g = font.glyphs[cur], i = y * font.width + x;
+      if (g[i] === paintValue) return;
+      g[i] = paintValue;
+      changed();
+    }
+
+    big.addEventListener('pointerdown', (e) => {
+      const c = cellAt(e);
+      if (!c) return;
+      pushUndo();
+      paintValue = font.glyphs[cur][c[1] * font.width + c[0]] ? 0 : 1;
+      paint(c[0], c[1]);
+      painting = true;
+      big.setPointerCapture(e.pointerId);
+    });
+    big.addEventListener('pointermove', (e) => {
+      const c = cellAt(e);
+      if (painting && c) paint(c[0], c[1]);
+      setHover(c);
+    });
+    big.addEventListener('pointerleave', () => { if (!painting) setHover(null); });
+    big.addEventListener('pointerup', (e) => { painting = false; setHover(cellAt(e)); });
+    big.addEventListener('pointercancel', () => { painting = false; });
+
+    // --- saving ---------------------------------------------------------------------
+    async function save() {
+      const text = serialize(font);
+      try {
+        const r = await fetch('/save', { method: 'POST', body: text, headers: { 'Content-Type': 'text/plain' } });
+        if (!r.ok) throw new Error('http ' + r.status);
+        savedText = text; dirty = false;
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        setStatus('saved ' + new Date().toLocaleTimeString(), false);
+      } catch (err) {
+        // no serve.py behind the page: hand font.js to the browser instead
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
+        a.download = 'font.js';
+        a.click();
+        setStatus('no server: downloaded font.js, copy it to the repo root', true);
+      }
+    }
+
+    // --- keys -----------------------------------------------------------------------
+    window.addEventListener('keydown', (e) => {
+      const meta = e.metaKey || e.ctrlKey, k = e.key;
+      if (meta && k.toLowerCase() === 's') { e.preventDefault(); save(); return; }
+      if (e.target === sample || e.target.tagName === 'INPUT') return;
+      if (meta && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if (meta && k.toLowerCase() === 'c') { e.preventDefault(); clip = font.glyphs[cur].slice(); return; }
+      if (meta && k.toLowerCase() === 'v') {
+        e.preventDefault();
+        if (clip && clip.length === font.glyphs[cur].length) { pushUndo(); font.glyphs[cur].set(clip); changed(); }
+        return;
+      }
+      if (meta) return;
+      if (k.startsWith('Arrow')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          nudge(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0);
+        } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+          const i = CHARSET.indexOf(cur), n = CHARSET.length;
+          select(CHARSET[(i + (k === 'ArrowRight' ? 1 : n - 1)) % n]);
+        }
+        return;
+      }
+      if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); clearGlyph(); return; }
+      if (k.length === 1 && CHARSET.includes(k)) { e.preventDefault(); select(k); }
+    });
+
+    // --- header -----------------------------------------------------------------------
+    function syncInputs() { $('w').value = font.width; $('h').value = font.height; $('b').value = font.baseline; }
+    function readInputs() {
+      const w = Math.max(1, Math.min(64, +$('w').value || font.width));
+      const h = Math.max(1, Math.min(64, +$('h').value || font.height));
+      const b = Math.max(0, Math.min(h - 1, +$('b').value));
+      if (w !== font.width || h !== font.height) resizeFont(w, h, b);
+      else if (b !== font.baseline) { font.baseline = b; changed(); }
+      syncInputs();
+    }
+    for (const id of ['w', 'h', 'b']) $(id).addEventListener('change', readInputs);
+    $('clearbtn').addEventListener('click', clearGlyph);
+    $('flipbtn').addEventListener('click', flip);
+    $('vflipbtn').addEventListener('click', vflip);
+    $('savebtn').addEventListener('click', save);
+    sample.addEventListener('input', drawPreview);
+
+    // --- go --------------------------------------------------------------------------
+    syncInputs();
+    buildStrip();
+    select(cur);
+    drawPreview();
+    dirty = serialize(font) !== savedText;
+    setStatus(draftRestored ? 'unsaved draft restored, ⌘S to write it' : 'saved', dirty);
+  </script>
+</body>
+</html>

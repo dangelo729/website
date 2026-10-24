@@ -4,8 +4,262 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Peter D'Angelo</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    canvas { display: block; image-rendering: pixelated; }
+  </style>
 </head>
 <body>
+  <canvas id="view"></canvas>
+  <script src="font.js"></script>
+  <script src="daedalus/daedalus.js"></script>
+  <script>
+    // --- the viewport ------------------------------------------------------------
+    // the window is a viewport onto a grid of world pixels, each SCALE css
+    // pixels square. resizing shows more or fewer of them; nothing is ever
+    // stretched. the canvas bitmap is the visible world pixels exactly, and
+    // the browser blows it up by SCALE.
+    const SCALE = 2.67;
 
+    const canvas = document.getElementById('view');
+    const ctx = canvas.getContext('2d');
+    let W = 0, H = 0; // the viewport, in world pixels
+
+    function resize() {
+      W = Math.max(1, Math.floor(window.innerWidth / SCALE));
+      H = Math.max(1, Math.floor(window.innerHeight / SCALE));
+      canvas.width = W;
+      canvas.height = H;
+      canvas.style.width = (W * SCALE) + 'px';
+      canvas.style.height = (H * SCALE) + 'px';
+      layout();
+    }
+
+    // --- letters -----------------------------------------------------------------
+    // a letter is one object: its glyph from font.js cut to its ink, a home
+    // position in continuous world space, a scale and a tilt, and slow sines
+    // of its own on each, at rates and phases seeded from its place in the
+    // text. it is drawn as daedalus's head is: every world pixel in its box
+    // is carried back through the transform into the glyph and asks what is
+    // there, so a sub-pixel move or a touch of scale shows as edge pixels
+    // popping, never as the block stepping. a pixel lights by coverage: it is
+    // asked at a grid of points and lit when enough of them land on ink, so
+    // a 1 px stroke at these scales always lights one pixel and only doubles
+    // when it sits almost exactly between two (one point a pixel would be
+    // nearest neighbour, which drops a stroke that falls between centres;
+    // any hit at all doubles nearly every stroke).
+    const LETTER_SCALE = 0.88;
+    const SAMPLE_GRID  = 4;   // points per pixel side: 16 a pixel
+    const MIN_HITS     = 6;   // of 16 on ink lights the pixel: 37.5 % coverage
+    const SWAY_PX  = 0.5,  SWAY_HZ    = 0.4;  // along x
+    const BOB_PX   = 0.5,  BOB_HZ     = 0.23; // along y
+    const BREATHE  = 0.04, BREATHE_HZ = 0.31; // of the scale: 0.845 to 0.915
+    const TILT_RAD = 0.03, TILT_HZ    = 0.17; // about the centre
+
+    // the glyph cut to its ink columns as a bit array, or null for a blank
+    function glyphInk(ch) {
+      const rows = typeof FONT !== 'undefined' && FONT.glyphs[ch];
+      if (!rows) return null;
+      let lo = FONT.width, hi = -1;
+      for (const r of rows) for (let i = 0; i < r.length; i++)
+        if (r[i] === '#') { if (i < lo) lo = i; if (i > hi) hi = i; }
+      if (hi < 0) return null;
+      const w = hi - lo + 1, h = rows.length, ink = new Uint8Array(w * h);
+      for (let r = 0; r < h; r++) for (let i = 0; i < w; i++) ink[r * w + i] = rows[r][lo + i] === '#' ? 1 : 0;
+      return { ink, w, h };
+    }
+
+    // the glyph with its centre at (cx, cy), scaled by s and turned by a
+    // radians (clockwise on screen), through the inverse transform
+    const SUB = [];
+    for (let i = 0; i < SAMPLE_GRID; i++) for (let j = 0; j < SAMPLE_GRID; j++)
+      SUB.push([(i + 0.5) / SAMPLE_GRID - 0.5, (j + 0.5) / SAMPLE_GRID - 0.5]);
+    function drawGlyph(g, cx, cy, s, a) {
+      const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
+      const hw = g.w * s / 2, hh = g.h * s / 2;
+      const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
+      const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
+      ctx.fillStyle = '#fff';
+      for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
+        let hits = 0;
+        for (let k = 0; k < SUB.length && hits < MIN_HITS; k++) {
+          const tx = px + 0.5 + SUB[k][0] - cx, ty = py + 0.5 + SUB[k][1] - cy;
+          const u = (cos * tx + sin * ty) * inv + g.w / 2, v = (-sin * tx + cos * ty) * inv + g.h / 2;
+          const gx = Math.floor(u), gy = Math.floor(v);
+          if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
+        }
+        if (hits >= MIN_HITS) ctx.fillRect(px, py, 1, 1);
+      }
+    }
+
+    // a stable number in [0, 1) from two integers
+    function noise(i, k) {
+      const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    }
+
+    function makeLetter(g, cx, cy, i) {
+      const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
+      const phase = (k) => 2 * Math.PI * noise(i, k);
+      return {
+        g, cx, cy,
+        swayHz: rate(SWAY_HZ, 1), bobHz: rate(BOB_HZ, 2), breatheHz: rate(BREATHE_HZ, 3), tiltHz: rate(TILT_HZ, 4),
+        swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
+        draw(t) {
+          const w = 2 * Math.PI * t;
+          drawGlyph(this.g,
+            this.cx + SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
+            this.cy + BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
+            LETTER_SCALE * (1 + BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
+            TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh));
+        },
+      };
+    }
+
+    // a line of text as letters, x and y the top-left of the first cell:
+    // proportional, one column of air after each glyph, a space half a cell
+    // wide, everything at LETTER_SCALE
+    function layoutText(text, x, y, firstIndex) {
+      const out = [];
+      let i = firstIndex;
+      for (const ch of text) {
+        const g = glyphInk(ch);
+        if (!g) { x += (FONT.width >> 1) * LETTER_SCALE; i++; continue; }
+        out.push(makeLetter(g, x + g.w * LETTER_SCALE / 2, y + g.h * LETTER_SCALE / 2, i++));
+        x += (g.w + 1) * LETTER_SCALE;
+      }
+      return out;
+    }
+
+    // the width of a line of text as layoutText lays it out
+    function textWidth(text) {
+      let w = 0, last = false;
+      for (const ch of text) {
+        const g = glyphInk(ch);
+        w += (g ? g.w + 1 : (FONT.width >> 1)) * LETTER_SCALE;
+        last = !!g;
+      }
+      return last ? w - LETTER_SCALE : w;
+    }
+
+    // --- layout ------------------------------------------------------------------
+    // wide: the menu down the left side and daedalus in the middle, each
+    // centred on the viewport's height. narrow (a phone): daedalus on top
+    // and the menu under it, every line centred, the stack centred.
+    const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
+    const PANEL_W = 128, PANEL_H = 64;
+    const STACK_BELOW = 260; // viewport width in world px under which it stacks
+    const GAP = 16;          // between daedalus and the menu when stacked
+    let letters = [];
+    let panelX = 0, panelY = 0;
+
+    function layout() {
+      letters = [];
+      const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 6;
+      const menuH = MENU.length * lineH - 6;
+      const stacked = W < STACK_BELOW;
+      const top = stacked ? (H - (PANEL_H + GAP + menuH)) / 2 : 0;
+      panelX = Math.floor((W - PANEL_W) / 2);
+      panelY = Math.floor(stacked ? top : (H - PANEL_H) / 2);
+      if (typeof FONT === 'undefined') return;
+      let y = stacked ? top + PANEL_H + GAP : (H - menuH) / 2, i = 0;
+      for (const line of MENU) {
+        letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : 12, y, i));
+        i += line.length;
+        y += lineH;
+      }
+    }
+
+    // --- daedalus ----------------------------------------------------------------
+    // the program's 128x64 panel, one world pixel per panel pixel, in the
+    // middle of the viewport. it runs 80 frames a second on its own clock;
+    // each browser frame runs as many as wall time has moved on.
+    const FRAME_MS = 12.5;
+    let panel = null; // set once the module is up
+
+    createDaedalus().then((m) => {
+      m._daed_init(0x64616564);
+      const PW = m._daed_width(), PH = m._daed_height();
+      const stride = (PW + 7) >> 3;
+      const img = ctx.createImageData(PW, PH);
+      const px = new Uint32Array(img.data.buffer);
+      let acc = 0, last = performance.now();
+
+      panel = {
+        step(now) {
+          acc += now - last;
+          last = now;
+          if (acc > 100) acc = 100; // after a stall, catch up a little, not forever
+          while (acc >= FRAME_MS) { m._daed_frame(); acc -= FRAME_MS; }
+        },
+        draw() {
+          const buf = m._daed_buffer();
+          const heap = m.HEAPU8; // re-read: the heap view changes if memory grows
+          for (let y = 0; y < PH; y++) {
+            const row = buf + y * stride;
+            for (let x = 0; x < PW; x++) {
+              const on = heap[row + (x >> 3)] & (0x80 >> (x & 7));
+              px[y * PW + x] = on ? 0xFFFFFFFF : 0xFF000000;
+            }
+          }
+          ctx.putImageData(img, panelX, panelY);
+        },
+      };
+
+      // the computer keyboard as a midi keyboard, the sim window's layout:
+      // A W S E D F T G Y H U J K O L P ; are C4..E5, Z/X the octave, C/V the
+      // velocity by 20, space the sustain pedal (a hand on every bell).
+      const KEYS = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7,
+                     KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14,
+                     KeyP: 15, Semicolon: 16 };
+      let base = 60, vel = 100, pedal = false;
+      const held = {};
+      const send = (s, a, b) => m._daed_midi(s, a, b);
+      window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        if (e.code in KEYS) {
+          if (held[e.code] !== undefined) return;
+          held[e.code] = base + KEYS[e.code];
+          send(0x90, held[e.code], vel);
+        } else if (e.code === 'Space') {
+          e.preventDefault();
+          if (!pedal) { pedal = true; send(0xB0, 64, 127); }
+        } else if (e.code === 'KeyZ') { if (base - 12 >= 0) base -= 12; }
+        else if (e.code === 'KeyX') { if (base + 12 <= 108) base += 12; }
+        else if (e.code === 'KeyC') { vel = Math.max(1, vel - 20); }
+        else if (e.code === 'KeyV') { vel = Math.min(127, vel + 20); }
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.code in KEYS) {
+          if (held[e.code] === undefined) return;
+          send(0x80, held[e.code], 0);
+          delete held[e.code];
+        } else if (e.code === 'Space') {
+          if (pedal) { pedal = false; send(0xB0, 64, 0); }
+        }
+      });
+      window.addEventListener('blur', () => {
+        for (const k in held) { send(0x80, held[k], 0); delete held[k]; }
+        if (pedal) { pedal = false; send(0xB0, 64, 0); }
+      });
+    });
+
+    // --- the frame ---------------------------------------------------------------
+    // the world is drawn fresh every browser frame: cleared, every letter on
+    // its own clock, then daedalus's panel over the middle.
+    function frame(now) {
+      const t = now / 1000;
+      if (panel) panel.step(now);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      for (const L of letters) L.draw(t);
+      if (panel) panel.draw();
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+    requestAnimationFrame(frame);
+  </script>
 </body>
 </html>
