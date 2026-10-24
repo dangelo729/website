@@ -6,30 +6,41 @@
   <title>Peter D'Angelo</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    canvas { display: block; image-rendering: pixelated; }
+    /* a press on the canvas is the page's own: no scrolling, no selecting */
+    canvas { display: block; image-rendering: pixelated;
+             touch-action: none; user-select: none; -webkit-user-select: none; }
   </style>
 </head>
 <body>
   <canvas id="view"></canvas>
   <script src="font.js"></script>
   <script src="daedalus/daedalus.js"></script>
+  <script src="js/raster.js"></script>
+  <script src="js/softbody.js"></script>
+  <script src="js/face-art.js"></script>
+  <script src="js/face.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
     // pixels square. resizing shows more or fewer of them; nothing is ever
-    // stretched. the canvas bitmap is the visible world pixels exactly, and
-    // the browser blows it up by SCALE.
+    // stretched. every pixel is drawn into one framebuffer (js/raster.js)
+    // the size of the visible world, each pixel lit or dark; once a frame
+    // it is copied whole into the canvas bitmap, which is that size exactly,
+    // and the browser blows it up by SCALE. nothing draws to the canvas
+    // itself.
     const SCALE = 2.67;
 
     const canvas = document.getElementById('view');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
     let W = 0, H = 0; // the viewport, in world pixels
+    let fb = null;    // the world bitmap, remade at the viewport's size
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
       H = Math.max(1, Math.floor(window.innerHeight / SCALE));
       canvas.width = W;
       canvas.height = H;
+      fb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
       layout();
@@ -79,7 +90,6 @@
       const hw = g.w * s / 2, hh = g.h * s / 2;
       const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
       const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
-      ctx.fillStyle = '#fff';
       for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
         let hits = 0;
         for (let k = 0; k < SUB.length && hits < MIN_HITS; k++) {
@@ -88,7 +98,7 @@
           const gx = Math.floor(u), gy = Math.floor(v);
           if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
         }
-        if (hits >= MIN_HITS) ctx.fillRect(px, py, 1, 1);
+        if (hits >= MIN_HITS) fb.set(px, py);
       }
     }
 
@@ -143,13 +153,15 @@
     }
 
     // --- layout ------------------------------------------------------------------
-    // wide: the menu down the left side and daedalus in the middle, each
-    // centred on the viewport's height. narrow (a phone): daedalus on top
-    // and the menu under it, every line centred, the stack centred.
+    // wide: the menu down the left side and the bubble in the middle, each
+    // centred on the viewport's height. narrow (a phone): the bubble on top
+    // and the menu under it, every line centred, the stack centred. the
+    // bubble is made here the first time; after that a resize carries its
+    // lock, skin, face and all, to the new middle, so nothing flies across.
     const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
     const PANEL_W = 128, PANEL_H = 64;
     const STACK_BELOW = 260; // viewport width in world px under which it stacks
-    const GAP = 16;          // between daedalus and the menu when stacked
+    const GAP = 16;          // between the bubble and the menu when stacked
     let letters = [];
     let panelX = 0, panelY = 0;
 
@@ -158,11 +170,25 @@
       const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 6;
       const menuH = MENU.length * lineH - 6;
       const stacked = W < STACK_BELOW;
-      const top = stacked ? (H - (PANEL_H + GAP + menuH)) / 2 : 0;
-      panelX = Math.floor((W - PANEL_W) / 2);
-      panelY = Math.floor(stacked ? top : (H - PANEL_H) / 2);
+      const top = stacked ? (H - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
+      // the middle of the centre object, unrounded; the panel, when shown,
+      // sits on the same middle
+      const cx = W / 2, cy = stacked ? top + BUBBLE_R : H / 2;
+      panelX = Math.floor(cx - PANEL_W / 2);
+      panelY = Math.floor(cy - PANEL_H / 2);
+      // before the font check: the bubble does not need the font
+      if (!world) {
+        world = new World(W, H);
+        bubble = new SoftBlob(cx, cy, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
+        world.blobs.push(bubble);
+        face = new Face(bubble);
+      } else {
+        world.resize(W, H);
+        face.moveBy(cx - bubble.lockX, cy - bubble.lockY);
+        bubble.moveLockTo(cx, cy);
+      }
       if (typeof FONT === 'undefined') return;
-      let y = stacked ? top + PANEL_H + GAP : (H - menuH) / 2, i = 0;
+      let y = stacked ? top + 2 * BUBBLE_R + GAP : (H - menuH) / 2, i = 0;
       for (const line of MENU) {
         letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : 12, y, i));
         i += line.length;
@@ -170,19 +196,85 @@
       }
     }
 
+    // --- the bubble --------------------------------------------------------------
+    // the centre object is cicada's bubble at 1:1: a ring of verlet points
+    // (js/softbody.js) locked to the middle, which gives when pulled and
+    // wobbles home. it lives in a world the size of the viewport that runs
+    // whole 60 hz steps from wall time, so a 120 hz screen does not run it
+    // twice as fast and a slow frame catches up. it is filled dark and then
+    // outlined, so it covers whatever is under it as a solid thing, and its
+    // face (js/face.js) goes on top, trailing the skin when it moves.
+    // its radius in world px, its points, and its air: the area it fills
+    // over its circle's
+    const BUBBLE_R = 36, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
+    let world = null, bubble = null, face = null; // made at the first layout
+
+    // --- the drag ----------------------------------------------------------------
+    // a press near the skin takes hold of its nearest point and two either
+    // side and pulls them toward the pointer, until the press lifts or the
+    // pull goes too far and the skin lets go. the pointer is captured, so a
+    // drag carries on outside the window; only a pointer that leaves with
+    // nothing held is forgotten, and the eyes stop following it.
+    function worldPointer(e) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      const p = worldPointer(e);
+      world.grab(p.x, p.y);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const p = worldPointer(e);
+      world.pointer(p.x, p.y);
+    });
+    canvas.addEventListener('pointerup', () => world.release());
+    canvas.addEventListener('pointercancel', () => world.release());
+    canvas.addEventListener('pointerleave', () => { if (!world.drag) world.pointerOff(); });
+
+    // cicada's drag marks: a plus on every held point, bigger on the one
+    // grabbed, and a dashed line from it to the pointer whose dashes shrink
+    // and gaps open over the last 30 % of the reach before the skin lets go
+    function drawDrag() {
+      const d = world.drag;
+      if (!d) return;
+      for (const { point, force } of d.points) {
+        const px = Math.round(point.x), py = Math.round(point.y), s = force === 1.0 ? 2 : 1;
+        fb.line(px - s, py, px + s, py);
+        fb.line(px, py - s, px, py + s);
+      }
+      const c = d.points[0].point;
+      const dx = c.x - d.x, dy = c.y - d.y;
+      const reach = Math.min(Math.sqrt(dx * dx + dy * dy) / SOFT.DRAG.BREAKAWAY, 1);
+      const dashing = Math.pow(Math.max(0, (reach - 0.7) / 0.3), 2);
+      const dashLength = Math.max(2, 12 * (1 - dashing)), gapLength = 1 + 25 * dashing;
+      // walked from the rounded ends, as cicada did
+      const x0 = Math.round(c.x), y0 = Math.round(c.y), x1 = Math.round(d.x), y1 = Math.round(d.y);
+      const len = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+      if (len === 0) return;
+      const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+      for (let at = 0, drawing = true; at < len; drawing = !drawing) {
+        const end = Math.min(at + (drawing ? dashLength : gapLength), len);
+        if (drawing) fb.line(x0 + ux * at, y0 + uy * at, x0 + ux * end, y0 + uy * end);
+        at = end;
+      }
+    }
+
     // --- daedalus ----------------------------------------------------------------
     // the program's 128x64 panel, one world pixel per panel pixel, in the
-    // middle of the viewport. it runs 80 frames a second on its own clock;
-    // each browser frame runs as many as wall time has moved on.
+    // middle of the viewport, copied bit for bit into the framebuffer, dark
+    // bits too, so it reads as a screen over whatever is under it. it runs
+    // 80 frames a second on its own clock; each browser frame runs as many
+    // as wall time has moved on.
+    // the bubble has taken its place in the middle; SHOW_DAEDALUS brings it back.
+    const SHOW_DAEDALUS = false; // false: no module, no panel, no keyboard
     const FRAME_MS = 12.5;
     let panel = null; // set once the module is up
 
-    createDaedalus().then((m) => {
+    if (SHOW_DAEDALUS) createDaedalus().then((m) => {
       m._daed_init(0x64616564);
       const PW = m._daed_width(), PH = m._daed_height();
       const stride = (PW + 7) >> 3;
-      const img = ctx.createImageData(PW, PH);
-      const px = new Uint32Array(img.data.buffer);
       let acc = 0, last = performance.now();
 
       panel = {
@@ -193,16 +285,8 @@
           while (acc >= FRAME_MS) { m._daed_frame(); acc -= FRAME_MS; }
         },
         draw() {
-          const buf = m._daed_buffer();
-          const heap = m.HEAPU8; // re-read: the heap view changes if memory grows
-          for (let y = 0; y < PH; y++) {
-            const row = buf + y * stride;
-            for (let x = 0; x < PW; x++) {
-              const on = heap[row + (x >> 3)] & (0x80 >> (x & 7));
-              px[y * PW + x] = on ? 0xFFFFFFFF : 0xFF000000;
-            }
-          }
-          ctx.putImageData(img, panelX, panelY);
+          // HEAPU8 re-read each frame: the heap view changes if memory grows
+          fb.blitPacked(m.HEAPU8, m._daed_buffer(), PW, PH, stride, panelX, panelY);
         },
       };
 
@@ -245,15 +329,32 @@
     });
 
     // --- the frame ---------------------------------------------------------------
-    // the world is drawn fresh every browser frame: cleared, every letter on
-    // its own clock, then daedalus's panel over the middle.
+    // the world is drawn fresh every browser frame, all of it into the
+    // framebuffer. first the bubble's world and its face catch up with the
+    // clock; then the bits are cleared, every letter drawn on its own clock,
+    // daedalus's panel if it is shown, the bubble filled dark and outlined,
+    // its face, the drag's marks, each layer simply writing over the bits of
+    // the last. then the whole of it goes to the canvas in one copy.
+    let lastNow = null; // the last frame's time, for the face's dt
     function frame(now) {
       const t = now / 1000;
+      const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
+      lastNow = now;
+      world.step(now);
+      face.update(bubble, world, dt);
       if (panel) panel.step(now);
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, W, H);
+      fb.clear();
       for (const L of letters) L.draw(t);
-      if (panel) panel.draw();
+      if (SHOW_DAEDALUS && panel) panel.draw();
+      const pts = bubble.points;
+      fb.fillPolygon(pts, 0);
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i], q = pts[(i + 1) % pts.length];
+        fb.line(p.x, p.y, q.x, q.y);
+      }
+      face.draw(fb);
+      drawDrag();
+      fb.present(ctx);
       requestAnimationFrame(frame);
     }
 
