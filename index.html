@@ -6,8 +6,9 @@
   <title>Peter D'Angelo</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    /* a press on the canvas is the page's own: no scrolling, no selecting */
-    canvas { display: block; image-rendering: pixelated;
+    /* a press on the canvas is the page's own: no scrolling, no selecting.
+       no cursor either: the pointer is drawn into the frame as a hand */
+    canvas { display: block; image-rendering: pixelated; cursor: none;
              touch-action: none; user-select: none; -webkit-user-select: none; }
   </style>
 </head>
@@ -19,6 +20,9 @@
   <script src="js/softbody.js"></script>
   <script src="js/face-art.js"></script>
   <script src="js/face.js"></script>
+  <script src="js/beard.js"></script>
+  <script src="js/hand-art.js"></script>
+  <script src="js/cursor.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -155,10 +159,15 @@
         bubble = new SoftBlob(cx, cy, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
         world.blobs.push(bubble);
         face = new Face(bubble);
+        beard = new Beard(W, H);
       } else {
         world.resize(W, H);
         face.moveBy(cx - bubble.lockX, cy - bubble.lockY);
         bubble.moveLockTo(cx, cy);
+        // the face is carried in one jump: the strands pose afresh on the
+        // mouth rather than whip across after it
+        beard.resize(W, H);
+        beard.reset();
       }
       if (typeof FONT === 'undefined') return;
       let y = stacked ? top + 2 * BUBBLE_R + GAP : (H - menuH) / 2, i = 0;
@@ -177,15 +186,28 @@
     // not run it twice as fast and a slow frame catches up. it is filled
     // dark and then outlined, the skin a bresenham line from point to
     // point, so it covers whatever is under it as a solid thing, and its
-    // face (js/face.js) goes on top, trailing the skin when it moves.
-    // cicada's bubble is radius 36 with the face's art put down 1:1. at 0.8
-    // nothing lands 1:1: the face scales with the radius and goes through
-    // the letters' sampler, its 1 px strokes as 0.8 px ones.
+    // face (js/face.js) goes on top, trailing the skin when it moves. the
+    // mustache (js/beard.js, daedalus's) hangs from the mouth, so it trails
+    // as the mouth does and swings when it is carried. cicada's bubble is
+    // radius 36 with the face's art put down 1:1. at 0.8 nothing lands 1:1:
+    // the face scales with the radius and goes through the letters'
+    // sampler, its 1 px strokes as 0.8 px ones.
     const BUBBLE_SCALE = 0.8;
     // its radius in world px (28.8, left a float), its points, and its
     // air: the area it fills over its circle's
     const BUBBLE_R = 36 * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
+    let beard = null;
+
+    // --- the cursor --------------------------------------------------------------
+    // the native pointer is hidden over the canvas and drawn into the frame
+    // instead, as cicada's hand at half size (js/cursor.js), open, its palm
+    // on the pointer. while the button is held it closes through the frames
+    // to a fist, and it opens again when the button lifts. a touch gets no
+    // hand: there is nothing to see under a finger. it goes down last, over
+    // everything, on a dark backing, so it reads over the letters and the
+    // bubble.
+    const cursor = new Cursor();
 
     // --- the drag ----------------------------------------------------------------
     // a press near the skin takes hold of its nearest point and two either
@@ -200,27 +222,35 @@
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
       const p = worldPointer(e);
+      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
+      cursor.press();
       world.grab(p.x, p.y);
     });
     canvas.addEventListener('pointermove', (e) => {
       const p = worldPointer(e);
+      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
       world.pointer(p.x, p.y);
     });
-    canvas.addEventListener('pointerup', () => world.release());
-    canvas.addEventListener('pointercancel', () => world.release());
-    canvas.addEventListener('pointerleave', () => { if (!world.drag) world.pointerOff(); });
+    // a lifted press opens the hand again. it goes when there is nothing
+    // left to hover: a finger lifted, or a captured drag let go outside the
+    // viewport
+    function liftCursor(e) {
+      cursor.release();
+      const p = worldPointer(e);
+      if (e.pointerType === 'touch' || p.x < 0 || p.y < 0 || p.x >= W || p.y >= H) cursor.hide();
+    }
+    canvas.addEventListener('pointerup', (e) => { liftCursor(e); world.release(); });
+    canvas.addEventListener('pointercancel', (e) => { liftCursor(e); world.release(); });
+    // a captured drag carried outside the window keeps its hand: moves still come
+    canvas.addEventListener('pointerleave', () => { if (!world.drag) { world.pointerOff(); cursor.hide(); } });
 
-    // cicada's drag marks: a plus on every held point, bigger on the one
-    // grabbed, and a dashed line from it to the pointer whose dashes shrink
-    // and gaps open over the last 30 % of the reach before the skin lets go
+    // cicada's drag line: dashed, from the grabbed point to the pointer,
+    // its dashes shrinking and gaps opening over the last 30 % of the reach
+    // before the skin lets go. cicada also put a plus on every held point;
+    // those are left off, the skin is not to be marked
     function drawDrag() {
       const d = world.drag;
       if (!d) return;
-      for (const { point, force } of d.points) {
-        const px = Math.round(point.x), py = Math.round(point.y), s = force === 1.0 ? 2 : 1;
-        fb.line(px - s, py, px + s, py);
-        fb.line(px, py - s, px, py + s);
-      }
       const c = d.points[0].point;
       const dx = c.x - d.x, dy = c.y - d.y;
       const reach = Math.min(Math.sqrt(dx * dx + dy * dy) / SOFT.DRAG.BREAKAWAY, 1);
@@ -308,11 +338,13 @@
 
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
-    // framebuffer. first the bubble's world and its face catch up with the
-    // clock; then the bits are cleared, every letter drawn on its own clock,
-    // daedalus's panel if it is shown, the bubble filled dark and outlined,
-    // its face, the drag's marks, each layer simply writing over the bits of
-    // the last. then the whole of it goes to the canvas in one copy.
+    // framebuffer. first the bubble's world, its face, its mustache and the
+    // cursor's hand catch up with the clock; then the bits are cleared, every
+    // letter drawn on its own clock, daedalus's panel if it is shown, the
+    // bubble filled dark and outlined over them, its face and mustache, the
+    // drag's marks, and last the hand on its backing, over the end of the
+    // drag's line, each layer simply writing over the bits of the last. then
+    // the whole of it goes to the canvas in one copy.
     let lastNow = null; // the last frame's time, for the face's dt
     function frame(now) {
       const t = now / 1000;
@@ -320,6 +352,8 @@
       lastNow = now;
       world.step(now);
       face.update(bubble, world, dt);
+      cursor.update(dt);
+      beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
       for (const L of letters) L.draw(t);
@@ -331,7 +365,9 @@
         fb.line(p.x, p.y, q.x, q.y);
       }
       face.draw(fb);
+      beard.draw(fb);
       drawDrag();
+      cursor.draw(fb);
       fb.present(ctx);
       requestAnimationFrame(frame);
     }

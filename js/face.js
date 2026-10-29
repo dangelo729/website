@@ -8,18 +8,22 @@
 // apart a little and settles back together. the frames ease the same way:
 // while another blob is close the nose sniffs and the mouth falls open, the
 // pupils follow the nearest blob (the pointer when there is none), and now
-// and then the eyes blink. the maths is cicada's, run in whole 60 hz steps;
-// the face never asks the clock or the pointer itself, the world and the
-// time gone by are handed to it.
+// and then the eyes blink. while the pointer has hold of him the nose
+// sniffs and the mouth opens the same way, and the eyes go wide: the open
+// eye drawn bigger, through the sampler, until he is let go (cicada's own
+// eyes never changed; that much is ours). the maths is cicada's, run in
+// whole 60 hz steps; the face never asks the clock or the pointer itself,
+// the world and the time gone by are handed to it.
 
 const FACE = {
   STEP_S: 1 / 60, MAX_CATCHUP_S: 0.1, // cicada's rates are per 60 hz frame, whatever the screen's rate
   DEFAULT_RADIUS: 36,                 // the offsets below are for this radius and scale with the bubble
   MIN_HITS: 6,                        // the letters' threshold: 6 of a pixel's 16 points on ink light it
   EYES: { LEFT: { x: -15, y: -10 }, RIGHT: { x: 15, y: -10 }, LEFT_RATE: 0.09, RIGHT_RATE: 0.10, FRAME_RATE: 0.3,
-          OPEN_FRAME: 6, BLINK: true, BLINK_MIN_S: 3, BLINK_MAX_S: 7 }, // cicada drew the lids but never shut them
+          OPEN_FRAME: 6, BLINK: true, BLINK_MIN_S: 3, BLINK_MAX_S: 7, // cicada drew the lids but never shut them
+          WIDE: 1.3, WIDE_RATE: 0.3 },   // held, the eyes (pupils and all) grow to this much of their size, eased like a frame
   NOSE: { x: 0, y: 0, RATE: 0.05, SNIFF_RATE: 0.4, SNIFF_TOP: 3, PROXIMITY: 2.5 },
-  MOUF: { x: 0, y: 18, RATE: 0.01, OPEN_SPEED: 0.15, OPEN_FRAME: 9, PROXIMITY: 2.5 },
+  MOUF: { x: 0, y: 22, RATE: 0.01, OPEN_SPEED: 0.15, OPEN_FRAME: 9, PROXIMITY: 2.5 },
   PUPILS: { TRACK: 'blob-then-pointer', ELLIPSE_W: 5, ELLIPSE_H: 3, OFFSET_X: 0, OFFSET_Y: -3,
             MAX_DISTANCE: 150, RATE: 0.15, LEFT_LAZINESS: 1.0, RIGHT_LAZINESS: 0.85, RECENTER_RATE: 0.1,
             MIN_EYE_FRAME: 4,              // below this the lid is under where a pupil sits, so mid-blink they go
@@ -46,6 +50,9 @@ class Face {
     this.moufTarget = 0;
     this.sniffing = false;
     this.mouthOpen = false;
+    // held by the pointer: the eyes' size over their own, eased toward WIDE
+    this.held = false;
+    this.wide = 1;
     // as in cicada the pupils start in the middle of the eye and rise to rest
     this.leftPupil = { x: 0, y: 0 };
     this.rightPupil = { x: 0, y: 0 };
@@ -83,14 +90,17 @@ class Face {
     this.scale = blob.radius / FACE.DEFAULT_RADIUS;
     const s = this.scale;
 
-    // close is edge to edge, in units of the bubble's own radius
+    // close is edge to edge, in units of the bubble's own radius; held is
+    // the pointer's drag on this bubble's skin
     const near = world.nearestTo(blob);
     const edge = near ? near.edgeDist : Infinity;
-    this.sniffing = edge <= blob.radius * N.PROXIMITY;
-    this.mouthOpen = edge <= blob.radius * M.PROXIMITY;
+    this.held = !!(world.drag && world.drag.blob === blob);
+    this.sniffing = this.held || edge <= blob.radius * N.PROXIMITY;
+    this.mouthOpen = this.held || edge <= blob.radius * M.PROXIMITY;
 
     this.blink();
     this.eyeFrame = Face.ease(this.eyeFrame, this.eyeTarget, E.FRAME_RATE);
+    this.wide = Face.ease(this.wide, this.held ? E.WIDE : 1, E.WIDE_RATE);
     Face.follow(this.leftEye, c, E.LEFT, s, E.LEFT_RATE);
     Face.follow(this.rightEye, c, E.RIGHT, s, E.RIGHT_RATE);
 
@@ -127,10 +137,12 @@ class Face {
     }
   }
 
-  // open, wait a few seconds, shut; once nearly shut, open again
+  // open, wait a few seconds, shut; once nearly shut, open again. held,
+  // the eyes stay open, a stare: a blink under way is undone and the wait
+  // is not counted down, so one that was due comes once he is let go
   blink() {
     const E = FACE.EYES;
-    if (!E.BLINK) {
+    if (!E.BLINK || this.held) {
       this.eyeTarget = E.OPEN_FRAME;
     } else if (this.eyeTarget === E.OPEN_FRAME) {
       this.blinkIn -= FACE.STEP_S;
@@ -142,19 +154,20 @@ class Face {
   }
 
   // every feature a sprite on its float position at the bubble's scale,
-  // nothing rounded but the frame
+  // the eyes at that times how wide they are, nothing rounded but the frame
   draw(fb) {
     const A = FACE_ART, I = this.ink, P = FACE.PUPILS, s = this.scale, m = FACE.MIN_HITS;
-    const eyes = Face.frame(A.eyes, this.eyeFrame);
-    fb.sprite(I.eyes[eyes], this.leftEye.x, this.leftEye.y, s, 0, 1, m);
-    fb.sprite(I.eyes[eyes], this.rightEye.x, this.rightEye.y, s, 0, 1, m);
+    const eyes = Face.frame(A.eyes, this.eyeFrame), es = s * this.wide;
+    fb.sprite(I.eyes[eyes], this.leftEye.x, this.leftEye.y, es, 0, 1, m);
+    fb.sprite(I.eyes[eyes], this.rightEye.x, this.rightEye.y, es, 0, 1, m);
     // the pupil's ellipse is in art pixels: its offset scales with the
-    // face, so the pupil stays inside the eye. the half pixel is cicada's:
-    // its plus sat on a whole pixel, whose middle is half a pixel on, which
-    // is also the middle of the art's eye ring
+    // face, and with the eye when it is wide, so the pupil stays inside the
+    // eye. the half pixel is cicada's: its plus sat on a whole pixel, whose
+    // middle is half a pixel on, which is also the middle of the art's eye
+    // ring
     if (eyes >= P.MIN_EYE_FRAME) {
-      fb.sprite(I.pupil, this.leftEye.x + (this.leftPupil.x + 0.5) * s, this.leftEye.y + (this.leftPupil.y + 0.5) * s, s, 0, 1, m);
-      fb.sprite(I.pupil, this.rightEye.x + (this.rightPupil.x + 0.5) * s, this.rightEye.y + (this.rightPupil.y + 0.5) * s, s, 0, 1, m);
+      fb.sprite(I.pupil, this.leftEye.x + (this.leftPupil.x + 0.5) * es, this.leftEye.y + (this.leftPupil.y + 0.5) * es, es, 0, 1, m);
+      fb.sprite(I.pupil, this.rightEye.x + (this.rightPupil.x + 0.5) * es, this.rightEye.y + (this.rightPupil.y + 0.5) * es, es, 0, 1, m);
     }
     fb.sprite(I.nose[Face.frame(A.nose, this.noseFrame)], this.nose.x, this.nose.y, s, 0, 1, m);
     fb.sprite(I.mouf[Face.frame(A.mouf, this.moufFrame)], this.mouf.x, this.mouf.y, s, 0, 1, m);
