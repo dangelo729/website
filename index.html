@@ -628,7 +628,9 @@
       if (xg) {
         // turned a quarter, so it stands as wide as the glyph is tall
         const xs = BOX.CLOSE, xw = xg.h * xs, xh = xg.w * xs, cy = s.ink.y0;
-        box.close = { x: ix0, y: cy, w: xw, h: xh, letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, WOBBLE) };
+        // strip: the band across the top of the box it answers for, from the
+        // box's top to halfway down to what is under it
+        box.close = { x: ix0, y: cy, w: xw, h: xh, strip: [y0, cy + xh + 0.45 * bs], letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, WOBBLE) };
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
@@ -908,9 +910,11 @@
     // what a press at world (x, y) on the screen would press, wherever the
     // page has scrolled to and the boxes have pushed each section: an open
     // box's x, a little round it (at least 20 world px across, for a
-    // finger), { s, close }; one of its items' caret or name, a little
-    // round it, { s, it }; a word whose box is not open, a little round
-    // it, { s }; or null
+    // finger) or anywhere in the strip across the box's top (short of a
+    // photo up there), { s, close }; one of its items, its caret, its name
+    // or right of them to the box's edge, a little above and below,
+    // { s, it }; a word whose box is not open, a little round it, { s };
+    // or null
     function hitAt(x, y) {
       const sy = Math.round(window.scrollY / SCALE);
       for (const s of sections) {
@@ -921,9 +925,11 @@
           if (!c) continue;
           const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
           if (x >= c.x - mx && x <= c.x + c.w + mx && py >= c.y - my && py <= c.y + c.h + my) return { s, close: true };
+          const b = s.box.full, stop = s.photoAt && s.photoAt.y < c.strip[1] ? s.photoAt.x : b.x1;
+          if (x >= b.x0 && x <= stop && py >= c.strip[0] && py <= c.strip[1]) return { s, close: true };
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
-            if (x >= h.x0 - 4 && x <= h.x1 + 4 && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            if (x >= h.x0 - 4 && x <= b.x1 && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
           }
           continue;
         }
