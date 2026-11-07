@@ -174,6 +174,149 @@ Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPL
   }
 };
 
+// a bitmap { ink, w, h } with its top left at integer (x, y): ink is
+// written v and the rest left alone
+Framebuffer.prototype.blitInk = function (g, x, y, v = 1) {
+  for (let by = 0; by < g.h; by++) for (let bx = 0; bx < g.w; bx++)
+    if (g.ink[by * g.w + bx]) this.set(x + bx, y + by, v);
+};
+
+// --- rounded rects -------------------------------------------------------------
+// a box with float edges, x0 < x1 and y0 < y1, its corners quarter circles
+// of radius r, no more than half its least side (there it is a stadium, a
+// circle when it is square). a pixel is in it when its middle is: each
+// row's run of them is worked out once, and a pixel of a run is the
+// outline when the one left or right of it, or above or below it, is not
+// in the box, which makes a 1 px line that steps across a diagonal as
+// bresenham's does. fill, if given, goes in first: a v written to every
+// pixel of the box, or a framebuffer of this one's size whose pixels are
+// copied across, so what it holds shows through the box and only there.
+// the outline is then written v, line px thick: thicker than 1, it is the
+// box less the inside of the box inset line - 1 px all round (its corners
+// line - 1 less round), so each px of thickness is another such ring
+Framebuffer.prototype.roundRect = function (x0, y0, x1, y1, r, fill = null, v = 1, line = 1) {
+  if (!(x1 > x0 && y1 > y0)) return;
+  r = Math.max(0, Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2));
+  // row y's run of pixels in a box, [a, b], or null
+  const runOf = (x0, y0, x1, y1, r) => (y) => {
+    if (!(x1 > x0 && y1 > y0)) return null;
+    const cy = y + 0.5;
+    if (cy < y0 || cy > y1) return null;
+    const dy = Math.max(y0 + r - cy, cy - (y1 - r), 0);
+    const ex = r - Math.sqrt(Math.max(0, r * r - dy * dy));
+    const a = Math.ceil(x0 + ex - 0.5), b = Math.floor(x1 - ex - 0.5);
+    return a <= b ? [a, b] : null;
+  };
+  const k = Math.max(0, line - 1), run = runOf(x0, y0, x1, y1, r);
+  const inner = k ? runOf(x0 + k, y0 + k, x1 - k, y1 - k, Math.max(0, r - k)) : run;
+  const top = Math.max(Math.floor(y0), 0), bottom = Math.min(Math.ceil(y1), this.h - 1);
+  let above = inner(top - 1), mid = inner(top);
+  for (let y = top; y <= bottom; y++) {
+    const below = inner(y + 1), here = k ? run(y) : mid;
+    if (here) {
+      const row = y * this.w, a = here[0], b = here[1];
+      const lo = Math.max(a, 0), hi = Math.min(b, this.w - 1);
+      if (typeof fill === 'number') for (let x = lo; x <= hi; x++) this.bits[row + x] = fill;
+      else if (fill) for (let x = lo; x <= hi; x++) this.bits[row + x] = fill.bits[row + x];
+      // the outline: not well inside the inner box, its run's ends or with
+      // no run of it above or below
+      for (let x = lo; x <= hi; x++)
+        if (!mid || x <= mid[0] || x >= mid[1] || !above || x < above[0] || x > above[1] || !below || x < below[0] || x > below[1])
+          this.bits[row + x] = v;
+    }
+    above = mid;
+    mid = below;
+  }
+};
+
+// --- dither --------------------------------------------------------------------
+// a grey image, w x h values from 0 (black) to 255 (white), row-major, as
+// a bitmap { ink, w, h } by atkinson's dither: a pixel inks when it is
+// under half grey, and an eighth of what that got wrong is handed on to
+// each of the two right of it, the three under it and the one two under.
+// the quarter thrown away is what gives the dither its open whites and
+// full blacks
+Framebuffer.atkinson = function (grey, w, h) {
+  const e = Float32Array.from(grey), ink = new Uint8Array(w * h);
+  const spread = [[1, 0], [2, 0], [-1, 1], [0, 1], [1, 1], [0, 2]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, dark = e[i] < 128;
+    ink[i] = dark ? 1 : 0;
+    const err = (e[i] - (dark ? 0 : 255)) / 8;
+    for (const [dx, dy] of spread) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && xx < w && yy < h) e[yy * w + xx] += err;
+    }
+  }
+  return { ink, w, h };
+};
+
+// the few colours an rgb image is best told in, by median cut: rgb is
+// r, g, b per pixel, 0 to 255; the pixels start as one box, and the box
+// whose widest channel spans the most is cut in two at its median along
+// that channel, until there are n boxes or none can be cut. each box's
+// colour is its pixels' mean, as [r, g, b] rounded
+Framebuffer.medianCut = function (rgb, n) {
+  const count = Math.floor(rgb.length / 3);
+  if (!count) return [];
+  const boxes = [Array.from({ length: count }, (_, i) => i)];
+  // a box's widest channel and how far it spans
+  const widest = (b) => {
+    let ch = 0, span = -1;
+    for (let c = 0; c < 3; c++) {
+      let lo = Infinity, hi = -Infinity;
+      for (const i of b) { const v = rgb[3 * i + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (hi - lo > span) { span = hi - lo; ch = c; }
+    }
+    return { ch, span };
+  };
+  while (boxes.length < n) {
+    let best = -1, ch = 0, most = 0;
+    boxes.forEach((b, i) => {
+      if (b.length < 2) return;
+      const w = widest(b);
+      if (w.span > most) { most = w.span; best = i; ch = w.ch; }
+    });
+    if (best < 0) break;
+    const b = boxes[best].sort((p, q) => rgb[3 * p + ch] - rgb[3 * q + ch]), mid = b.length >> 1;
+    boxes.splice(best, 1, b.slice(0, mid), b.slice(mid));
+  }
+  return boxes.map((b) => [0, 1, 2].map((c) => Math.round(b.reduce((sum, i) => sum + rgb[3 * i + c], 0) / b.length)));
+};
+
+// an rgb image, w x h, r, g, b per pixel from 0 to 255, in the nearest of
+// colours ([r, g, b] each) by atkinson's dither, done on each channel: an
+// eighth of each channel's miss goes to each of the same six neighbours
+// as the grey dither's. a bitmap { px, w, h }, px each pixel's index in
+// colours
+Framebuffer.ditherColour = function (rgb, w, h, colours) {
+  const e = Float32Array.from(rgb), px = new Uint8Array(w * h);
+  const spread = [[1, 0], [2, 0], [-1, 1], [0, 1], [1, 1], [0, 2]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, r = e[3 * i], g = e[3 * i + 1], b = e[3 * i + 2];
+    let k = 0, least = Infinity;
+    for (let c = 0; c < colours.length; c++) {
+      const q = colours[c], d = (r - q[0]) * (r - q[0]) + (g - q[1]) * (g - q[1]) + (b - q[2]) * (b - q[2]);
+      if (d < least) { least = d; k = c; }
+    }
+    px[i] = k;
+    const q = colours[k], er = (r - q[0]) / 8, eg = (g - q[1]) / 8, eb = (b - q[2]) / 8;
+    for (const [dx, dy] of spread) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || xx >= w || yy >= h) continue;
+      const j = 3 * (yy * w + xx);
+      e[j] += er; e[j + 1] += eg; e[j + 2] += eb;
+    }
+  }
+  return { px, w, h };
+};
+
+// a bitmap { px, w, h } of v's, its top left at integer (x, y), every
+// pixel written: an opaque picture in the page's colours
+Framebuffer.prototype.blitPixels = function (g, x, y) {
+  for (let by = 0; by < g.h; by++) for (let bx = 0; bx < g.w; bx++) this.set(x + bx, y + by, g.px[by * g.w + bx]);
+};
+
 // a 1-bit image, msb first, each row `stride` bytes from bytes[off], top-left
 // at (x, y). opaque: dark bits are written too, as the panel is a screen
 Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {

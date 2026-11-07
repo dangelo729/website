@@ -427,6 +427,116 @@ const between = (a, b) => a + (b - a) * rand();
   }
 }
 
+// --- blitInk
+{
+  const fb = new Framebuffer(5, 4);
+  fb.bits.fill(2);
+  fb.blitInk({ ink: Uint8Array.from([1, 0, 0, 1]), w: 2, h: 2 }, 1, 1, 3);
+  check(fb.get(1, 1) === 3 && fb.get(2, 2) === 3 && fb.get(2, 1) === 2 && fb.get(1, 2) === 2 && fb.get(0, 0) === 2, 'blitInk writes v on ink and leaves the rest');
+  fb.blitInk({ ink: Uint8Array.from([1, 1, 1, 1]), w: 2, h: 2 }, 4, 3);
+  check(fb.get(4, 3) === 1, 'blitInk clips at the edge');
+}
+
+// --- rounded rects
+{
+  // a pixel is in the box when its middle is: the box less its corners'
+  // squares, or within r of a corner's centre
+  const inBox = (px, py, x0, y0, x1, y1, r) => {
+    r = Math.max(0, Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2));
+    const cx = px + 0.5, cy = py + 0.5;
+    if (cx < x0 || cx > x1 || cy < y0 || cy > y1) return false;
+    const dx = Math.max(x0 + r - cx, cx - (x1 - r), 0), dy = Math.max(y0 + r - cy, cy - (y1 - r), 0);
+    return dx * dx + dy * dy <= r * r + 1e-9;
+  };
+  const W = 40, H = 30;
+  let rng = 7;
+  const rand = () => (rng = (rng * 16807) % 2147483647) / 2147483647;
+  let fillOk = true, edgeOk = true, outsideOk = true, bad = '';
+  const src = new Framebuffer(W, H);
+  for (let i = 0; i < src.bits.length; i++) src.bits[i] = 4 + (i % 3);
+  for (let n = 0; n < 60; n++) {
+    const x0 = -6 + rand() * 30, y0 = -6 + rand() * 20, x1 = x0 + 1 + rand() * 30, y1 = y0 + 1 + rand() * 20, r = rand() * 12;
+    const fb = new Framebuffer(W, H);
+    fb.bits.fill(9);
+    fb.roundRect(x0, y0, x1, y1, r, src, 1);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const v = fb.bits[y * W + x], inside = inBox(x, y, x0, y0, x1, y1, r);
+      const edge = inside && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !inBox(x + dx, y + dy, x0, y0, x1, y1, r));
+      if (!inside && v !== 9) { outsideOk = false; bad = bad || [x0, y0, x1, y1, r, x, y].map((q) => +q.toFixed(2)).join(','); }
+      if (edge && v !== 1) edgeOk = false;
+      if (inside && !edge && v !== src.bits[y * W + x]) fillOk = false;
+    }
+  }
+  check(outsideOk, 'roundRect leaves every pixel outside the box alone ' + bad);
+  // line px thick: the box less the inside of the box inset line - 1
+  let thickOk = true, thickBad = '';
+  for (let n = 0; n < 60; n++) {
+    const x0 = -6 + rand() * 30, y0 = -6 + rand() * 20, x1 = x0 + 1 + rand() * 30, y1 = y0 + 1 + rand() * 20, r = rand() * 12;
+    const line = 2 + (n % 3), k = line - 1, rr = Math.max(0, Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2));
+    const inner = (x, y) => inBox(x, y, x0 + k, y0 + k, x1 - k, y1 - k, Math.max(0, rr - k));
+    const fb = new Framebuffer(W, H);
+    fb.roundRect(x0, y0, x1, y1, r, 0, 1, line);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const inside = inBox(x, y, x0, y0, x1, y1, r);
+      const deep = inner(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => inner(x + dx, y + dy));
+      const want = inside && !deep ? 1 : 0;
+      if (fb.bits[y * W + x] !== want) { thickOk = false; thickBad = thickBad || [x0, y0, x1, y1, r, line, x, y].map((q) => +q.toFixed(2)).join(','); }
+    }
+  }
+  check(thickOk, 'roundRect line px thick outlines the box less the deep inside of the box inset line - 1 ' + thickBad);
+  check(edgeOk, 'roundRect outlines every pixel in the box with a neighbour out of it');
+  check(fillOk, 'roundRect copies the source through the rest of the box');
+  // a square box with corners as round as they go is a circle: the same turned a quarter
+  const fb = new Framebuffer(21, 21);
+  fb.roundRect(0.3, 0.3, 20.7, 20.7, 100, 0, 1);
+  let sym = true;
+  for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) if (fb.get(x, y) !== fb.get(20 - y, x)) sym = false;
+  check(sym && fb.get(0, 0) === 0 && fb.get(10, 0) === 1 && fb.get(10, 10) === 0, 'roundRect: a square with r past half is a circle, its outline lit and its middle filled 0');
+  const none = new Framebuffer(8, 8);
+  none.roundRect(5, 2, 5, 6, 1, 0, 1);
+  none.roundRect(2, 6, 6, 2, 1, 0, 1);
+  check(lit(none).length === 0, 'roundRect draws nothing for an empty box');
+  const leave = new Framebuffer(8, 8);
+  leave.bits.fill(3);
+  leave.roundRect(1, 1, 7, 7, 0, null, 1);
+  check(leave.get(1, 1) === 1 && leave.get(6, 6) === 1 && leave.get(3, 3) === 3, 'roundRect with no fill leaves the inside alone');
+}
+
+// --- dither
+{
+  const ink = (g) => Array.from(g.ink);
+  check(same(ink(Framebuffer.atkinson([100, 100, 100, 100], 4, 1)).map(String), ['1', '1', '1', '0']),
+    'atkinson: a row of 100s inks while the eighths it hands right keep it under half grey');
+  check(Framebuffer.atkinson(new Array(64).fill(255), 8, 8).ink.every((v) => v === 0), 'atkinson: white inks nothing');
+  check(Framebuffer.atkinson(new Array(64).fill(0), 8, 8).ink.every((v) => v === 1), 'atkinson: black inks everything');
+  const density = (v) => Framebuffer.atkinson(new Array(400).fill(v), 20, 20).ink.reduce((a, b) => a + b, 0) / 400;
+  check(density(64) > density(128) && density(128) > density(192) && density(192) > 0, 'atkinson: darker greys ink more, ' + [64, 128, 192].map(density).join(' '));
+  const g = [10, 20, 30];
+  Framebuffer.atkinson(g, 3, 1);
+  check(g[0] === 10 && g[2] === 30, 'atkinson leaves its input alone');
+}
+
+// --- colour
+{
+  // two clusters, reds and blues: two boxes cut them apart, each its mean
+  const rgb = [250, 0, 0, 240, 10, 0, 0, 0, 250, 10, 0, 230];
+  const two = Framebuffer.medianCut(rgb, 2).map((c) => c.join(' ')).sort();
+  check(same(two, ['245 5 0', '5 0 240']), 'medianCut: two boxes are the two clusters, each its mean: ' + two.join(', '));
+  check(Framebuffer.medianCut(rgb, 10).length === 4, 'medianCut: no more boxes than pixels to cut');
+  check(Framebuffer.medianCut([], 4).length === 0, 'medianCut: nothing in, nothing out');
+  const pal = [[0, 0, 0], [255, 255, 255], [255, 0, 0]];
+  const g = Framebuffer.ditherColour([250, 5, 5, 0, 0, 0, 255, 255, 255], 3, 1, pal);
+  check(g.w === 3 && g.h === 1 && same(Array.from(g.px).map(String), ['2', '0', '1']), 'ditherColour: each pixel its nearest colour when the error is small: ' + Array.from(g.px));
+  // a flat mid grey between black and white comes out as both, about half each
+  const flat = new Array(3 * 400).fill(128), d = Framebuffer.ditherColour(flat, 20, 20, pal.slice(0, 2));
+  const white = Array.from(d.px).filter((k) => k === 1).length / 400;
+  check(white > 0.3 && white < 0.7 && !Array.from(d.px).includes(2), 'ditherColour: a grey between two colours dithers to both, ' + white + ' white');
+  const fb = new Framebuffer(4, 3);
+  fb.bits.fill(9);
+  fb.blitPixels({ px: Uint8Array.from([0, 1, 5, 7]), w: 2, h: 2 }, 1, 1);
+  check(fb.get(1, 1) === 0 && fb.get(2, 1) === 1 && fb.get(1, 2) === 5 && fb.get(2, 2) === 7 && fb.get(0, 0) === 9, 'blitPixels writes every pixel, paper too');
+}
+
 if (failures.length) {
   for (const f of failures) console.error('FAIL ' + f);
   console.error('raster: ' + failures.length + ' failed of ' + checks);

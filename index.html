@@ -34,6 +34,7 @@
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
+  <script src="js/about-photo.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -49,6 +50,7 @@
     const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
+    let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -56,6 +58,7 @@
       canvas.width = W;
       canvas.height = H;
       fb = new Framebuffer(W, H);
+      cfb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
       layout();
@@ -109,10 +112,11 @@
         g, cx, cy, scale, wob, v,
         swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
-        // at time t, dy world px down from home (up, for a scroll)
-        draw(t, dy = 0) {
+        // at time t, dy world px down from home (up, for a scroll), into
+        // the page's framebuffer or another
+        draw(t, dy = 0, into = fb) {
           const w = 2 * Math.PI * t, m = this.wob;
-          fb.sprite(this.g,
+          into.sprite(this.g,
             this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
             this.cy + dy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
             this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
@@ -277,7 +281,7 @@
     // down before the header's letters, and a letter writes only its ink,
     // so passing under the header they are hidden by its letters and
     // nothing else: there is only paper behind the header. it scrolls until
-    // its last ink has gone off the top.
+    // its last ink, or the box's while there is one, has gone off the top.
     const ABOUT = {
       TEXT: 'About',
       SIZE: 0.6,  // of the name's world px to the em
@@ -287,23 +291,346 @@
     const aboutType = new Type(ABOUT.TEXT, () => document.createElement('canvas'));
     const scroller = document.getElementById('scroll');
     let aboutLetters = [];
+    let aboutInk = null; // the word's ink box, world px from the page's top: { x0, y0, x1, y1 }
 
-    // the about text into letters under the header, whose ink ends at
-    // bottom; the document made tall enough to scroll it away
+    // --- the about box -------------------------------------------------------------
+    // a press on the word opens a box round it: a slightly rounded rect, a
+    // LINE px outline through the framebuffer like everything, that comes out
+    // of the word's o. shut, it is the o's own ink box with corners as round
+    // as they go, a circle behind the o; open, it stands PAD clear of the
+    // word's ink at its top and left, as far in from the window's right,
+    // and down to as far up from the window's bottom, or past it when its
+    // insides need more. it goes from one to the other linearly, every edge
+    // and the corners' radius at an even pace, in OPEN seconds whatever
+    // the screen's rate. its outline starts as thick as the o's stroke, so
+    // shut it stands in for the o, and thins to LINE as it opens. it is
+    // drawn over the word, so it covers the word as it grows and shows it
+    // again as it shrinks. open, an x stands in its top left corner, inside
+    // its padding where the word's ink starts: the pixel font's X (font.js,
+    // the old menu's) at CLOSE of its own size, with the text's wobble, the
+    // text and photo
+    // starting under it where the word was. a press on the x sends the
+    // box back into the o,
+    // from wherever it has got to. while it is open the word, under it, is
+    // not pressed; while it is shrinking a press on the word opens it again.
+    //
+    // inside, lorem ipsum in the tag's face and the photo (js/about-photo.js)
+    // dithered at its size in its own few colours, each a place in the
+    // framebuffer's palette. wide, the photo stands in the top right corner,
+    // as tall as the box at rest, and the text under the word left of it,
+    // at BODY size. stacked (a phone) everything goes down the box: the
+    // word, the photo across it, the text at PHONE size, and the box is a
+    // portrait that fits the screen under the header, the photo taking the
+    // height the text leaves it, cut about FOCUS to fill it, no shorter
+    // than CROP of its width (the box grows past the screen only when the
+    // text leaves less than that). they are laid out to
+    // the open box and there all along, drawn each frame into a framebuffer
+    // of their own (cfb) and copied into the page's only where the box is
+    // (Framebuffer.roundRect), so the growing box wipes them in. box,
+    // insides and word scroll together and go under the header alike.
+    const BOX = {
+      PAD: 0.2,      // of the word's size: its ink to the box's edge
+      RADIUS: 0.15,  // of the word's size: the open box's corners
+      LINE: 2,       // world px, the outline's thickness open, and the x's strokes'
+      CLOSE: 1,      // the scale the pixel font's X is drawn at: 1 is its own pixels, 11 world px tall
+      OPEN: 0.2,     // seconds from the o to open, or back
+      GAP: 0.45,     // of the word's size: from under its ink to the insides
+      PHOTO: 0.45,   // of the insides' width the photo may take, wide
+      BODY: 0.18,    // of the name's size: the text's world px to the em, wide,
+      LEAST: 12,     // but no less than this
+      MOST: 16,      // and no more than this
+      PHONE: 11,     // the text's world px to the em, stacked
+      CROP: 0.45,    // the least the photo is tall, of its width, stacked
+      FOCUS: [0.4, 0.3], // where in the photo a crop is centred, as far as it can be: the face
+      LEAD: 1.45,    // ems, baseline to baseline
+      PARA: 0.7,     // ems more between paragraphs
+      GUTTER: 1.5,   // ems between the text and the photo
+      FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph
+    };
+    const LOREM = [
+      'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+      'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+    ];
+    const bodyTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
+    const box = {
+      open: false,  // where it is going: open, or back into the o
+      shown: false, // drawn: from a press until it is back in the o
+      p: 0,         // how far open it is, 0 in the o to 1 open
+      shut: null,   // where it starts and ends: the o, { x0, y0, x1, y1, r }, world px from the page's top
+      full: null,   // where it opens to
+      close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size, world px from the page's top
+    };
+    let bodyLetters = [];
+    let photoAt = null; // the dithered photo and its top left, { g, x, y }
+
+    // the photo, once it has loaded; it lays the page out again when it has
+    const photo = new Image();
+    let photoReady = false;
+    photo.onload = () => { photoReady = true; photoColours = photoPalette(); if (fb) layout(); };
+    if (typeof ABOUT_PHOTO !== 'undefined') photo.src = ABOUT_PHOTO;
+
+    // the photo, or the part of it crop gives ({ sx, sy, sw, sh } in its
+    // own px), drawn at w x h into a canvas and read back as r, g, b, its
+    // levels stretched so its darkest and lightest LEVELS (by brightness)
+    // go to black and white, and, sharp, each channel sharpened by SHARPEN
+    // of its difference from a 3 x 3 blur so edges survive the dither;
+    // null if the canvas cannot be read
+    const PHOTO = { LEVELS: 0.02, SHARPEN: 1, COLOURS: 32, SAMPLE: 128 };
+    function readPhoto(w, h, sharp, crop) {
+      try {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        x.imageSmoothingQuality = 'high';
+        if (crop) x.drawImage(photo, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
+        else x.drawImage(photo, 0, 0, w, h);
+        const d = x.getImageData(0, 0, w, h).data, n = w * h, rgb = new Float32Array(3 * n), bright = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+          for (let k = 0; k < 3; k++) rgb[3 * i + k] = d[4 * i + k];
+          bright[i] = 0.299 * d[4 * i] + 0.587 * d[4 * i + 1] + 0.114 * d[4 * i + 2];
+        }
+        bright.sort();
+        const lo = bright[Math.floor(PHOTO.LEVELS * (n - 1))], hi = bright[Math.ceil((1 - PHOTO.LEVELS) * (n - 1))];
+        const span = Math.max(1, hi - lo);
+        for (let i = 0; i < 3 * n; i++) rgb[i] = Math.min(255, Math.max(0, (rgb[i] - lo) / span * 255));
+        if (!sharp) return rgb;
+        const out = new Float32Array(3 * n);
+        for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) for (let k = 0; k < 3; k++) {
+          let sum = 0, cnt = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const qx = px + dx, qy = py + dy;
+            if (qx >= 0 && qx < w && qy >= 0 && qy < h) { sum += rgb[3 * (qy * w + qx) + k]; cnt++; }
+          }
+          const i = 3 * (py * w + px) + k;
+          out[i] = rgb[i] + PHOTO.SHARPEN * (rgb[i] - sum / cnt);
+        }
+        return out;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // the photo's own colours, worked out once it has loaded: COLOURS less
+    // two by median cut over it at SAMPLE px wide, and black and white, each
+    // given a place in the framebuffer's palette. { rgb, v }, or null
+    let photoColours = null;
+    function photoPalette() {
+      const w = PHOTO.SAMPLE, h = Math.round(w * photo.naturalHeight / photo.naturalWidth), rgb = readPhoto(w, h, false);
+      if (!rgb) return null;
+      const colours = [[0, 0, 0], [255, 255, 255], ...Framebuffer.medianCut(rgb, PHOTO.COLOURS - 2)];
+      const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+      return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
+    }
+
+    // the most of the photo that fills w x h, centred on FOCUS as far as
+    // the photo goes: { sx, sy, sw, sh } in its own px
+    function photoCrop(w, h) {
+      const nw = photo.naturalWidth, nh = photo.naturalHeight, want = w / h;
+      let sw = nw, sh = nh;
+      if (want > nw / nh) sh = nw / want;
+      else sw = nh * want;
+      return {
+        sx: Math.min(nw - sw, Math.max(0, BOX.FOCUS[0] * nw - sw / 2)),
+        sy: Math.min(nh - sh, Math.max(0, BOX.FOCUS[1] * nh - sh / 2)),
+        sw, sh,
+      };
+    }
+
+    // the photo at w x h in its colours, cut to fill it, dithered: a bitmap
+    // { px, w, h } of the framebuffer's v's, or null
+    function ditherPhoto(w, h) {
+      if (!photoColours) return null;
+      const rgb = readPhoto(w, h, true, photoCrop(w, h));
+      if (!rgb) return null;
+      const g = Framebuffer.ditherColour(rgb, w, h, photoColours.rgb);
+      for (let i = 0; i < g.px.length; i++) g.px[i] = photoColours.v[g.px[i]];
+      return g;
+    }
+
+    // a paragraph's glyphs in lines no wider than width, in the type's px:
+    // each line its glyphs and its ink's left. words break where the text
+    // has white space between two glyphs, and a word goes on the line when
+    // the line's ink with it is no wider than width, else starts the next
+    function wrapType(t, width) {
+      const words = [];
+      let word = null, prev = null;
+      for (const gl of t.glyphs) {
+        if (!word || /\s/.test(t.text.slice(prev.at + prev.ch.length, gl.at)))
+          words.push(word = { glyphs: [], left: Infinity, right: -Infinity });
+        word.glyphs.push(gl);
+        word.left = Math.min(word.left, gl.x + gl.dx - gl.g.w / 2);
+        word.right = Math.max(word.right, gl.x + gl.dx + gl.g.w / 2);
+        prev = gl;
+      }
+      const lines = [];
+      let line = null;
+      for (const w of words) {
+        if (line && w.right - line.left <= width) line.glyphs.push(...w.glyphs);
+        else lines.push(line = { glyphs: [...w.glyphs], left: w.left });
+      }
+      return lines;
+    }
+
+    // the about word into letters under the header, whose ink ends at
+    // bottom, its box shut and open laid out round it, and the page made
+    // tall enough to scroll them away
     function layoutAbout(name, bottom, stacked) {
       aboutLetters = [];
-      let end = 0; // the about text's last ink, world px from the top
+      bodyLetters = [];
+      photoAt = null;
+      aboutInk = box.shut = box.full = box.close = null;
       const t = aboutType;
       if (name && t.glyphs.length) {
         const size = ABOUT.SIZE * name.size, k = size / TYPE.EM, ems = (t.left + t.right) / TYPE.EM;
         const ox = (stacked ? (W - ems * size) / 2 : name.left) + k * t.left;
         const base = bottom + ABOUT.BELOW * name.size + k * t.ascent;
-        for (const gl of t.glyphs)
-          aboutLetters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + gl.at, k, WOBBLE));
-        end = base + k * t.descent;
+        let o = null;
+        for (const gl of t.glyphs) {
+          const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + gl.at, k, WOBBLE);
+          aboutLetters.push(L);
+          if (gl.ch === 'o' || !o) {
+            // its stroke: the ink across from its left on its middle row
+            const g = gl.g, row = Math.floor(g.h / 2) * g.w;
+            let run = 0;
+            while (run < g.w && g.ink[row + run]) run++;
+            o = { cx: L.cx, cy: L.cy, w: k * g.w, h: k * g.h, stroke: k * run };
+          }
+        }
+        aboutInk = { x0: ox - k * t.left, y0: base - k * t.ascent, x1: ox + k * t.right, y1: base + k * t.descent };
+        box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2, line: Math.max(BOX.LINE, o.stroke) };
+        layoutBox(name, size, stacked);
       }
+      setScroll();
+    }
+
+    // the open box round the word at size, and its insides laid out in it,
+    // wide or stacked
+    function layoutBox(name, size, stacked) {
+      const pad = BOX.PAD * size, edge = Math.max(2, Math.min(NAME.X, aboutInk.x0) - pad);
+      const x0 = edge, x1 = W - edge, y0 = aboutInk.y0 - pad, rest = H - edge;
+      const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = aboutInk.y1 + BOX.GAP * size;
+      const bs = stacked ? BOX.PHONE : Math.min(BOX.MOST, Math.max(BOX.LEAST, BOX.BODY * name.size)), bk = bs / TYPE.EM;
+      const aspect = photoReady ? photo.naturalWidth / photo.naturalHeight : 609 / 700;
+      // the x in the top left corner, at CLOSE; what
+      // goes under the word starts a line's space under the x instead
+      box.close = null;
+      const xg = glyphInk('X');
+      if (xg) {
+        const xs = BOX.CLOSE, xw = xg.w * xs, xh = xg.h * xs, cy = aboutInk.y0;
+        box.close = { x: ix0, y: cy, w: xw, h: xh, letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, BOX.FIRST - 1, xs, WOBBLE) };
+      }
+      const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
+      let px = ix0, py = top, pw = iw, ph, tw = iw, ty;
+      if (!stacked) {
+        // the photo in the top right corner, the text under the x left of it
+        py = aboutInk.y0;
+        ph = Math.max(rest - pad - py, 8 * bs);
+        pw = ph * aspect;
+        if (pw > BOX.PHOTO * iw) { pw = BOX.PHOTO * iw; ph = pw / aspect; }
+        px = ix1 - pw;
+        tw = px - BOX.GUTTER * bs - ix0;
+        ty = top - 0.75 * bs + 0.72 * bs;
+      }
+      // the text in lines, and how tall they stand
+      const paras = bodyTypes.map((t) => wrapType(t, tw / bk));
+      const lines = paras.reduce((n, p) => n + p.length, 0);
+      const textH = 1.05 * bs + (lines - 1) * BOX.LEAD * bs + (paras.length - 1) * BOX.PARA * bs;
+      if (stacked) {
+        // the photo across the box under the x, as tall as the screen
+        // leaves over the text; the text under it
+        ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - BOX.GUTTER * bs - textH));
+        ty = py + ph + BOX.GUTTER * bs;
+      }
+      pw = Math.round(pw);
+      ph = Math.round(ph);
+      px = Math.round(px);
+      py = Math.round(py);
+      if (photoReady) {
+        const g = ditherPhoto(pw, ph);
+        if (g) photoAt = { g, x: px, y: py };
+      }
+      let base = ty + 0.75 * bs, last = base;
+      paras.forEach((lines, p) => {
+        for (const line of lines) {
+          for (const gl of line.glyphs)
+            bodyLetters.push(makeLetter(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, BOX.FIRST + 1000 * p + gl.at, bk, WOBBLE));
+          last = base;
+          base += BOX.LEAD * bs;
+        }
+        base += BOX.PARA * bs;
+      });
+      const inside = Math.max(last + 0.3 * bs, py + ph);
+      box.full = { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size, line: BOX.LINE };
+    }
+
+    // the page tall enough to scroll the word, and the box while it is
+    // shown, off the top
+    function setScroll() {
+      let end = aboutInk ? aboutInk.y1 : 0;
+      if (box.shown && box.full) end = Math.max(end, box.full.y1);
       scroller.style.height = (window.innerHeight + Math.ceil(end) * SCALE) + 'px';
     }
+
+    // a press on the word: open the box out of the o, or send it back in
+    function toggleBox() {
+      if (!box.shut || !box.full) return;
+      box.open = !box.open;
+      if (box.open && !box.shown) {
+        box.shown = true;
+        box.p = 0;
+      }
+      setScroll();
+    }
+
+    // dt's share of OPEN on toward open, or back toward the o; back in the
+    // o, it is gone
+    function stepBox(dt) {
+      if (!box.shown) return;
+      box.p = Math.min(1, Math.max(0, box.p + (box.open ? dt : -dt) / BOX.OPEN));
+      if (box.p === 0 && !box.open) {
+        box.shown = false;
+        setScroll();
+      }
+    }
+
+    // the box sy up: its insides into cfb, the letters near enough the
+    // screen to show, the photo and the x, then copied into the page
+    // through the box and the box's outline over them. where it is goes
+    // straight from the o to open by how far open it is
+    function drawBox(t, sy) {
+      if (!box.shown || !box.shut || !box.full) return;
+      const c = {};
+      for (const k of ['x0', 'y0', 'x1', 'y1', 'r', 'line']) c[k] = box.shut[k] + (box.full[k] - box.shut[k]) * box.p;
+      const top = c.y0 - sy, bottom = c.y1 - sy;
+      if (bottom < 0 || top >= H) return;
+      cfb.clear();
+      const lo = Math.max(top, 0) - BOX.MOST, hi = Math.min(bottom, H) + BOX.MOST;
+      for (const L of bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
+      if (photoAt) {
+        const p = photoAt, x = p.x, y = p.y - sy;
+        cfb.blitPixels(p.g, x, y);
+      }
+      if (box.close) box.close.letter.draw(t, -sy, cfb);
+      fb.roundRect(c.x0, top, c.x1, bottom, c.r, cfb, 1, Math.max(1, Math.round(c.line)));
+    }
+
+    // a click, wherever the page has scrolled to: open, on the x, a little
+    // round it (at least 20 world px across, for a finger), the box shuts;
+    // else on the word, a little round it, it opens
+    canvas.addEventListener('click', (e) => {
+      if (!aboutInk) return;
+      const p = worldPointer(e), y = p.y + Math.round(window.scrollY / SCALE);
+      if (box.open) {
+        const c = box.close;
+        if (!c) return;
+        const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
+        if (p.x >= c.x - mx && p.x <= c.x + c.w + mx && y >= c.y - my && y <= c.y + c.h + my) toggleBox();
+        return;
+      }
+      const a = aboutInk, m = 0.15 * (a.y1 - a.y0);
+      if (p.x >= a.x0 - m && p.x <= a.x1 + m && y >= a.y0 - m && y <= a.y1 + m) toggleBox();
+    });
 
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and the bubble in the middle, each
@@ -532,8 +859,9 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, its mustache and the
-    // cursor's hand catch up with the clock; then the bits are cleared, the
-    // about text drawn scrolled, every other letter over it on its own
+    // cursor's hand and the about box catch up with the clock; then the
+    // bits are cleared, the about box and word drawn scrolled, every other
+    // letter over them on its own
     // clock, daedalus's panel if it is shown, the
     // bubble filled dark and outlined over them, its face and mustache, the
     // drag's marks, and last the hand on its backing, over the end of the
@@ -547,12 +875,15 @@
       world.step(now);
       if (bubble) face.update(bubble, world, dt);
       cursor.update(dt);
+      stepBox(dt);
       if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
-      // the about text first, scrolled, so the header's letters cover it
+      // the about word and box first, scrolled, the box over the word, so
+      // the header's letters cover them both
       const sy = Math.round(window.scrollY / SCALE);
       for (const L of aboutLetters) L.draw(t, -sy);
+      drawBox(t, sy);
       for (const L of letters) L.draw(t);
       if (SHOW_DAEDALUS && panel) panel.draw();
       if (bubble) {
