@@ -886,7 +886,7 @@
       // where it has opened to and cut off there
       for (const it of s.items) {
         const d = it.shift - sy;
-        const v = hover && hover.it === it ? HOVER : undefined;
+        const v = hover && hover.it === it ? HOVER_ITEM : undefined;
         if (it.caret) it.caret.draw(t, d, cfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, cfb, 0, v);
         if (it.p > 0) {
@@ -943,11 +943,12 @@
     });
 
     // hover: a mouse's pointer over anything a press would press turns it
-    // the tag's first colour (Inventor's) while it is there; a finger has
+    // a colour of the tag's while it is there: a word or an x the first
+    // (Inventor's), an item the second (Software Engineer's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
     // scrolls and the boxes move under a still pointer
-    const HOVER = tagLines[0].v;
+    const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v;
     let hoverAt = null;
     canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
     canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
