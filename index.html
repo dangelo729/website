@@ -200,8 +200,10 @@
     }
 
     // --- the tag -----------------------------------------------------------------
-    // what he does, three lines of helvetica beside the name, each a STEP
-    // right of the one above, each in its own colour. they are the name's
+    // what he does, three lines of helvetica beside the name, stepped down
+    // to the right and symmetric about the middle line: the first starts a
+    // STEP left of the middle's start and the last ends a STEP right of the
+    // middle's end, each in its own colour. they are the name's
     // kind of letter, through the same sampler with the same wobble, only
     // small. wide, they stand in the room right of the name: the stair's
     // ink starts GAP past the name's and keeps GAP from the right edge, the
@@ -220,7 +222,7 @@
       // helvetica neue's medium: at this size regular's strokes fall
       // under a pixel and break up, and bold's fill the counters
       FACE: { weight: 500, family: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
-      STEP: 1.25, // ems each line's ink starts right of the line above's
+      STEP: 1.25, // ems each line hangs past the middle line's ink, the first left and the last right
       LEAD: 1.1,  // the least baseline to baseline, in ems
       GAP: 21,    // world px clear of the name, and of the right edge
       LEAST: 15,  // world px to the em, wide, the least it will be
@@ -232,12 +234,22 @@
       v: Framebuffer.colour(l.colour),
     }));
 
-    // the stair's width in ems, its widest step, and the first line's ink
-    // above its baseline; null, and no tag, when a line has no glyphs
-    const tagStair = tagLines.every((l) => l.type.glyphs.length) ? {
-      ems: Math.max(...tagLines.map((l, i) => i * TAG.STEP + (l.type.left + l.type.right) / TYPE.EM)),
-      asc: tagLines[0].type.ascent / TYPE.EM,
-    } : null;
+    // the stair: each line's ink's left in ems from the stair's (the
+    // middle line's a STEP in for each line before it; a line before the
+    // middle a STEP further left for each line between, one after it ending
+    // a STEP further right for each), the stair's width in ems, and the
+    // first line's ink above its baseline; null, and no tag, when a line
+    // has no glyphs
+    const tagStair = tagLines.every((l) => l.type.glyphs.length) ? (() => {
+      const wide = tagLines.map((l) => (l.type.left + l.type.right) / TYPE.EM), m = (tagLines.length - 1) >> 1;
+      const lefts = wide.map((w, i) => i <= m ? i * TAG.STEP : m * TAG.STEP + wide[m] + (i - m) * TAG.STEP - w);
+      const lo = Math.min(...lefts);
+      return {
+        lefts: lefts.map((x) => x - lo),
+        ems: Math.max(...lefts.map((x, i) => x + wide[i])) - lo,
+        asc: tagLines[0].type.ascent / TYPE.EM,
+      };
+    })() : null;
 
     // the tag's lines into letters beside the name's box, or under it
     // stacked; the bottom of its ink, or null when there is no tag
@@ -261,7 +273,7 @@
       const k = size / em;
       let base = top + size * asc;
       tagLines.forEach((l, i) => {
-        const t = l.type, ox = x + i * TAG.STEP * size + k * t.left;
+        const t = l.type, ox = x + tagStair.lefts[i] * size + k * t.left;
         base = top + size * asc + i * lead;
         for (const gl of t.glyphs)
           letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, TAG.FIRST + 50 * i + gl.at, k, WOBBLE, l.v));
