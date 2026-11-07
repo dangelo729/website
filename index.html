@@ -281,40 +281,52 @@
       return base + k * tagLines[n - 1].type.descent;
     }
 
-    // --- about -------------------------------------------------------------------
-    // the word under the header (the name and its tag), in the name's
-    // helvetica at 0.6 of the name's size, its ink's left on the
-    // name's (centred, stacked) and its top BELOW of the name's ems under
-    // the header's ink. it is the one thing that scrolls: the document is
+    // --- the sections ------------------------------------------------------------
+    // words down the page under the header (the name and its tag), each a
+    // section that opens (SECTIONS, below): About, Professional work and
+    // Personal work.
+    // they are in the name's helvetica at SIZE of the name's size, or less
+    // when the widest would not fit across the screen, their ink's left on
+    // the name's (each centred, stacked), the first's top BELOW of the
+    // name's ems under the header's ink and each next one's SPACE of their
+    // size under the one before's. they are what scrolls: the document is
     // given height past the window (#scroll) and the canvas stays fixed
     // over it, so a wheel, a swipe or a key scrolls it natively, and each
-    // frame the about letters are drawn that far up, in whole world px so
-    // they move rigidly rather than shimmer through the sampler. they go
-    // down before the header's letters, and a letter writes only its ink,
-    // so passing under the header they are hidden by its letters and
-    // nothing else: there is only paper behind the header. it scrolls until
-    // its last ink, or the box's while there is one, has gone off the top.
+    // frame the words are drawn that far up, in whole world px so they move
+    // rigidly rather than shimmer through the sampler. they go down before
+    // the header's letters, and a letter writes only its ink, so passing
+    // under the header they are hidden by its letters and nothing else:
+    // there is only paper behind the header. it scrolls until the last
+    // word's ink, or its box's while there is one, has gone off the top.
+    //
+    // an open box pushes every word under it down, and their boxes, by as
+    // far as its bottom has got past its own word's ink, in whole px, so
+    // the next word keeps SPACE under the box as it kept under the word,
+    // and rides down with the box as it opens and back up as it shuts.
     const ABOUT = {
-      TEXT: 'About',
-      SIZE: 0.6,  // of the name's world px to the em
-      BELOW: 1,   // the name's ems from the header's ink to its ink
-      FIRST: 300, // its letters' seeds run from here, clear of the tag's
+      SIZE: 0.6,   // of the name's world px to the em, the most
+      BELOW: 1,    // the name's ems from the header's ink to the first word's ink
+      SPACE: 3,    // of the words' size: from a word's ink, or its box, to the next word's ink
+      FIRST: 300,  // their letters' seeds run from here, a hundred a word, clear of the tag's
     };
-    const aboutType = new Type(ABOUT.TEXT, () => document.createElement('canvas'));
     const scroller = document.getElementById('scroll');
-    let aboutLetters = [];
-    let aboutInk = null; // the word's ink box, world px from the page's top: { x0, y0, x1, y1 }
 
-    // --- the about box -------------------------------------------------------------
-    // a press on the word opens a box round it: a slightly rounded rect, a
+    // --- the boxes -----------------------------------------------------------------
+    // a press on a word opens a box round it: a slightly rounded rect, a
     // LINE px outline through the framebuffer like everything, that comes out
     // of the word's o. shut, it is the o's own ink box with corners as round
     // as they go, a circle behind the o; open, it stands PAD clear of the
-    // word's ink at its top and left, as far in from the window's right,
-    // and down to as far up from the window's bottom, or past it when its
-    // insides need more. it goes from one to the other linearly, every edge
-    // and the corners' radius at an even pace, in OPEN seconds whatever
-    // the screen's rate. its outline starts as thick as the o's stroke, so
+    // words' ink at its top and left (every box the same width, edged by
+    // the word furthest left), as far in from the window's right, and,
+    // with the photo, down to as far up from the window's bottom, or past
+    // it when its insides need more; without, as far down as its text
+    // needs. every edge and the corners' radius go from one to the other
+    // together, by how far open it is. opening, each 60 hz frame takes it
+    // RATE of the way left to open, fast out of the o and slowing in;
+    // shutting is the same run backwards, its way from open growing by
+    // RATE of itself and HEAD more a frame, slower out of open and fastest
+    // going into the o, HEAD keeping it from creeping off open. a frame of any other length moves it as far as
+    // that many 60 hz frames would. its outline starts as thick as the o's stroke, so
     // shut it stands in for the o, and thins to LINE as it opens. it is
     // drawn over the word, so it covers the word as it grows and shows it
     // again as it shrinks. open, an x stands in its top left corner, inside
@@ -326,7 +338,9 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // inside, lorem ipsum in the tag's face and the photo (js/about-photo.js)
+    // inside, lorem ipsum in the tag's face, under the x at BODY size wide
+    // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
+    // the photo (js/about-photo.js)
     // dithered at its size in its own few colours, each a place in the
     // framebuffer's palette, captioned (CAPTION) under it. wide, the photo
     // stands in the top right corner, as tall as the box at rest leaves over
@@ -346,7 +360,8 @@
       RADIUS: 0.15,  // of the word's size: the open box's corners
       LINE: 2,       // world px, the outline's thickness open, and the x's strokes'
       CLOSE: 1,      // the scale the pixel font's X is drawn at: 1 is its own pixels, 11 world px tall
-      OPEN: 0.2,     // seconds from the o to open, or back
+      RATE: 0.3,     // of the way left to open each 60 hz frame opening, of the way from open shutting
+      HEAD: 0.08,    // shutting, the way from open grows as if this much further: its start's speed over its end's
       // the smear while it moves: dotted 1 px outlines where it will be part
       // of the way to the next frame opening, or where it was part of the way
       // back from the last shutting (outside it, either way), as [how much of
@@ -364,7 +379,8 @@
       LEAD: 1.45,    // ems, baseline to baseline
       PARA: 0.7,     // ems more between paragraphs
       GUTTER: 1.5,   // ems between the text and the photo
-      FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph
+      MEASURE: 40,   // ems the text may run across, wide, with no photo beside it
+      FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
       CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
       CAP_LEAST: 10, // world px to the em
@@ -375,19 +391,45 @@
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
       'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
     ];
-    const bodyTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
+    const loremTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
     const captionTypes = BOX.CAPTION.map((line) => new Type(line, () => document.createElement('canvas'), TAG.FACE));
-    const box = {
-      open: false,  // where it is going: open, or back into the o
-      shown: false, // drawn: from a press until it is back in the o
-      p: 0,         // how far open it is, 0 in the o to 1 open
-      step: 0,      // how far it went in the last frame, the same measure
-      shut: null,   // where it starts and ends: the o, { x0, y0, x1, y1, r }, world px from the page's top
-      full: null,   // where it opens to
-      close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size, world px from the page's top
-    };
-    let bodyLetters = [];
-    let photoAt = null; // the dithered photo and its top left, { g, x, y }
+
+    // each section: its word, what goes in its box (paragraphs of type,
+    // and the photo or not) and, laid out, its letters and its box. every
+    // place below is world px from the page's top as laid out, with every
+    // box above it shut; off is how far down the boxes above have it now.
+    // o is which of the word's o's, from 0, its box comes out of
+    const SECTIONS = [
+      { title: 'About',             body: loremTypes, photo: true,  o: 0 },
+      { title: 'Professional work', body: loremTypes, photo: false, o: 0 },
+      { title: 'Personal work',     body: loremTypes, photo: false, o: 0 },
+    ];
+    const sections = SECTIONS.map((s, n) => ({
+      ...s,
+      n,                // its place: its seeds run from its word's hundred and its box's ten thousand
+      type: new Type(s.title, () => document.createElement('canvas')),
+      letters: [],      // the word's
+      ink: null,        // the word's ink box, { x0, y0, x1, y1 }
+      off: 0,           // whole world px
+      box: {
+        open: false,  // where it is going: open, or back into the o
+        shown: false, // drawn: from a press until it is back in the o
+        p: 0,         // how far open it is, 0 in the o to 1 open
+        step: 0,      // how far it went in the last frame, the same measure
+        shut: null,   // where it starts and ends: the o, { x0, y0, x1, y1, r, line }
+        full: null,   // where it opens to
+        close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size
+      },
+      bodyLetters: [],  // its text's and its caption's
+      photoAt: null,    // the dithered photo and its top left, { g, x, y }
+      // its warble: each edge its own sine, left and right at about the
+      // letters' sway rate and top and bottom their bob's, rates and
+      // phases seeded as a letter's are
+      warble: [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
+        hz: hz * (0.8 + 0.4 * noise(BOX.FIRST + 10000 * n - 2, e)),
+        ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n - 2, e + 4),
+      })),
+    }));
 
     // the photo, once it has loaded; it lays the page out again when it has
     const photo = new Image();
@@ -498,44 +540,56 @@
       return lines;
     }
 
-    // the about word into letters under the header, whose ink ends at
-    // bottom, its box shut and open laid out round it, and the page made
-    // tall enough to scroll them away
-    function layoutAbout(name, bottom, stacked) {
-      aboutLetters = [];
-      bodyLetters = [];
-      photoAt = null;
-      aboutInk = box.shut = box.full = box.close = null;
-      const t = aboutType;
-      if (name && t.glyphs.length) {
-        const size = ABOUT.SIZE * name.size, k = size / TYPE.EM, ems = (t.left + t.right) / TYPE.EM;
-        const ox = (stacked ? (W - ems * size) / 2 : name.left) + k * t.left;
-        const base = bottom + ABOUT.BELOW * name.size + k * t.ascent;
-        let o = null;
-        for (const gl of t.glyphs) {
-          const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + gl.at, k, WOBBLE);
-          aboutLetters.push(L);
-          if (gl.ch === 'o' || !o) {
-            // its stroke: the ink across from its left on its middle row
-            const g = gl.g, row = Math.floor(g.h / 2) * g.w;
-            let run = 0;
-            while (run < g.w && g.ink[row + run]) run++;
-            o = { cx: L.cx, cy: L.cy, w: k * g.w, h: k * g.h, stroke: k * run };
-          }
-        }
-        aboutInk = { x0: ox - k * t.left, y0: base - k * t.ascent, x1: ox + k * t.right, y1: base + k * t.descent };
-        box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2, line: Math.max(BOX.LINE, o.stroke) };
-        layoutBox(name, size, stacked);
+    // the words into letters down the page under the header, whose ink
+    // ends at bottom, their boxes shut and open laid out round them, and
+    // the page made tall enough to scroll them away
+    function layoutSections(name, bottom, stacked) {
+      for (const s of sections) {
+        s.letters = [];
+        s.bodyLetters = [];
+        s.photoAt = null;
+        s.ink = s.box.shut = s.box.full = s.box.close = null;
       }
+      const laid = name ? sections.filter((s) => s.type.glyphs.length) : [];
+      if (laid.length) {
+        // one size for them all, the most the widest leaves room for
+        const widest = Math.max(...laid.map((s) => (s.type.left + s.type.right) / TYPE.EM));
+        const size = Math.min(ABOUT.SIZE * name.size, (stacked ? NAME.NARROW * W : W - 2 * NAME.X) / widest), k = size / TYPE.EM;
+        let y = bottom + ABOUT.BELOW * name.size; // the next word's ink's top
+        for (const s of laid) {
+          const t = s.type, ems = (t.left + t.right) / TYPE.EM;
+          const ox = (stacked ? (W - ems * size) / 2 : name.left) + k * t.left, base = y + k * t.ascent;
+          let o = null, os = 0;
+          for (const gl of t.glyphs) {
+            const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
+            s.letters.push(L);
+            // its o, the first glyph until there is one, and the last
+            // o it has if it has fewer
+            if (!o || (gl.ch === 'o' && os++ <= s.o)) {
+              // its stroke: the ink across from its left on its middle row
+              const g = gl.g, row = Math.floor(g.h / 2) * g.w;
+              let run = 0;
+              while (run < g.w && g.ink[row + run]) run++;
+              o = { cx: L.cx, cy: L.cy, w: k * g.w, h: k * g.h, stroke: k * run };
+            }
+          }
+          s.ink = { x0: ox - k * t.left, y0: y, x1: ox + k * t.right, y1: base + k * t.descent };
+          s.box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2, line: Math.max(BOX.LINE, o.stroke) };
+          y = s.ink.y1 + ABOUT.SPACE * size;
+        }
+        const edge = Math.max(2, Math.min(NAME.X, ...laid.map((s) => s.ink.x0)) - BOX.PAD * size);
+        for (const s of laid) layoutBox(s, name, size, stacked, edge);
+      }
+      settle();
       setScroll();
     }
 
-    // the open box round the word at size, and its insides laid out in it,
-    // wide or stacked
-    function layoutBox(name, size, stacked) {
-      const pad = BOX.PAD * size, edge = Math.max(2, Math.min(NAME.X, aboutInk.x0) - pad);
-      const x0 = edge, x1 = W - edge, y0 = aboutInk.y0 - pad, rest = H - edge;
-      const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = aboutInk.y1 + BOX.GAP * size;
+    // a section's open box round its word at size, edge in from either
+    // side of the window, and its insides laid out in it, wide or stacked
+    function layoutBox(s, name, size, stacked, edge) {
+      const box = s.box, seed = BOX.FIRST + 10000 * s.n, pad = BOX.PAD * size;
+      const x0 = edge, x1 = W - edge, y0 = s.ink.y0 - pad, rest = H - edge;
+      const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = s.ink.y1 + BOX.GAP * size;
       const bs = stacked ? BOX.PHONE : Math.min(BOX.MOST, Math.max(BOX.LEAST, BOX.BODY * name.size)), bk = bs / TYPE.EM;
       const aspect = photoReady ? photo.naturalWidth / photo.naturalHeight : 609 / 700;
       // the x in the top left corner, at CLOSE; what
@@ -543,83 +597,95 @@
       box.close = null;
       const xg = glyphInk('X');
       if (xg) {
-        const xs = BOX.CLOSE, xw = xg.w * xs, xh = xg.h * xs, cy = aboutInk.y0;
-        box.close = { x: ix0, y: cy, w: xw, h: xh, letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, BOX.FIRST - 1, xs, WOBBLE) };
+        const xs = BOX.CLOSE, xw = xg.w * xs, xh = xg.h * xs, cy = s.ink.y0;
+        box.close = { x: ix0, y: cy, w: xw, h: xh, letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, WOBBLE) };
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       // the caption under the photo, and how tall it stands with its gap
       const cs = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), ck = cs / TYPE.EM;
       const capH = (BOX.CAP_GAP + 0.75 + (captionTypes.length - 1) * BOX.CAP_LEAD + 0.3) * cs;
-      let px = ix0, py = top, pw = iw, ph, tw = iw, ty;
-      if (!stacked) {
+      // with no photo the text goes under the x, across the box stacked
+      // and no wider than MEASURE wide
+      let px = ix0, py = top, pw = iw, ph = 0, tw = stacked ? iw : Math.min(iw, BOX.MEASURE * bs), ty = top - 0.03 * bs;
+      if (s.photo && !stacked) {
         // the photo in the top right corner, its caption under it, the text
         // under the x left of it
-        py = aboutInk.y0;
+        py = s.ink.y0;
         ph = Math.max(rest - pad - py - capH, 8 * bs);
         pw = ph * aspect;
         if (pw > BOX.PHOTO * iw) { pw = BOX.PHOTO * iw; ph = pw / aspect; }
         px = ix1 - pw;
         tw = px - BOX.GUTTER * bs - ix0;
-        ty = top - 0.75 * bs + 0.72 * bs;
       }
       // the text in lines, and how tall they stand
-      const paras = bodyTypes.map((t) => wrapType(t, tw / bk));
+      const paras = s.body.map((t) => wrapType(t, tw / bk));
       const lines = paras.reduce((n, p) => n + p.length, 0);
       const textH = 1.05 * bs + (lines - 1) * BOX.LEAD * bs + (paras.length - 1) * BOX.PARA * bs;
-      if (stacked) {
-        // the photo across the box under the x, as tall as the screen
-        // leaves over its caption and the text; they go under it
-        ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - capH - BOX.GUTTER * bs - textH));
-      }
-      pw = Math.round(pw);
-      ph = Math.round(ph);
-      px = Math.round(px);
-      py = Math.round(py);
-      if (stacked) ty = py + ph + capH + BOX.GUTTER * bs;
-      let cb = py + ph + (BOX.CAP_GAP + 0.75) * cs;
-      captionTypes.forEach((t, i) => {
-        for (const gl of t.glyphs)
-          bodyLetters.push(makeLetter(gl.g, px + ck * (gl.x + gl.dx + t.left), cb + ck * gl.dy, BOX.FIRST + 5000 + 100 * i + gl.at, ck, WOBBLE));
-        cb += BOX.CAP_LEAD * cs;
-      });
-      if (photoReady) {
-        const g = ditherPhoto(pw, ph);
-        if (g) photoAt = { g, x: px, y: py };
+      let inside = top; // the insides' bottom
+      if (s.photo) {
+        if (stacked) {
+          // the photo across the box under the x, as tall as the screen
+          // leaves over its caption and the text; they go under it
+          ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - capH - BOX.GUTTER * bs - textH));
+        }
+        pw = Math.round(pw);
+        ph = Math.round(ph);
+        px = Math.round(px);
+        py = Math.round(py);
+        if (stacked) ty = py + ph + capH + BOX.GUTTER * bs;
+        let cb = py + ph + (BOX.CAP_GAP + 0.75) * cs;
+        captionTypes.forEach((t, i) => {
+          for (const gl of t.glyphs)
+            s.bodyLetters.push(makeLetter(gl.g, px + ck * (gl.x + gl.dx + t.left), cb + ck * gl.dy, seed + 5000 + 100 * i + gl.at, ck, WOBBLE));
+          cb += BOX.CAP_LEAD * cs;
+        });
+        if (photoReady) {
+          const g = ditherPhoto(pw, ph);
+          if (g) s.photoAt = { g, x: px, y: py };
+        }
+        inside = py + ph + capH;
       }
       let base = ty + 0.75 * bs, last = base;
       paras.forEach((lines, p) => {
         for (const line of lines) {
           for (const gl of line.glyphs)
-            bodyLetters.push(makeLetter(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, BOX.FIRST + 1000 * p + gl.at, bk, WOBBLE));
+            s.bodyLetters.push(makeLetter(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, seed + 1000 * p + gl.at, bk, WOBBLE));
           last = base;
           base += BOX.LEAD * bs;
         }
         base += BOX.PARA * bs;
       });
-      const inside = Math.max(last + 0.3 * bs, py + ph + capH);
-      box.full = { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size, line: BOX.LINE };
+      inside = Math.max(inside, last + 0.3 * bs);
+      box.full = { x0, y0, x1, y1: s.photo ? Math.max(rest, inside + pad) : inside + pad, r: BOX.RADIUS * size, line: BOX.LINE };
     }
 
-    // the page tall enough to scroll the word, and the box while it is
-    // shown, off the top
+    // each section's off: what the boxes above it push it down, where
+    // they have got to
+    function settle() {
+      let off = 0;
+      for (const s of sections) {
+        s.off = off;
+        const b = s.box;
+        if (b.shown && b.full) off += Math.max(0, Math.round(b.shut.y1 + (b.full.y1 - b.shut.y1) * b.p - s.ink.y1));
+      }
+    }
+
+    // the page tall enough to scroll the last word, and its box while it
+    // is shown, off the top, pushed down by every box shown above it as
+    // far as each will open
     function setScroll() {
-      let end = aboutInk ? aboutInk.y1 : 0;
-      if (box.shown && box.full) end = Math.max(end, box.full.y1);
+      let push = 0, end = 0;
+      for (const s of sections) {
+        if (!s.ink) continue;
+        if (s.box.shown && s.box.full) push += Math.max(0, s.box.full.y1 - s.ink.y1);
+        end = s.ink.y1 + push;
+      }
       scroller.style.height = (window.innerHeight + Math.ceil(end) * SCALE) + 'px';
     }
 
-    // the box's warble: each edge its own sine, left and right at about the
-    // letters' sway rate and top and bottom their bob's, rates and phases
-    // seeded as a letter's are; WARBLE px either way at time t, as
-    // [x0, y0, x1, y1]
-    const boxWarble = [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
-      hz: hz * (0.8 + 0.4 * noise(BOX.FIRST - 2, e)),
-      ph: 2 * Math.PI * noise(BOX.FIRST - 2, e + 4),
-    }));
-    const warble = (t) => boxWarble.map((e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * e.hz + e.ph));
-
-    // a press on the word: open the box out of the o, or send it back in
-    function toggleBox() {
+    // a press on a word: open its box out of the o, or send it back in
+    function toggleBox(s) {
+      const box = s.box;
       if (!box.shut || !box.full) return;
       box.open = !box.open;
       if (box.open && !box.shown) {
@@ -629,12 +695,21 @@
       setScroll();
     }
 
-    // dt's share of OPEN on toward open, or back toward the o; back in the
-    // o, it is gone
-    function stepBox(dt) {
+    // dt on toward open, or back toward the o (RATE), in the way left to
+    // open, q = 1 - p: opening it shrinks by RATE of itself a 60 hz frame,
+    // and goes to nothing once under a px of the edge that moves furthest;
+    // shutting, it and HEAD grow by as much, so it leaves open going and
+    // speeds up into the o, and out at 1 it is back in the o, and gone
+    function stepBox(s, dt) {
+      const box = s.box;
       if (!box.shown) return;
-      const was = box.p;
-      box.p = Math.min(1, Math.max(0, box.p + (box.open ? dt : -dt) / BOX.OPEN));
+      const was = box.p, a = box.shut, b = box.full;
+      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
+      const f = Math.pow(1 - BOX.RATE, 60 * dt);
+      let q = 1 - box.p;
+      if (box.open) q = q * f < px ? 0 : q * f;
+      else q = Math.min(1, (q + BOX.HEAD) / f - BOX.HEAD);
+      box.p = 1 - q;
       box.step = Math.abs(box.p - was);
       if (box.p === 0 && !box.open) {
         box.shown = false;
@@ -642,15 +717,16 @@
       }
     }
 
-    // the box sy up: its insides into cfb, the letters near enough the
-    // screen to show, the photo and the x, then copied into the page
+    // a section's box sy up: its insides into cfb, the letters near enough
+    // the screen to show, the photo and the x, then copied into the page
     // through the box and the box's outline over them, and its SMEAR
     // outside it while it moves. where it is goes straight from the o to
-    // open by how far open it is, each edge warbled
-    function drawBox(t, sy) {
+    // open by how far open it is, each edge warbled WARBLE px either way
+    function drawBox(s, t, sy) {
+      const box = s.box;
       if (!box.shown || !box.shut || !box.full) return;
-      // where the box is at p, warbled
-      const wb = warble(t);
+      // where the box is at p, warbled: [x0, y0, x1, y1]
+      const wb = s.warble.map((e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * e.hz + e.ph));
       const at = (p) => {
         const c = {};
         for (const k of ['x0', 'y0', 'x1', 'y1', 'r', 'line']) c[k] = box.shut[k] + (box.full[k] - box.shut[k]) * p;
@@ -665,9 +741,9 @@
       if (bottom < 0 || top >= H) return;
       cfb.clear();
       const lo = Math.max(top, 0) - BOX.MOST, hi = Math.min(bottom, H) + BOX.MOST;
-      for (const L of bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
-      if (photoAt) {
-        const p = photoAt, x = p.x, y = p.y - sy;
+      for (const L of s.bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
+      if (s.photoAt) {
+        const p = s.photoAt, x = p.x, y = p.y - sy;
         cfb.blitPixels(p.g, x, y);
       }
       if (box.close) box.close.letter.draw(t, -sy, cfb);
@@ -681,21 +757,25 @@
       }
     }
 
-    // a click, wherever the page has scrolled to: open, on the x, a little
-    // round it (at least 20 world px across, for a finger), the box shuts;
-    // else on the word, a little round it, it opens
+    // a click, wherever the page has scrolled to and the boxes have pushed
+    // each section: on an open box's x, a little round it (at least 20
+    // world px across, for a finger), the box shuts; on a word whose box is
+    // not open, a little round it, it opens
     canvas.addEventListener('click', (e) => {
-      if (!aboutInk) return;
-      const p = worldPointer(e), y = p.y + Math.round(window.scrollY / SCALE);
-      if (box.open) {
-        const c = box.close;
-        if (!c) return;
-        const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
-        if (p.x >= c.x - mx && p.x <= c.x + c.w + mx && y >= c.y - my && y <= c.y + c.h + my) toggleBox();
-        return;
+      const p = worldPointer(e), sy = Math.round(window.scrollY / SCALE);
+      for (const s of sections) {
+        if (!s.ink) continue;
+        const y = p.y + sy - s.off;
+        if (s.box.open) {
+          const c = s.box.close;
+          if (!c) continue;
+          const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
+          if (p.x >= c.x - mx && p.x <= c.x + c.w + mx && y >= c.y - my && y <= c.y + c.h + my) return toggleBox(s);
+          continue;
+        }
+        const a = s.ink, m = 0.15 * (a.y1 - a.y0);
+        if (p.x >= a.x0 - m && p.x <= a.x1 + m && y >= a.y0 - m && y <= a.y1 + m) return toggleBox(s);
       }
-      const a = aboutInk, m = 0.15 * (a.y1 - a.y0);
-      if (p.x >= a.x0 - m && p.x <= a.x1 + m && y >= a.y0 - m && y <= a.y1 + m) toggleBox();
     });
 
     // --- layout ------------------------------------------------------------------
@@ -728,7 +808,7 @@
       const tagBottom = layoutTag(name, stacked);
       const headerBottom = name === null ? 0 : Math.max(name.bottom, tagBottom === null ? -Infinity : tagBottom);
       const under = name === null ? 0 : headerBottom + NAME.GAP;
-      layoutAbout(name, headerBottom, stacked);
+      layoutSections(name, headerBottom, stacked);
       const top = stacked ? under + (H - under - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
       // the middle of the centre object, unrounded; the panel, when shown,
       // sits on the same middle
@@ -925,8 +1005,9 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, its mustache and the
-    // cursor's hand and the about box catch up with the clock; then the
-    // bits are cleared, the about box and word drawn scrolled, every other
+    // cursor's hand and the boxes catch up with the clock, and the words
+    // under them are pushed down; then the bits are cleared, the words and
+    // their boxes drawn scrolled, every other
     // letter over them on its own
     // clock, daedalus's panel if it is shown, the
     // bubble filled dark and outlined over them, its face and mustache, the
@@ -941,15 +1022,17 @@
       world.step(now);
       if (bubble) face.update(bubble, world, dt);
       cursor.update(dt);
-      stepBox(dt);
+      for (const s of sections) stepBox(s, dt);
+      settle();
       if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
-      // the about word and box first, scrolled, the box over the word, so
-      // the header's letters cover them both
+      // the words and their boxes first, scrolled and pushed down by the
+      // boxes above them, each box over its word, so the header's letters
+      // cover them all
       const sy = Math.round(window.scrollY / SCALE);
-      for (const L of aboutLetters) L.draw(t, -sy);
-      drawBox(t, sy);
+      for (const s of sections) for (const L of s.letters) L.draw(t, s.off - sy);
+      for (const s of sections) drawBox(s, t, sy - s.off);
       for (const L of letters) L.draw(t);
       if (SHOW_DAEDALUS && panel) panel.draw();
       if (bubble) {
