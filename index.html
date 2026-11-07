@@ -6,15 +6,24 @@
   <title>Peter D'Angelo</title>
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
-    html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
-    /* a press on the canvas is the page's own: no scrolling, no selecting.
-       no cursor either: the pointer is drawn into the frame as a hand */
-    canvas { display: block; image-rendering: pixelated; cursor: none;
-             touch-action: none; user-select: none; -webkit-user-select: none; }
+    html, body { margin: 0; background: #fff; }
+    /* the document scrolls, only to move the about text: #scroll gives it
+       its height and the canvas stays fixed over the window. no bar, no
+       bounce past either end */
+    html, body { overscroll-behavior: none; }
+    html { scrollbar-width: none; }
+    ::-webkit-scrollbar { display: none; }
+    #scroll { width: 1px; }
+    /* a press on the canvas is the page's own: no selecting, and a swipe
+       only scrolls up and down. no cursor either: the pointer is drawn into
+       the frame as a hand */
+    canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated; cursor: none;
+             touch-action: pan-y; user-select: none; -webkit-user-select: none; }
   </style>
 </head>
 <body>
   <canvas id="view"></canvas>
+  <div id="scroll"></div>
   <script src="font.js"></script>
   <script src="daedalus/daedalus.js"></script>
   <script src="js/raster.js"></script>
@@ -100,11 +109,12 @@
         g, cx, cy, scale, wob, v,
         swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
-        draw(t) {
+        // at time t, dy world px down from home (up, for a scroll)
+        draw(t, dy = 0) {
           const w = 2 * Math.PI * t, m = this.wob;
           fb.sprite(this.g,
             this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
-            this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
+            this.cy + dy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
             this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
             m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
             this.v);
@@ -167,7 +177,8 @@
     const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
 
     // the name's letters into letters, sized to fit and placed; its ink's
-    // box, { right, top, base, bottom } with base its baseline, or null
+    // box and size, { left, right, top, base, bottom, size } with base its
+    // baseline and size world px to the em, or null
     // when there is no name. wide, it leaves room on its right for the tag
     // at its least
     function layoutName(stacked) {
@@ -181,7 +192,7 @@
       const ox = (stacked ? (W - ems * size) / 2 : NAME.X) + k * t.left, base = NAME.TOP + k * t.ascent;
       for (const gl of t.glyphs)
         letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE));
-      return { right: ox + k * t.right, top: NAME.TOP, base, bottom: base + k * t.descent };
+      return { left: ox - k * t.left, right: ox + k * t.right, top: NAME.TOP, base, bottom: base + k * t.descent, size };
     }
 
     // --- the tag -----------------------------------------------------------------
@@ -254,6 +265,46 @@
       return base + k * tagLines[n - 1].type.descent;
     }
 
+    // --- about -------------------------------------------------------------------
+    // the word under the header (the name and its tag), in the name's
+    // helvetica at 0.6 of the name's size, its ink's left on the
+    // name's (centred, stacked) and its top BELOW of the name's ems under
+    // the header's ink. it is the one thing that scrolls: the document is
+    // given height past the window (#scroll) and the canvas stays fixed
+    // over it, so a wheel, a swipe or a key scrolls it natively, and each
+    // frame the about letters are drawn that far up, in whole world px so
+    // they move rigidly rather than shimmer through the sampler. they go
+    // down before the header's letters, and a letter writes only its ink,
+    // so passing under the header they are hidden by its letters and
+    // nothing else: there is only paper behind the header. it scrolls until
+    // its last ink has gone off the top.
+    const ABOUT = {
+      TEXT: 'About',
+      SIZE: 0.6,  // of the name's world px to the em
+      BELOW: 1,   // the name's ems from the header's ink to its ink
+      FIRST: 300, // its letters' seeds run from here, clear of the tag's
+    };
+    const aboutType = new Type(ABOUT.TEXT, () => document.createElement('canvas'));
+    const scroller = document.getElementById('scroll');
+    let aboutLetters = [];
+
+    // the about text into letters under the header, whose ink ends at
+    // bottom; the document made tall enough to scroll it away
+    function layoutAbout(name, bottom, stacked) {
+      aboutLetters = [];
+      let end = 0; // the about text's last ink, world px from the top
+      const t = aboutType;
+      if (name && t.glyphs.length) {
+        const size = ABOUT.SIZE * name.size, k = size / TYPE.EM, ems = (t.left + t.right) / TYPE.EM;
+        const ox = (stacked ? (W - ems * size) / 2 : name.left) + k * t.left;
+        const base = bottom + ABOUT.BELOW * name.size + k * t.ascent;
+        for (const gl of t.glyphs)
+          aboutLetters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + gl.at, k, WOBBLE));
+        end = base + k * t.descent;
+      }
+      scroller.style.height = (window.innerHeight + Math.ceil(end) * SCALE) + 'px';
+    }
+
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and the bubble in the middle, each
     // centred on the viewport's height, or pushed down clear of the name
@@ -282,7 +333,9 @@
       // everything else keeps clear under them
       const name = layoutName(stacked);
       const tagBottom = layoutTag(name, stacked);
-      const under = name === null ? 0 : Math.max(name.bottom, tagBottom === null ? -Infinity : tagBottom) + NAME.GAP;
+      const headerBottom = name === null ? 0 : Math.max(name.bottom, tagBottom === null ? -Infinity : tagBottom);
+      const under = name === null ? 0 : headerBottom + NAME.GAP;
+      layoutAbout(name, headerBottom, stacked);
       const top = stacked ? under + (H - under - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
       // the middle of the centre object, unrounded; the panel, when shown,
       // sits on the same middle
@@ -479,8 +532,9 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, its mustache and the
-    // cursor's hand catch up with the clock; then the bits are cleared, every
-    // letter drawn on its own clock, daedalus's panel if it is shown, the
+    // cursor's hand catch up with the clock; then the bits are cleared, the
+    // about text drawn scrolled, every other letter over it on its own
+    // clock, daedalus's panel if it is shown, the
     // bubble filled dark and outlined over them, its face and mustache, the
     // drag's marks, and last the hand on its backing, over the end of the
     // drag's line, each layer simply writing over the bits of the last. then
@@ -496,6 +550,9 @@
       if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
+      // the about text first, scrolled, so the header's letters cover it
+      const sy = Math.round(window.scrollY / SCALE);
+      for (const L of aboutLetters) L.draw(t, -sy);
       for (const L of letters) L.draw(t);
       if (SHOW_DAEDALUS && panel) panel.draw();
       if (bubble) {
