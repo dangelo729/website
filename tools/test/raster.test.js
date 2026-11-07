@@ -547,6 +547,26 @@ const between = (a, b) => a + (b - a) * rand();
   check(fb.get(1, 1) === 0 && fb.get(2, 1) === 1 && fb.get(1, 2) === 5 && fb.get(2, 2) === 7 && fb.get(0, 0) === 9, 'blitPixels writes every pixel, paper too');
 }
 
+// spritePixels
+{
+  // unturned at its own size it lands as blitPixels puts it, odd and even sizes alike
+  for (const [w, h] of [[3, 2], [4, 5]]) {
+    const px = Uint8Array.from({ length: w * h }, (_, i) => 2 + i), g = { px, w, h };
+    const a = new Framebuffer(9, 9), b = new Framebuffer(9, 9);
+    a.blitPixels(g, 2, 3);
+    b.spritePixels(g, 2 + w / 2, 3 + h / 2, 1, 0);
+    check(same(Array.from(a.bits).map(String), Array.from(b.bits).map(String)), 'spritePixels at rest is blitPixels, ' + w + 'x' + h);
+  }
+  // a quarter turn carries the top row down the right side
+  const g = { px: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8, 9]), w: 3, h: 3 }, fb = new Framebuffer(5, 5);
+  fb.spritePixels(g, 2.5, 2.5, 1, Math.PI / 2);
+  check(fb.get(3, 1) === 1 && fb.get(3, 2) === 2 && fb.get(3, 3) === 3 && fb.get(2, 2) === 5, 'spritePixels turns clockwise: ' + Array.from(fb.bits).join(''));
+  // twice the size, each pixel covers four
+  const big = new Framebuffer(6, 6);
+  big.spritePixels({ px: Uint8Array.from([1, 2, 3, 4]), w: 2, h: 2 }, 3, 3, 2, 0);
+  check(big.get(1, 1) === 1 && big.get(2, 2) === 1 && big.get(3, 1) === 2 && big.get(1, 3) === 3 && big.get(4, 4) === 4 && big.get(0, 0) === 0, 'spritePixels scales: ' + Array.from(big.bits).join(''));
+}
+
 // clearRows
 {
   const fb = new Framebuffer(3, 4);

@@ -174,6 +174,28 @@ Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPL
   }
 };
 
+// g, a bitmap { px, w, h } of v's (a picture in the page's colours), with
+// its centre at (cx, cy), scaled by s and turned by a radians, as sprite()
+// takes a letter: each pixel whose middle lands on it is written the v it
+// lands on, paper too, so it covers what is under it. unturned at its own
+// size, centred on a pixel's corner or middle as its size has it, it lands
+// pixel for pixel as blitPixels() would put it
+Framebuffer.prototype.spritePixels = function (g, cx, cy, s, a) {
+  const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
+  const hw = g.w * s / 2, hh = g.h * s / 2;
+  const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
+  const x0 = Math.max(0, Math.floor(cx - ex)), x1 = Math.min(this.w, Math.ceil(cx + ex));
+  const y0 = Math.max(0, Math.floor(cy - ey)), y1 = Math.min(this.h, Math.ceil(cy + ey));
+  for (let py = y0; py < y1; py++) {
+    const ty = py + 0.5 - cy;
+    for (let px = x0; px < x1; px++) {
+      const tx = px + 0.5 - cx;
+      const gx = Math.floor((cos * tx + sin * ty) * inv + g.w / 2), gy = Math.floor((-sin * tx + cos * ty) * inv + g.h / 2);
+      if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h) this.bits[py * this.w + px] = g.px[gy * g.w + gx];
+    }
+  }
+};
+
 // a bitmap { ink, w, h } with its top left at integer (x, y): ink is
 // written v and the rest left alone
 Framebuffer.prototype.blitInk = function (g, x, y, v = 1) {
