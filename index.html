@@ -44,7 +44,7 @@
     // it is copied whole into the canvas bitmap, which is that size exactly,
     // and the browser blows it up by SCALE. nothing draws to the canvas
     // itself.
-    const SCALE = 1.5;
+    const SCALE = 1;
 
     const canvas = document.getElementById('view');
     const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
@@ -401,6 +401,7 @@
     const loremTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
     const captionTypes = BOX.CAPTION.map((line) => new Type(line, () => document.createElement('canvas'), TAG.FACE));
     const caretType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
+    const LINK_SEP = ' | '; // between an item's links
 
     // each section: its word, what goes in its box (paragraphs of type,
     // and the photo or not, or items) and, laid out, its letters and its
@@ -410,7 +411,11 @@
     // o is which of the word's o's, from 0, its box comes out of
     const SECTIONS = [
       { title: 'About',             body: loremTypes, photo: true,  o: 0 },
-      { title: 'Professional work', items: ['Sennheiser', 'BrandNewNoise', 'Critter & Guitari'], photo: false, o: 0 },
+      { title: 'Professional work', photo: false, o: 0, items: [
+        { title: 'Sennheiser',        links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
+        { title: 'BrandNewNoise',     links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
+        { title: 'Critter & Guitari', links: [['critterandguitari.com', 'https://critterandguitari.com']] },
+      ] },
       { title: 'Personal work',     body: loremTypes, photo: false, o: 0 },
     ];
     const sections = SECTIONS.map((s, n) => ({
@@ -441,9 +446,14 @@
       // caret and name (hit) and how far the texts above push it now
       // (shift), its furthest ink right and how much further than the
       // rows' it takes the box's right open (wide). rest and restX1 are
-      // the box's bottom and right with every item shut
-      items: (s.items || []).map((title) => ({
-        title, type: new Type(title, () => document.createElement('canvas'), TAG.FACE),
+      // the box's bottom and right with every item shut. its links go on a
+      // line of their own under its text, LINK_SEP between: linkType is
+      // the line, and each link { label, url } is laid out with its letters
+      // and the box round them (hit)
+      items: (s.items || []).map((x) => ({
+        title: x.title, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
+        linkType: new Type((x.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
         open: false, p: 0, turn: 0, caret: null, letters: [], text: [], base: 0, clip: 0, span: 0, ext: 0, hit: null, shift: 0, right: 0, wide: 0,
       })),
       rest: 0,
@@ -737,6 +747,25 @@
           }
           tb += BOX.PARA * bs;
         });
+        // its links, a paragraph on under the text: each link's own
+        // letters, the separators with the text's
+        if (it.links.length && it.linkType.glyphs.length) {
+          const lt = it.linkType, ox = nx + bk * lt.left;
+          let at = 0;
+          const spans = it.links.map((k) => { const from = at; at += k.label.length + LINK_SEP.length; return from; });
+          for (const k of it.links) k.letters = [];
+          for (const gl of lt.glyphs) {
+            const L = makeLetter(gl.g, ox + bk * (gl.x + gl.dx), tb + bk * gl.dy, seed + 4000 + 1500 * i + 1400 + gl.at, bk, WOBBLE);
+            const j = spans.findIndex((from, j) => gl.at >= from && gl.at < from + it.links[j].label.length);
+            (j >= 0 ? it.links[j].letters : it.text).push(L);
+          }
+          for (const k of it.links) {
+            const x0 = Math.min(...k.letters.map((L) => L.cx - bk * L.g.w / 2)), x1 = Math.max(...k.letters.map((L) => L.cx + bk * L.g.w / 2));
+            k.hit = { x0, y0: tb - bk * lt.ascent, x1, y1: tb + bk * lt.descent };
+          }
+          it.right = Math.max(it.right, ox + bk * lt.right);
+          tl = tb;
+        }
         const bottom = tl + 0.3 * bs;
         it.base = base;
         it.clip = base + 0.3 * is;
@@ -888,12 +917,17 @@
       // where it has opened to and cut off there
       for (const it of s.items) {
         const d = it.shift - sy;
-        const v = hover && hover.it === it ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link ? HOVER_ITEM : undefined;
         if (it.caret) it.caret.draw(t, d, cfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, cfb, 0, v);
         if (it.p > 0) {
           const end = it.clip + it.p * it.span + d;
-          for (const L of it.text) if (L.cy + d > lo && L.cy + d < Math.min(hi, end + BOX.MOST)) L.draw(t, d, cfb);
+          const see = (L) => L.cy + d > lo && L.cy + d < Math.min(hi, end + BOX.MOST);
+          for (const L of it.text) if (see(L)) L.draw(t, d, cfb);
+          for (const k of it.links) {
+            const lv = hover && hover.link === k ? HOVER_LINK : undefined;
+            for (const L of k.letters) if (see(L)) L.draw(t, d, cfb, 0, lv);
+          }
           cfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
       }
@@ -913,8 +947,9 @@
     // finger) or anywhere in the strip across the box's top (short of a
     // photo up there), { s, close }; one of its items, its caret, its name
     // or right of them to the box's edge, a little above and below,
-    // { s, it }; a word whose box is not open, a little round it, { s };
-    // or null
+    // { s, it }; one of an item's links, as far as its text has opened to
+    // show it, a little round it, { s, it, link }; a word whose box is not
+    // open, a little round it, { s }; or null
     function hitAt(x, y) {
       const sy = Math.round(window.scrollY / SCALE);
       for (const s of sections) {
@@ -930,6 +965,12 @@
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
             if (x >= h.x0 - 4 && x <= b.x1 && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
+              const k = link.hit;
+              if (!k) continue;
+              const ky = Math.max(3, (16 - (k.y1 - k.y0)) / 2);
+              if (x >= k.x0 - 3 && x <= k.x1 + 3 && iy >= k.y0 - ky && iy <= k.y1 + ky) return { s, it, link };
+            }
           }
           continue;
         }
@@ -939,23 +980,24 @@
       return null;
     }
 
-    // a click: the x shuts its box, an item opens or shuts its text, a
-    // word opens its box
+    // a click: the x shuts its box, a link opens its site in a new tab, an
+    // item opens or shuts its text, a word opens its box
     canvas.addEventListener('click', (e) => {
       const p = worldPointer(e), h = hitAt(p.x, p.y);
       if (!h) return;
-      if (h.it) toggleItem(h.s, h.it);
+      if (h.link) window.open(h.link.url, '_blank', 'noopener');
+      else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
     });
 
     // hover: a mouse's pointer over anything a press would press turns it
     // a colour of the tag's while it is there: a word the first
     // (Inventor's), anything in a box, its x and its items, the second
-    // (Software Engineer's); a finger has
+    // (Software Engineer's), and a link the third (Musician's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
     // scrolls and the boxes move under a still pointer
-    const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v;
+    const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v, HOVER_LINK = tagLines[2].v;
     let hoverAt = null;
     canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
     canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
