@@ -193,8 +193,10 @@ Framebuffer.prototype.blitInk = function (g, x, y, v = 1) {
 // copied across, so what it holds shows through the box and only there.
 // the outline is then written v, line px thick: thicker than 1, it is the
 // box less the inside of the box inset line - 1 px all round (its corners
-// line - 1 less round), so each px of thickness is another such ring
-Framebuffer.prototype.roundRect = function (x0, y0, x1, y1, r, fill = null, v = 1, line = 1) {
+// line - 1 less round), so each px of thickness is another such ring.
+// dots past 1 writes only the outline pixels whose x + y is a multiple of
+// it, a dotted line: 2 every other pixel, 3 every third
+Framebuffer.prototype.roundRect = function (x0, y0, x1, y1, r, fill = null, v = 1, line = 1, dots = 1) {
   if (!(x1 > x0 && y1 > y0)) return;
   r = Math.max(0, Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2));
   // row y's run of pixels in a box, [a, b], or null
@@ -221,7 +223,8 @@ Framebuffer.prototype.roundRect = function (x0, y0, x1, y1, r, fill = null, v = 
       // the outline: not well inside the inner box, its run's ends or with
       // no run of it above or below
       for (let x = lo; x <= hi; x++)
-        if (!mid || x <= mid[0] || x >= mid[1] || !above || x < above[0] || x > above[1] || !below || x < below[0] || x > below[1])
+        if ((!mid || x <= mid[0] || x >= mid[1] || !above || x < above[0] || x > above[1] || !below || x < below[0] || x > below[1]) &&
+            (dots <= 1 || (x + y) % dots === 0))
           this.bits[row + x] = v;
     }
     above = mid;

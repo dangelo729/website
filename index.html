@@ -76,10 +76,10 @@
     // pixel and only doubles when it sits almost exactly between two. the
     // bubble's face goes through the same sampler.
     const LETTER_SCALE = 1.56;
-    const SWAY_PX  = 0.25, SWAY_HZ    = 0.4;  // along x
-    const BOB_PX   = 0.25, BOB_HZ     = 0.23; // along y
-    const BREATHE  = 0.02, BREATHE_HZ = 0.31; // of the scale: 1.53 to 1.59
-    const TILT_RAD = 0.015, TILT_HZ   = 0.17; // about the centre
+    const SWAY_PX  = 0.1,   SWAY_HZ    = 0.4;  // along x
+    const BOB_PX   = 0.1,   BOB_HZ     = 0.23; // along y
+    const BREATHE  = 0.008, BREATHE_HZ = 0.31; // of the scale: 1.55 to 1.57
+    const TILT_RAD = 0.006, TILT_HZ    = 0.17; // about the centre
     // the four together, as makeLetter takes them: the name's letters take
     // these too (NAME.WOBBLE), and could be given their own
     const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
@@ -161,7 +161,7 @@
     // from its own place in the name. the bitmaps are made once, at the em;
     // a resize only places them and sets their scale, size over the em. at
     // these sizes the breathe and the tilt do most of the moving: the sway
-    // and the bob are a quarter of a world pixel whatever its size. wide,
+    // and the bob are a tenth of a world pixel whatever its size. wide,
     // its ink's top left sits on the menu's margin, at SIZE or smaller when
     // the page is too narrow for that; narrow, it is centred across the top
     // and the bubble and the menu stack under it. the rest of the page keeps
@@ -316,8 +316,9 @@
     //
     // inside, lorem ipsum in the tag's face and the photo (js/about-photo.js)
     // dithered at its size in its own few colours, each a place in the
-    // framebuffer's palette. wide, the photo stands in the top right corner,
-    // as tall as the box at rest, and the text under the word left of it,
+    // framebuffer's palette, captioned (CAPTION) under it. wide, the photo
+    // stands in the top right corner, as tall as the box at rest leaves over
+    // its caption, and the text under the word left of it,
     // at BODY size. stacked (a phone) everything goes down the box: the
     // word, the photo across it, the text at PHONE size, and the box is a
     // portrait that fits the screen under the header, the photo taking the
@@ -334,6 +335,12 @@
       LINE: 2,       // world px, the outline's thickness open, and the x's strokes'
       CLOSE: 1,      // the scale the pixel font's X is drawn at: 1 is its own pixels, 11 world px tall
       OPEN: 0.2,     // seconds from the o to open, or back
+      // the smear while it moves: dotted 1 px outlines where it will be part
+      // of the way to the next frame opening, or where it was part of the way
+      // back from the last shutting (outside it, either way), as [how much of
+      // a frame's step, dots]: nearer and denser, further and sparser
+      SMEAR: [[1 / 3, 2], [2 / 3, 3]],
+      WARBLE: 0.24,  // world px each edge drifts either way, on its own slow sine at the letters' rates
       GAP: 0.45,     // of the word's size: from under its ink to the insides
       PHOTO: 0.45,   // of the insides' width the photo may take, wide
       BODY: 0.18,    // of the name's size: the text's world px to the em, wide,
@@ -346,16 +353,23 @@
       PARA: 0.7,     // ems more between paragraphs
       GUTTER: 1.5,   // ems between the text and the photo
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph
+      CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
+      CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
+      CAP_LEAST: 10, // world px to the em
+      CAP_GAP: 0.6,  // the caption's ems between the photo and its first line's top
+      CAP_LEAD: 1.3, // the caption's ems, baseline to baseline
     };
     const LOREM = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
       'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
     ];
     const bodyTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
+    const captionTypes = BOX.CAPTION.map((line) => new Type(line, () => document.createElement('canvas'), TAG.FACE));
     const box = {
       open: false,  // where it is going: open, or back into the o
       shown: false, // drawn: from a press until it is back in the o
       p: 0,         // how far open it is, 0 in the o to 1 open
+      step: 0,      // how far it went in the last frame, the same measure
       shut: null,   // where it starts and ends: the o, { x0, y0, x1, y1, r }, world px from the page's top
       full: null,   // where it opens to
       close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size, world px from the page's top
@@ -521,11 +535,15 @@
         box.close = { x: ix0, y: cy, w: xw, h: xh, letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, BOX.FIRST - 1, xs, WOBBLE) };
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
+      // the caption under the photo, and how tall it stands with its gap
+      const cs = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), ck = cs / TYPE.EM;
+      const capH = (BOX.CAP_GAP + 0.75 + (captionTypes.length - 1) * BOX.CAP_LEAD + 0.3) * cs;
       let px = ix0, py = top, pw = iw, ph, tw = iw, ty;
       if (!stacked) {
-        // the photo in the top right corner, the text under the x left of it
+        // the photo in the top right corner, its caption under it, the text
+        // under the x left of it
         py = aboutInk.y0;
-        ph = Math.max(rest - pad - py, 8 * bs);
+        ph = Math.max(rest - pad - py - capH, 8 * bs);
         pw = ph * aspect;
         if (pw > BOX.PHOTO * iw) { pw = BOX.PHOTO * iw; ph = pw / aspect; }
         px = ix1 - pw;
@@ -538,14 +556,20 @@
       const textH = 1.05 * bs + (lines - 1) * BOX.LEAD * bs + (paras.length - 1) * BOX.PARA * bs;
       if (stacked) {
         // the photo across the box under the x, as tall as the screen
-        // leaves over the text; the text under it
-        ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - BOX.GUTTER * bs - textH));
-        ty = py + ph + BOX.GUTTER * bs;
+        // leaves over its caption and the text; they go under it
+        ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - capH - BOX.GUTTER * bs - textH));
       }
       pw = Math.round(pw);
       ph = Math.round(ph);
       px = Math.round(px);
       py = Math.round(py);
+      if (stacked) ty = py + ph + capH + BOX.GUTTER * bs;
+      let cb = py + ph + (BOX.CAP_GAP + 0.75) * cs;
+      captionTypes.forEach((t, i) => {
+        for (const gl of t.glyphs)
+          bodyLetters.push(makeLetter(gl.g, px + ck * (gl.x + gl.dx + t.left), cb + ck * gl.dy, BOX.FIRST + 5000 + 100 * i + gl.at, ck, WOBBLE));
+        cb += BOX.CAP_LEAD * cs;
+      });
       if (photoReady) {
         const g = ditherPhoto(pw, ph);
         if (g) photoAt = { g, x: px, y: py };
@@ -560,7 +584,7 @@
         }
         base += BOX.PARA * bs;
       });
-      const inside = Math.max(last + 0.3 * bs, py + ph);
+      const inside = Math.max(last + 0.3 * bs, py + ph + capH);
       box.full = { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size, line: BOX.LINE };
     }
 
@@ -571,6 +595,16 @@
       if (box.shown && box.full) end = Math.max(end, box.full.y1);
       scroller.style.height = (window.innerHeight + Math.ceil(end) * SCALE) + 'px';
     }
+
+    // the box's warble: each edge its own sine, left and right at about the
+    // letters' sway rate and top and bottom their bob's, rates and phases
+    // seeded as a letter's are; WARBLE px either way at time t, as
+    // [x0, y0, x1, y1]
+    const boxWarble = [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
+      hz: hz * (0.8 + 0.4 * noise(BOX.FIRST - 2, e)),
+      ph: 2 * Math.PI * noise(BOX.FIRST - 2, e + 4),
+    }));
+    const warble = (t) => boxWarble.map((e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * e.hz + e.ph));
 
     // a press on the word: open the box out of the o, or send it back in
     function toggleBox() {
@@ -587,7 +621,9 @@
     // o, it is gone
     function stepBox(dt) {
       if (!box.shown) return;
+      const was = box.p;
       box.p = Math.min(1, Math.max(0, box.p + (box.open ? dt : -dt) / BOX.OPEN));
+      box.step = Math.abs(box.p - was);
       if (box.p === 0 && !box.open) {
         box.shown = false;
         setScroll();
@@ -596,12 +632,23 @@
 
     // the box sy up: its insides into cfb, the letters near enough the
     // screen to show, the photo and the x, then copied into the page
-    // through the box and the box's outline over them. where it is goes
-    // straight from the o to open by how far open it is
+    // through the box and the box's outline over them, and its SMEAR
+    // outside it while it moves. where it is goes straight from the o to
+    // open by how far open it is, each edge warbled
     function drawBox(t, sy) {
       if (!box.shown || !box.shut || !box.full) return;
-      const c = {};
-      for (const k of ['x0', 'y0', 'x1', 'y1', 'r', 'line']) c[k] = box.shut[k] + (box.full[k] - box.shut[k]) * box.p;
+      // where the box is at p, warbled
+      const wb = warble(t);
+      const at = (p) => {
+        const c = {};
+        for (const k of ['x0', 'y0', 'x1', 'y1', 'r', 'line']) c[k] = box.shut[k] + (box.full[k] - box.shut[k]) * p;
+        c.x0 += wb[0];
+        c.y0 += wb[1];
+        c.x1 += wb[2];
+        c.y1 += wb[3];
+        return c;
+      };
+      const c = at(box.p);
       const top = c.y0 - sy, bottom = c.y1 - sy;
       if (bottom < 0 || top >= H) return;
       cfb.clear();
@@ -613,6 +660,13 @@
       }
       if (box.close) box.close.letter.draw(t, -sy, cfb);
       fb.roundRect(c.x0, top, c.x1, bottom, c.r, cfb, 1, Math.max(1, Math.round(c.line)));
+      // the smear, while it moves: further open than it is, so outside it
+      if (box.step > 0) for (const [part, dots] of BOX.SMEAR) {
+        const q = box.p + part * box.step;
+        if (q >= 1) continue;
+        const g = at(q);
+        fb.roundRect(g.x0, g.y0 - sy, g.x1, g.y1 - sy, g.r, null, 1, 1, dots);
+      }
     }
 
     // a click, wherever the page has scrolled to: open, on the x, a little

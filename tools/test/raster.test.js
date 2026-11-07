@@ -492,6 +492,16 @@ const between = (a, b) => a + (b - a) * rand();
   let sym = true;
   for (let y = 0; y < 21; y++) for (let x = 0; x < 21; x++) if (fb.get(x, y) !== fb.get(20 - y, x)) sym = false;
   check(sym && fb.get(0, 0) === 0 && fb.get(10, 0) === 1 && fb.get(10, 10) === 0, 'roundRect: a square with r past half is a circle, its outline lit and its middle filled 0');
+  // dotted: the solid outline's pixels whose x + y is a multiple of dots, and no others
+  let dotOk = true;
+  for (const dots of [2, 3]) {
+    const solid = new Framebuffer(W, H), dotted = new Framebuffer(W, H);
+    solid.roundRect(3.2, 2.7, 33.9, 24.4, 6, null, 1, 1);
+    dotted.roundRect(3.2, 2.7, 33.9, 24.4, 6, null, 1, 1, dots);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      if (dotted.get(x, y) !== (solid.get(x, y) && (x + y) % dots === 0 ? 1 : 0)) dotOk = false;
+  }
+  check(dotOk, 'roundRect dots: the solid outline thinned to every dots-th pixel along x + y');
   const none = new Framebuffer(8, 8);
   none.roundRect(5, 2, 5, 6, 1, 0, 1);
   none.roundRect(2, 6, 6, 2, 1, 0, 1);
