@@ -34,7 +34,7 @@
     // it is copied whole into the canvas bitmap, which is that size exactly,
     // and the browser blows it up by SCALE. nothing draws to the canvas
     // itself.
-    const SCALE = 2.67;
+    const SCALE = 1.5;
 
     const canvas = document.getElementById('view');
     const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
@@ -63,11 +63,11 @@
     // block stepping, and a 1 px stroke at these scales always lights one
     // pixel and only doubles when it sits almost exactly between two. the
     // bubble's face goes through the same sampler.
-    const LETTER_SCALE = 0.88;
-    const SWAY_PX  = 0.5,  SWAY_HZ    = 0.4;  // along x
-    const BOB_PX   = 0.5,  BOB_HZ     = 0.23; // along y
-    const BREATHE  = 0.04, BREATHE_HZ = 0.31; // of the scale: 0.845 to 0.915
-    const TILT_RAD = 0.03, TILT_HZ    = 0.17; // about the centre
+    const LETTER_SCALE = 1.56;
+    const SWAY_PX  = 0.25, SWAY_HZ    = 0.4;  // along x
+    const BOB_PX   = 0.25, BOB_HZ     = 0.23; // along y
+    const BREATHE  = 0.02, BREATHE_HZ = 0.31; // of the scale: 1.53 to 1.59
+    const TILT_RAD = 0.015, TILT_HZ   = 0.17; // about the centre
     // the four together, as makeLetter takes them: the name's letters take
     // these too (NAME.WOBBLE), and could be given their own
     const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
@@ -91,12 +91,13 @@
     }
 
     // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
-    // its rates and phases seeded from i
-    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE) {
+    // its rates and phases seeded from i, in v: ink, or a colour of the
+    // framebuffer's palette
+    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
       const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
       const phase = (k) => 2 * Math.PI * noise(i, k);
       return {
-        g, cx, cy, scale, wob,
+        g, cx, cy, scale, wob, v,
         swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
         draw(t) {
@@ -105,7 +106,8 @@
             this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
             this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
             this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
-            m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh));
+            m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
+            this.v);
         },
       };
     }
@@ -145,7 +147,7 @@
     // from its own place in the name. the bitmaps are made once, at the em;
     // a resize only places them and sets their scale, size over the em. at
     // these sizes the breathe and the tilt do most of the moving: the sway
-    // and the bob are half a world pixel whatever the letter's size. wide,
+    // and the bob are a quarter of a world pixel whatever its size. wide,
     // its ink's top left sits on the menu's margin, at SIZE or smaller when
     // the page is too narrow for that; narrow, it is centred across the top
     // and the bubble and the menu stack under it. the rest of the page keeps
@@ -153,30 +155,103 @@
     // is no menu without font.js.
     const NAME = {
       TEXT: 'Peter D\'Angelo',
-      SIZE: 64,        // world px to the em, the most it will be
+      SIZE: 114,       // world px to the em, the most it will be
       WIDTH: 0.68,     // of the viewport's width its ink may span, wide
       NARROW: 0.9,     // the same, stacked
-      X: 12,           // its ink's left edge, wide: the menu's margin
-      TOP: 12,         // world px from the top edge to its tallest ink
-      GAP: 12,         // from its box's bottom to anything under it
+      X: 21,           // its ink's left edge, wide: the menu's margin
+      TOP: 21,         // world px from the top edge to its tallest ink
+      GAP: 21,         // from its box's bottom to anything under it
       FIRST: 100,      // its letters' seeds run from here, clear of the menu's
       WOBBLE,          // the menu's sway, bob, breathe and tilt
     };
     const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
 
-    // the name's letters into letters, sized to fit and placed; the bottom
-    // of its box, or null when there is no name
+    // the name's letters into letters, sized to fit and placed; its ink's
+    // box, { right, top, base, bottom } with base its baseline, or null
+    // when there is no name. wide, it leaves room on its right for the tag
+    // at its least
     function layoutName(stacked) {
       const t = nameType;
       if (!t.glyphs.length) return null;
       const ems = (t.left + t.right) / TYPE.EM; // its ink's width, in ems
-      const size = Math.min(NAME.SIZE, (stacked ? NAME.NARROW : NAME.WIDTH) * W / ems);
+      const room = tagStair ? 2 * TAG.GAP + TAG.LEAST * tagStair.ems : 0;
+      const size = Math.min(NAME.SIZE, (stacked ? NAME.NARROW * W : Math.min(NAME.WIDTH * W, W - NAME.X - room)) / ems);
       const k = size / TYPE.EM;
       // the line's origin on its baseline, from where its ink's top left goes
       const ox = (stacked ? (W - ems * size) / 2 : NAME.X) + k * t.left, base = NAME.TOP + k * t.ascent;
       for (const gl of t.glyphs)
         letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE));
-      return base + k * t.descent;
+      return { right: ox + k * t.right, top: NAME.TOP, base, bottom: base + k * t.descent };
+    }
+
+    // --- the tag -----------------------------------------------------------------
+    // what he does, three lines of helvetica beside the name, each a STEP
+    // right of the one above, each in its own colour. they are the name's
+    // kind of letter, through the same sampler with the same wobble, only
+    // small. wide, they stand in the room right of the name: the stair's
+    // ink starts GAP past the name's and keeps GAP from the right edge, the
+    // first line's top is level with the name's top and the last line sits
+    // on the name's baseline, at the most size that keeps LEAD between
+    // baselines and the widest step inside the room. under LEAST it is too
+    // small to read, so it stays at LEAST, the name narrowing to leave it
+    // the room and the stair running on below the baseline. stacked, the
+    // stair goes under the name at SIZE or less, centred across the page.
+    const TAG = {
+      LINES: [
+        { text: 'Inventor',          colour: '#49B6B0' },
+        { text: 'Software Engineer', colour: '#B8B693' },
+        { text: 'Musician',          colour: '#B5979A' },
+      ],
+      // helvetica neue's medium: at this size regular's strokes fall
+      // under a pixel and break up, and bold's fill the counters
+      FACE: { weight: 500, family: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
+      STEP: 1.25, // ems each line's ink starts right of the line above's
+      LEAD: 1.1,  // the least baseline to baseline, in ems
+      GAP: 21,    // world px clear of the name, and of the right edge
+      LEAST: 15,  // world px to the em, wide, the least it will be
+      SIZE: 17,   // world px to the em, stacked, the most it will be
+      FIRST: 200, // its letters' seeds run from here, clear of the name's
+    };
+    const tagLines = TAG.LINES.map((l) => ({
+      type: new Type(l.text, () => document.createElement('canvas'), TAG.FACE),
+      v: Framebuffer.colour(l.colour),
+    }));
+
+    // the stair's width in ems, its widest step, and the first line's ink
+    // above its baseline; null, and no tag, when a line has no glyphs
+    const tagStair = tagLines.every((l) => l.type.glyphs.length) ? {
+      ems: Math.max(...tagLines.map((l, i) => i * TAG.STEP + (l.type.left + l.type.right) / TYPE.EM)),
+      asc: tagLines[0].type.ascent / TYPE.EM,
+    } : null;
+
+    // the tag's lines into letters beside the name's box, or under it
+    // stacked; the bottom of its ink, or null when there is no tag
+    function layoutTag(name, stacked) {
+      if (!name || !tagStair) return null;
+      const n = tagLines.length, em = TYPE.EM, { ems, asc } = tagStair;
+      let size, x, top, lead;
+      if (stacked) {
+        size = Math.min(TAG.SIZE, NAME.NARROW * W / ems);
+        x = (W - ems * size) / 2;
+        top = name.bottom + NAME.GAP / 2;
+        lead = TAG.LEAD * size;
+      } else {
+        x = name.right + TAG.GAP;
+        top = name.top;
+        const across = (W - TAG.GAP - x) / ems, down = (name.base - top) / (asc + (n - 1) * TAG.LEAD);
+        size = Math.min(across, Math.max(TAG.LEAST, down));
+        lead = n > 1 ? Math.max(TAG.LEAD * size, (name.base - top - size * asc) / (n - 1)) : 0;
+      }
+      if (!(size > 0)) return null;
+      const k = size / em;
+      let base = top + size * asc;
+      tagLines.forEach((l, i) => {
+        const t = l.type, ox = x + i * TAG.STEP * size + k * t.left;
+        base = top + size * asc + i * lead;
+        for (const gl of t.glyphs)
+          letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, TAG.FIRST + 50 * i + gl.at, k, WOBBLE, l.v));
+      });
+      return base + k * tagLines[n - 1].type.descent;
     }
 
     // --- layout ------------------------------------------------------------------
@@ -187,21 +262,27 @@
     // what the name leaves. the bubble is made here the first time; after
     // that a resize carries its lock, skin, face and all, to the new middle,
     // so nothing flies across.
+    // the menu and the bubble are off for now, the name and its tag alone
+    // on the page; true brings each back. with no bubble the world is
+    // still made, empty, so a press grabs nothing
+    const SHOW_MENU = false, SHOW_BUBBLE = false;
     const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
     const PANEL_W = 128, PANEL_H = 64;
-    const STACK_BELOW = 260; // viewport width in world px under which it stacks
-    const GAP = 16;          // between the bubble and the menu when stacked
+    const STACK_BELOW = 463; // viewport width in world px under which it stacks
+    const GAP = 28;          // between the bubble and the menu when stacked
     let letters = [];
     let panelX = 0, panelY = 0;
 
     function layout() {
       letters = [];
-      const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 6;
-      const menuH = MENU.length * lineH - 6;
+      const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 11;
+      const menuH = MENU.length * lineH - 11;
       const stacked = W < STACK_BELOW;
-      // the name first: everything else keeps clear under it
-      const nameBottom = layoutName(stacked);
-      const under = nameBottom === null ? 0 : nameBottom + NAME.GAP;
+      // the name first, and its tag beside it or, stacked, under it:
+      // everything else keeps clear under them
+      const name = layoutName(stacked);
+      const tagBottom = layoutTag(name, stacked);
+      const under = name === null ? 0 : Math.max(name.bottom, tagBottom === null ? -Infinity : tagBottom) + NAME.GAP;
       const top = stacked ? under + (H - under - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
       // the middle of the centre object, unrounded; the panel, when shown,
       // sits on the same middle
@@ -211,10 +292,14 @@
       // before the font check: the bubble does not need the font
       if (!world) {
         world = new World(W, H);
-        bubble = new SoftBlob(cx, cy, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
-        world.blobs.push(bubble);
-        face = new Face(bubble);
-        beard = new Beard(W, H);
+        if (SHOW_BUBBLE) {
+          bubble = new SoftBlob(cx, cy, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
+          world.blobs.push(bubble);
+          face = new Face(bubble);
+          beard = new Beard(W, H);
+        }
+      } else if (!bubble) {
+        world.resize(W, H);
       } else {
         world.resize(W, H);
         face.moveBy(cx - bubble.lockX, cy - bubble.lockY);
@@ -224,17 +309,17 @@
         beard.resize(W, H);
         beard.reset();
       }
-      if (typeof FONT === 'undefined') return;
+      if (!SHOW_MENU || typeof FONT === 'undefined') return;
       let y = stacked ? top + 2 * BUBBLE_R + GAP : Math.max((H - menuH) / 2, under), i = 0;
       for (const line of MENU) {
-        letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : 12, y, i));
+        letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : NAME.X, y, i));
         i += line.length;
         y += lineH;
       }
     }
 
     // --- the bubble --------------------------------------------------------------
-    // the centre object is cicada's bubble at 80 % of its size: a ring of
+    // the centre object is cicada's bubble at 4/3 its size: a ring of
     // verlet points (js/softbody.js) locked to the middle, which gives when
     // pulled and wobbles home. it lives in a world the size of the viewport
     // that runs whole 60 hz steps from wall time, so a 120 hz screen does
@@ -244,11 +329,11 @@
     // face (js/face.js) goes on top, trailing the skin when it moves. the
     // mustache (js/beard.js, daedalus's) hangs from the mouth, so it trails
     // as the mouth does and swings when it is carried. cicada's bubble is
-    // radius 36 with the face's art put down 1:1. at 0.8 nothing lands 1:1:
+    // radius 36 with the face's art put down 1:1. at 4/3 nothing lands 1:1:
     // the face scales with the radius and goes through the letters'
-    // sampler, its 1 px strokes as 0.8 px ones.
-    const BUBBLE_SCALE = 0.8;
-    // its radius in world px (28.8, left a float), its points, and its
+    // sampler, its 1 px strokes as 1.33 px ones.
+    const BUBBLE_SCALE = 4 / 3;
+    // its radius in world px (48), its points, and its
     // air: the area it fills over its circle's
     const BUBBLE_R = 36 * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
@@ -256,7 +341,7 @@
 
     // --- the cursor --------------------------------------------------------------
     // the native pointer is hidden over the canvas and drawn into the frame
-    // instead, as cicada's hand at half size (js/cursor.js), open, its palm
+    // instead, as cicada's hand (js/cursor.js), open, its palm
     // on the pointer. while the button is held it closes through the frames
     // to a fist, and it opens again when the button lifts. a touch gets no
     // hand: there is nothing to see under a finger. it goes down last, over
@@ -406,21 +491,23 @@
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
       world.step(now);
-      face.update(bubble, world, dt);
+      if (bubble) face.update(bubble, world, dt);
       cursor.update(dt);
-      beard.step(dt, face.mouf, face.scale);
+      if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
       for (const L of letters) L.draw(t);
       if (SHOW_DAEDALUS && panel) panel.draw();
-      const pts = bubble.points;
-      fb.fillPolygon(pts, 0);
-      for (let i = 0; i < pts.length; i++) {
-        const p = pts[i], q = pts[(i + 1) % pts.length];
-        fb.line(p.x, p.y, q.x, q.y);
+      if (bubble) {
+        const pts = bubble.points;
+        fb.fillPolygon(pts, 0);
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i], q = pts[(i + 1) % pts.length];
+          fb.line(p.x, p.y, q.x, q.y);
+        }
+        face.draw(fb);
+        beard.draw(fb);
       }
-      face.draw(fb);
-      beard.draw(fb);
       drawDrag();
       cursor.draw(fb);
       fb.present(ctx);

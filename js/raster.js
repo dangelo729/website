@@ -1,7 +1,8 @@
-// the world bitmap: one byte a world pixel, 1 lit and 0 dark, row-major.
-// everything on the page is drawn into it and nothing else touches the
-// canvas; present() hands the whole of it over once a frame, in the page's
-// two colours (lit is ink, dark is paper: black on white). the
+// the world bitmap: one byte a world pixel, 1 lit and 0 dark, row-major,
+// or past 1 for a colour of the page's (PALETTE, at the end). everything
+// on the page is drawn into it and nothing else touches the canvas;
+// present() hands the whole of it over once a frame, each byte as its
+// colour (lit is ink, dark is paper: black on white). the
 // primitives but sprite() are cicada's renderer's, pixel for pixel, so
 // what is drawn here lands where it did there. every write is clipped
 // silently.
@@ -183,15 +184,27 @@ Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
   }
 };
 
-// the page's two colours, as the little-endian ABGR words a canvas pixel
-// is: lit pixels are INK, dark ones PAPER, both opaque. black on white;
-// swap the two for white on black
+// the page's colours, as the little-endian ABGR words a canvas pixel is,
+// all opaque. a pixel's byte is its index in PALETTE: 0 is PAPER, what a
+// clear leaves, and 1 is INK, what lit means to every primitive; colour()
+// adds more, for a v past 1. black on white; swap the first two for white
+// on black
 Framebuffer.INK = 0xFF000000;
 Framebuffer.PAPER = 0xFFFFFFFF;
+Framebuffer.PALETTE = [Framebuffer.PAPER, Framebuffer.INK];
+
+// '#rrggbb' as the v that draws in it: its index in PALETTE, added the
+// first time it is asked for
+Framebuffer.colour = function (hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const word = (0xFF000000 | (n & 0xFF) << 16 | (n & 0xFF00) | (n >> 16 & 0xFF)) >>> 0;
+  const i = Framebuffer.PALETTE.indexOf(word);
+  return i >= 0 ? i : Framebuffer.PALETTE.push(word) - 1;
+};
 
 // the canvas is exactly this size, so the copy lands at its corner
 Framebuffer.prototype.present = function (ctx) {
-  const bits = this.bits, px = this.px, n = bits.length, ink = Framebuffer.INK, paper = Framebuffer.PAPER;
-  for (let i = 0; i < n; i++) px[i] = bits[i] ? ink : paper;
+  const bits = this.bits, px = this.px, n = bits.length, pal = Framebuffer.PALETTE;
+  for (let i = 0; i < n; i++) px[i] = pal[bits[i]];
   ctx.putImageData(this.img, 0, 0);
 };

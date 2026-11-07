@@ -13,7 +13,7 @@
 
 const CURSOR = {
   STEP_S: 1 / 60, MAX_CATCHUP_S: 0.1, // frames walk per 60 hz step whatever the screen's rate
-  SCALE: 0.3,                         // of the art: cicada's hand at 0.3, 6 x 10 world px
+  SCALE: 0.53,                        // of the art: cicada's hand at 0.53, 11 x 18 world px
   MIRROR: false,                      // hand1 as drawn, thumb on the left; true reverses every row
   HOT: { x: 0, y: 4 },                // art px from the bitmap's centre that sits on the pointer: the palm's middle
   OPEN_FRAME: 0, GRAB_FRAME: 13,

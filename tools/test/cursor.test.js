@@ -138,8 +138,8 @@ const at = (c) => Cursor.frameIndex(c.frame);
 
 // --- the hotspot -----------------------------------------------------------------
 // the bitmap's centre is the middle of the pixel the pointer less HOT *
-// SCALE falls in: at (100, 100) that is (100.5, 98.5), the bitmap 6.3 x 10.2
-// world px over x 97.35..103.65, y 93.4..103.6
+// SCALE falls in: at (100, 100) and SCALE 0.53 that is (100.5, 97.5),
+// the bitmap 11.13 x 18.02 world px over x 94.94..106.06, y 88.49..106.51
 {
   const c = new Cursor();
   c.moveTo(100, 100);
@@ -161,22 +161,25 @@ const at = (c) => Cursor.frameIndex(c.frame);
   const inPalm = !px.has('100,100') && row.some(([x]) => x < 100) && row.some(([x]) => x > 100) && col.some(([, y]) => y < 100);
   check('draw: the pointer sits in the palm, outlined either side and a finger above', inPalm,
     'row 100 lit at x ' + row.map(([x]) => x).join(',') + '; column 100 lit at y ' + col.map(([, y]) => y).join(','));
-  // a fractional pointer is drawn on a pixel's middle: (60.37, 41.81) and
-  // (60.9, 41.3) draw alike, the bitmap's centre on (60.5, 40.5) (the
-  // hotspot 1.2 px down from it); (61, 41.81) is a pixel to the right. on a
-  // pixel's middle the frame samples the same way wherever the pointer is,
-  // so the open hand lights the same number of pixels at every position
-  c.moveTo(60.37, 41.81);
-  const f = same(drawn(c), spriteAt(c.ink[0], 60.37, 41.81));
-  check('draw: a fractional pointer (60.37, 41.81) is the sprite on the pixel\'s middle (60.5, 40.5)', f.ok, f.detail);
+  // a fractional pointer is drawn on a pixel's middle: two pointers whose
+  // points less the hotspot (HOT * SCALE down) fall in pixel (60, 40) draw
+  // alike, the bitmap's centre on (60.5, 40.5); a whole pixel right of the
+  // first is a pixel to the right. on a pixel's middle the frame samples
+  // the same way wherever the pointer is, so the open hand lights the same
+  // number of pixels at every position
+  const hy = CURSOR.HOT.y * S, ya = 40.11 + hy, yb = 40.9 + hy;
+  const at2 = (x, y) => '(' + x + ', ' + y.toFixed(2) + ')';
+  c.moveTo(60.37, ya);
+  const f = same(drawn(c), spriteAt(c.ink[0], 60.37, ya));
+  check('draw: a fractional pointer ' + at2(60.37, ya) + ' is the sprite on the pixel\'s middle (60.5, 40.5)', f.ok, f.detail);
   const fa = drawn(c);
-  c.moveTo(60.9, 41.3);
+  c.moveTo(60.9, yb);
   const fb2 = same(drawn(c), fa);
-  check('draw: (60.9, 41.3) draws the same', fb2.ok, fb2.detail);
-  c.moveTo(61, 41.81);
+  check('draw: ' + at2(60.9, yb) + ' draws the same', fb2.ok, fb2.detail);
+  c.moveTo(61, ya);
   const shifted = new Set([...fa].map((k) => { const [x, y] = xy(k); return (x + 1) + ',' + y; }));
   const fc = same(drawn(c), shifted);
-  check('draw: (61, 41.81) draws it one pixel to the right', fc.ok, fc.detail);
+  check('draw: ' + at2(61, ya) + ' draws it one pixel to the right', fc.ok, fc.detail);
   let least = Infinity, most = 0;
   for (let k = 0; k < 40; k++) { c.moveTo(70 + k * 0.137, 50 + k * 0.071); const n = drawn(c).size; least = Math.min(least, n); most = Math.max(most, n); }
   check('draw: the open hand lights the same pixels in number at 40 pointer phases', least === most, least + '..' + most + ' px');

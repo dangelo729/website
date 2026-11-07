@@ -293,6 +293,24 @@ const between = (a, b) => a + (b - a) * rand();
   check(calls[1].px[0] === D, 'present follows the bits');
 }
 
+// --- colours
+{
+  const pal = Framebuffer.PALETTE;
+  check(pal.length >= 2 && pal[0] === Framebuffer.PAPER && pal[1] === Framebuffer.INK, 'palette: paper is 0, ink is 1');
+  const teal = Framebuffer.colour('#49B6B0');
+  check(teal >= 2 && pal[teal] === 0xFFB0B649, 'colour: #49B6B0 is the abgr word ' + (pal[teal] >>> 0).toString(16));
+  check(Framebuffer.colour('#49b6b0') === teal && Framebuffer.colour('#49B6B0') === teal, 'colour: asked again, the same index, any case');
+  const mauve = Framebuffer.colour('#B5979A');
+  check(mauve !== teal && pal[mauve] === 0xFF9A97B5, 'colour: another is another index');
+  const fb = new Framebuffer(4, 1);
+  fb.set(0, 0, 1); fb.set(1, 0, teal); fb.set(2, 0, mauve);
+  let px = null;
+  fb.present({ putImageData(img) { px = Array.from(new Uint32Array(img.data.buffer)); } });
+  check(same(px.map(String), [Framebuffer.INK, 0xFFB0B649, 0xFF9A97B5, Framebuffer.PAPER].map(String)), 'present: each byte as its colour: ' + px.map((v) => v.toString(16)).join(' '));
+  const d = new Uint8Array(new Uint32Array([pal[teal]]).buffer);
+  check(d[0] === 0x49 && d[1] === 0xB6 && d[2] === 0xB0 && d[3] === 255, 'colour: its bytes are r, g, b, a as a canvas reads them');
+}
+
 // --- sprites
 {
   // index.html's drawGlyph word for word, as it was before it moved here

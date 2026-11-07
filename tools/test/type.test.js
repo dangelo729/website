@@ -94,14 +94,15 @@ function shape(s) {
   return { chars, xs, width: x };
 }
 
-// opts: { noContext, noBox } for the canvases that fail
+// opts: { noContext, noBox } for the canvases that fail, { font } for
+// a type given its own face
 function fakeCanvas(opts = {}) {
   const log = { contexts: [], measures: [], fills: [], reads: [], sizes: [] };
   const ctx2d = {
     font: '10px sans-serif', fillStyle: '#000000', textAlign: 'start', textBaseline: 'alphabetic',
     filled: null,
     measureText(s) {
-      if (this.font !== FONT) throw new Error('measured in ' + this.font);
+      if (this.font !== (opts.font || FONT)) throw new Error('measured in ' + this.font);
       log.measures.push(s);
       const { chars, xs, width } = shape(s);
       if (opts.noBox) return { width };
@@ -119,7 +120,7 @@ function fakeCanvas(opts = {}) {
     },
     clearRect() { this.filled = null; },
     fillText(ch, x, y) {
-      if (this.font !== FONT) throw new Error('filled in ' + this.font);
+      if (this.font !== (opts.font || FONT)) throw new Error('filled in ' + this.font);
       if (this.fillStyle !== '#000' || this.textAlign !== 'left' || this.textBaseline !== 'alphabetic') throw new Error('filled with the wrong pen');
       log.fills.push({ ch, x, y });
       this.filled = { ch, x, y };
@@ -328,6 +329,21 @@ function cropBox(gl, k, ox, base) {
       console.log('\nthe fake line at k 0.5 (each glyph its box):\n' + rows.join('\n') + '\n');
     }
   }
+}
+
+// --- a face of its own -------------------------------------------------------------
+// a type given a weight and a family measures and fills in them, and only
+// them (the fake throws on any other font); either left out is TYPE's
+{
+  const FACE = '500 256px "Helvetica Neue", Helvetica';
+  check('face: font() takes a weight and a family, each defaulting to TYPE\'s',
+    Type.font(500, '"Helvetica Neue", Helvetica') === FACE && Type.font(700) === '700 256px ' + TYPE.FAMILY && Type.font() === FONT);
+  const mf = maker({ font: FACE }), f = new Type(TEXT, mf.make, { weight: 500, family: '"Helvetica Neue", Helvetica' });
+  check('face: a type in its own face measures and fills in it, the same glyphs out of the same fake',
+    f.font === FACE && f.glyphs.length === t.glyphs.length && mf.made[0].log.fills.length === made[0].log.fills.length, f.font);
+  const mw = maker({ font: '700 256px ' + TYPE.FAMILY }), w = new Type(TEXT, mw.make, { weight: 700 });
+  check('face: a weight alone keeps the family', w.font === '700 256px ' + TYPE.FAMILY && w.glyphs.length === t.glyphs.length);
+  check('face: none given is regular helvetica', t.font === FONT);
 }
 
 console.log('\n' + (failures ? failures + ' failed' : 'all passed'));

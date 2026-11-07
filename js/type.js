@@ -33,15 +33,18 @@
 
 const TYPE = {
   EM: 256,                                                  // bitmap px to the em: filled this big once, only ever sampled down
-  WEIGHT: 400,                                              // regular
-  FAMILY: 'Helvetica, "Helvetica Neue", Arial, sans-serif', // the system's helvetica, else the nearest it has
+  WEIGHT: 400,                                              // regular, unless a Type is given its own face
+  FAMILY: 'Helvetica, "Helvetica Neue", Arial, sans-serif', // the system's helvetica, else the nearest it has, unless given its own
   THRESHOLD: 128,                                           // alpha at or over this is ink: half covered or more
   PAD: 4,                                                   // bitmap px read past each measured box: the soft edge, a measure a little short
 };
 
 class Type {
-  constructor(text, makeCanvas) {
+  // face, if given, is { weight, family } for a line in other than the
+  // regular helvetica; either left out is TYPE's
+  constructor(text, makeCanvas, face = {}) {
     this.text = text;
+    this.font = Type.font(face.weight, face.family);
     // a glyph is { ch, at, g, x, dx, dy }: ch at index `at` in the text, g
     // its bitmap { ink, w, h } cropped to its ink, x its origin along the
     // line and (dx, dy) the bitmap's centre from that origin. a space, or
@@ -56,7 +59,7 @@ class Type {
     const canvas = makeCanvas ? makeCanvas() : null;
     const ctx = canvas && canvas.getContext ? canvas.getContext('2d', { willReadFrequently: true }) : null;
     if (!ctx) return;
-    Type.pen(ctx);
+    Type.pen(ctx, this.font);
 
     // measured first, all of them, so one canvas can be sized to hold any.
     // each is filled with its measured box PAD in from the corner
@@ -82,7 +85,7 @@ class Type {
     // sizing the canvas clears it and resets the pen, so the pen goes on after
     canvas.width = mostW;
     canvas.height = mostH;
-    Type.pen(ctx);
+    Type.pen(ctx, this.font);
     let left = -Infinity, right = -Infinity, ascent = -Infinity, descent = -Infinity;
     for (const t of todo) {
       ctx.clearRect(0, 0, mostW, mostH);
@@ -116,15 +119,16 @@ class Type {
     this.descent = descent;
   }
 
-  // the font as a canvas takes it, at the em
-  static font() {
-    return TYPE.WEIGHT + ' ' + TYPE.EM + 'px ' + TYPE.FAMILY;
+  // the font as a canvas takes it, at the em: regular helvetica unless
+  // given a weight or a family
+  static font(weight = TYPE.WEIGHT, family = TYPE.FAMILY) {
+    return weight + ' ' + TYPE.EM + 'px ' + family;
   }
 
-  // the pen every measure and fill is made with: black, the font at the
-  // em, kerning on, x from the origin and y from the baseline
-  static pen(ctx) {
-    ctx.font = Type.font();
+  // the pen every measure and fill is made with: black, the type's font
+  // at the em, kerning on, x from the origin and y from the baseline
+  static pen(ctx, font = Type.font()) {
+    ctx.font = font;
     ctx.fontKerning = 'normal';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
