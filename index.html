@@ -882,7 +882,7 @@
         const p = s.photoAt, x = p.x, y = p.y - sy;
         cfb.blitPixels(p.g, x, y);
       }
-      if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER : undefined);
+      if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there
@@ -949,8 +949,9 @@
     });
 
     // hover: a mouse's pointer over anything a press would press turns it
-    // a colour of the tag's while it is there: a word or an x the first
-    // (Inventor's), an item the second (Software Engineer's); a finger has
+    // a colour of the tag's while it is there: a word the first
+    // (Inventor's), anything in a box, its x and its items, the second
+    // (Software Engineer's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
     // scrolls and the boxes move under a still pointer
