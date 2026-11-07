@@ -16,12 +16,15 @@
 
 const FACE = {
   STEP_S: 1 / 60, MAX_CATCHUP_S: 0.1, // cicada's rates are per 60 hz frame, whatever the screen's rate
-  DEFAULT_RADIUS: 36,                 // the offsets below are for this radius and scale with the bubble
+  DEFAULT_RADIUS: 23,                 // the offsets below are for this radius and scale with the bubble; cicada's skin was looser, at 36
   MIN_HITS: 6,                        // the letters' threshold: 6 of a pixel's 16 points on ink light it
-  EYES: { LEFT: { x: -15, y: -10 }, RIGHT: { x: 15, y: -10 }, LEFT_RATE: 0.09, RIGHT_RATE: 0.10, FRAME_RATE: 0.3,
+  // each feature's SIZE is its art's scale over the face's, and x, y its
+  // place from the bubble's middle; cicada's sizes were all 1, his eyes 15
+  // either side and 10 up, his nose on the middle and his mouth 22 down
+  EYES: { LEFT: { x: -12, y: -8 }, RIGHT: { x: 12, y: -8 }, SIZE: 0.45, LEFT_RATE: 0.09, RIGHT_RATE: 0.10, FRAME_RATE: 0.3,
           OPEN_FRAME: 6, BLINK: true, BLINK_MIN_S: 3, BLINK_MAX_S: 7 }, // cicada drew the lids but never shut them
-  NOSE: { x: 0, y: 0, RATE: 0.05, SNIFF_RATE: 0.4, SNIFF_TOP: 3, PROXIMITY: 2.5 },
-  MOUF: { x: 0, y: 22, RATE: 0.01, OPEN_SPEED: 0.15, OPEN_FRAME: 9, PROXIMITY: 2.5 },
+  NOSE: { x: 0, y: -2, SIZE: 0.85, RATE: 0.05, SNIFF_RATE: 0.4, SNIFF_TOP: 3, PROXIMITY: 2.5 },
+  MOUF: { x: 0, y: 12, SIZE: 1.2, RATE: 0.01, OPEN_SPEED: 0.15, OPEN_FRAME: 9, PROXIMITY: 2.5 },
   PUPILS: { TRACK: 'blob-then-pointer', ELLIPSE_W: 5, ELLIPSE_H: 3, OFFSET_X: 0, OFFSET_Y: -3,
             MAX_DISTANCE: 150, RATE: 0.15, LEFT_LAZINESS: 1.0, RIGHT_LAZINESS: 0.85, RECENTER_RATE: 0.1,
             MIN_EYE_FRAME: 4,              // below this the lid is under where a pupil sits, so mid-blink they go
@@ -149,23 +152,23 @@ class Face {
     }
   }
 
-  // every feature a sprite on its float position at the bubble's scale,
-  // nothing rounded but the frame
+  // every feature a sprite on its float position at the bubble's scale
+  // times its SIZE, nothing rounded but the frame
   draw(fb) {
     const A = FACE_ART, I = this.ink, P = FACE.PUPILS, s = this.scale, m = FACE.MIN_HITS;
-    const eyes = Face.frame(A.eyes, this.eyeFrame);
-    fb.sprite(I.eyes[eyes], this.leftEye.x, this.leftEye.y, s, 0, 1, m);
-    fb.sprite(I.eyes[eyes], this.rightEye.x, this.rightEye.y, s, 0, 1, m);
+    const eyes = Face.frame(A.eyes, this.eyeFrame), es = s * FACE.EYES.SIZE;
+    fb.sprite(I.eyes[eyes], this.leftEye.x, this.leftEye.y, es, 0, 1, m);
+    fb.sprite(I.eyes[eyes], this.rightEye.x, this.rightEye.y, es, 0, 1, m);
     // the pupil's ellipse is in art pixels: its offset scales with the
-    // face, so the pupil stays inside the eye. the half pixel is cicada's:
-    // its plus sat on a whole pixel, whose middle is half a pixel on, which
-    // is also the middle of the art's eye ring
+    // eye, so the pupil stays inside it. the half pixel is cicada's: its
+    // plus sat on a whole pixel, whose middle is half a pixel on, which is
+    // also the middle of the art's eye ring
     if (eyes >= P.MIN_EYE_FRAME) {
-      fb.sprite(I.pupil, this.leftEye.x + (this.leftPupil.x + 0.5) * s, this.leftEye.y + (this.leftPupil.y + 0.5) * s, s, 0, 1, m);
-      fb.sprite(I.pupil, this.rightEye.x + (this.rightPupil.x + 0.5) * s, this.rightEye.y + (this.rightPupil.y + 0.5) * s, s, 0, 1, m);
+      fb.sprite(I.pupil, this.leftEye.x + (this.leftPupil.x + 0.5) * es, this.leftEye.y + (this.leftPupil.y + 0.5) * es, es, 0, 1, m);
+      fb.sprite(I.pupil, this.rightEye.x + (this.rightPupil.x + 0.5) * es, this.rightEye.y + (this.rightPupil.y + 0.5) * es, es, 0, 1, m);
     }
-    fb.sprite(I.nose[Face.frame(A.nose, this.noseFrame)], this.nose.x, this.nose.y, s, 0, 1, m);
-    fb.sprite(I.mouf[Face.frame(A.mouf, this.moufFrame)], this.mouf.x, this.mouf.y, s, 0, 1, m);
+    fb.sprite(I.nose[Face.frame(A.nose, this.noseFrame)], this.nose.x, this.nose.y, s * FACE.NOSE.SIZE, 0, 1, m);
+    fb.sprite(I.mouf[Face.frame(A.mouf, this.moufFrame)], this.mouf.x, this.mouf.y, s * FACE.MOUF.SIZE, 0, 1, m);
   }
 
   // cicada's frame easing: a fraction of the gap each step, snapped when tiny

@@ -30,7 +30,7 @@
   <script src="js/softbody.js"></script>
   <script src="js/face-art.js"></script>
   <script src="js/face.js"></script>
-  <script src="js/beard.js"></script>
+  <!-- <script src="js/beard.js"></script> -->
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
@@ -409,7 +409,7 @@
       LOGO_WARBLE: true, // whether the logos wobble as the text does; a logo's own warble says otherwise
       LOGO_COLOURS: 8, // its own colours, black and white among them,
       PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
-      BUBBLE: 0.6,   // of the photo's box's height, the bubble's box's
+      BUBBLE: 0.45,  // of the photo's box's height, the bubble's box's
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
       CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
@@ -1187,14 +1187,14 @@
         bubble = new SoftBlob(ww / 2, wh / 2, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
         world.blobs.push(bubble);
         face = new Face(bubble);
-        beard = new Beard(ww, wh);
+        // beard = new Beard(ww, wh);
       } else if (bubble) {
         face.moveBy(ww / 2 - bubble.lockX, wh / 2 - bubble.lockY);
         bubble.moveLockTo(ww / 2, wh / 2);
         // the face is carried in one jump: the strands pose afresh on the
         // mouth rather than whip across after it
-        beard.resize(ww, wh);
-        beard.reset();
+        // beard.resize(ww, wh);
+        // beard.reset();
       }
       if (!SHOW_MENU || typeof FONT === 'undefined') return;
       let y = stacked ? top + 2 * BUBBLE_R + GAP : Math.max((H - menuH) / 2, under), i = 0;
@@ -1206,7 +1206,8 @@
     }
 
     // --- the bubble --------------------------------------------------------------
-    // Personal work's box holds cicada's bubble at twice its size: a ring of
+    // Personal work's box holds cicada's bubble, its face at 5/3 its art's
+    // size and the skin drawn in tighter round it than cicada's: a ring of
     // verlet points (js/softbody.js) locked to the middle of the box, which
     // gives when pulled and wobbles home. it lives in a world the size of
     // the box's inside (its room), which keeps it in the box and runs
@@ -1217,17 +1218,18 @@
     // breathe and tilt about its lock. it is filled with paper and then
     // outlined, the skin a bresenham line from point to point, so it covers
     // whatever is under it as a solid thing, and its face (js/face.js)
-    // goes on top, trailing the skin when it moves. the
-    // mustache (js/beard.js, daedalus's) hangs from the mouth, so it trails
-    // as the mouth does and swings when it is carried. cicada's bubble is
-    // radius 36 with the face's art put down 1:1. the face scales with the
-    // radius, drawn as line art (roomView), so at 2 its strokes stay 1 px.
-    const BUBBLE_SCALE = 2;
-    // its radius in world px (72), its points, and its
+    // goes on top, trailing the skin when it moves. the beard (js/beard.js,
+    // daedalus's) is commented out; uncommented, it hangs from the mouth, so
+    // it trails as the mouth does and swings when it is carried. the face's
+    // art goes down 1:1 on a bubble of FACE.DEFAULT_RADIUS (js/face.js) and
+    // scales with the radius, each feature by its own size, drawn as line
+    // art (roomView), so its strokes stay 1 px.
+    const BUBBLE_SCALE = 5 / 3;
+    // its radius in world px (about 38), its points, and its
     // air: the area it fills over its circle's
-    const BUBBLE_R = 36 * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
+    const BUBBLE_R = FACE.DEFAULT_RADIUS * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
-    let beard = null;
+    // let beard = null;
     const bubbleHome = sections.find((s) => s.bubble) || null; // the section whose box it is in
 
     // a framebuffer the bubble draws into as into its world: what goes into
@@ -1247,7 +1249,7 @@
     }
 
     // the bubble through view: filled with paper and outlined, its face
-    // and its mustache over it
+    // over it
     function drawBubble(view) {
       const pts = bubble.points;
       view.fillPolygon(pts, 0);
@@ -1256,7 +1258,7 @@
         view.line(p.x, p.y, q.x, q.y);
       }
       face.draw(view);
-      beard.draw(view);
+      // beard.draw(view);
     }
 
     // a point in world px on the screen as its world's px, wherever the page
@@ -1415,7 +1417,7 @@
 
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
-    // framebuffer. first the bubble's world, its face, its mustache and the
+    // framebuffer. first the bubble's world, its face and the
     // cursor's hand and the boxes catch up with the clock, and the words
     // under them are pushed down; then the bits are cleared, the words and
     // their boxes drawn scrolled, the bubble in its box, every other
@@ -1439,7 +1441,7 @@
         grow(s);
       }
       settle();
-      if (bubble) beard.step(dt, face.mouf, face.scale);
+      // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
       // the words and their boxes first, scrolled and pushed down by the

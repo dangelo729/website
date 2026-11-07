@@ -95,6 +95,20 @@ for (const [part, w, h, n] of [['eyes', 28, 18, 7], ['nose', 24, 24, 4], ['mouf'
     a.w + 'x' + a.h + 'x' + a.frames.length);
 }
 
+// --- cicada's proportions ---------------------------------------------------------
+// the checks below are cicada's face: on a bubble of radius 36, every
+// feature its art's size, the eyes 15 either side and 10 up, the nose on the
+// middle and the mouth 22 down. the page's own (FACE as it is) are checked last
+const PAGE = { radius: FACE.DEFAULT_RADIUS, eyes: FACE.EYES.SIZE, nose: FACE.NOSE.SIZE, mouf: FACE.MOUF.SIZE, left: FACE.EYES.LEFT.x, right: FACE.EYES.RIGHT.x,
+  eyeY: FACE.EYES.LEFT.y, noseY: FACE.NOSE.y, moufY: FACE.MOUF.y };
+FACE.DEFAULT_RADIUS = 36;
+FACE.NOSE.y = 0;
+FACE.MOUF.y = 22;
+FACE.EYES.SIZE = FACE.NOSE.SIZE = FACE.MOUF.SIZE = 1;
+FACE.EYES.LEFT.x = -15;
+FACE.EYES.RIGHT.x = 15;
+FACE.EYES.LEFT.y = FACE.EYES.RIGHT.y = -10;
+
 // --- at rest -----------------------------------------------------------------
 FACE.EYES.BLINK = false;
 const blob = fakeBlob(100, 100, 36);
@@ -429,6 +443,46 @@ function same(a, b) {
   f.moveBy(30, -12);
   const moved = [f.leftEye, f.rightEye, f.nose, f.mouf].every((p, i) => p.x === before[i].x + 30 && p.y === before[i].y - 12);
   check('moveBy: every feature carried exactly, the pupils left alone', moved && f.leftPupil.x === pupil.x && f.leftPupil.y === pupil.y);
+}
+
+// --- the page's proportions ------------------------------------------------------
+// FACE as it is, on the page's bubble (the face at 5/3): each feature drawn
+// at its SIZE of the face's scale, the eyes LEFT and RIGHT of the middle and
+// the mouth its y under it, and nothing else
+{
+  FACE.DEFAULT_RADIUS = PAGE.radius;
+  FACE.NOSE.y = PAGE.noseY;
+  FACE.MOUF.y = PAGE.moufY;
+  FACE.EYES.SIZE = PAGE.eyes;
+  FACE.NOSE.SIZE = PAGE.nose;
+  FACE.MOUF.SIZE = PAGE.mouf;
+  FACE.EYES.LEFT.x = PAGE.left;
+  FACE.EYES.RIGHT.x = PAGE.right;
+  FACE.EYES.LEFT.y = FACE.EYES.RIGHT.y = PAGE.eyeY;
+  const b = fakeBlob(100, 100, PAGE.radius * 5 / 3), f = new Face(b);
+  run(f, b, empty, 200);
+  const s = f.scale, es = s * PAGE.eyes, I = f.ink;
+  check('page: the face at 5/3 on a bubble of radius ' + (PAGE.radius * 5 / 3), near(s, 5 / 3, 1e-12), 'scale ' + s);
+  check('page: the eyes ' + PAGE.left + ' and ' + PAGE.right + ' of the middle and ' + PAGE.eyeY + ' down, the nose ' + PAGE.noseY + ' and the mouth ' + PAGE.moufY + ' down, at the face\'s scale',
+    near(f.leftEye.x, 100 + PAGE.left * s, 1e-9) && near(f.rightEye.x, 100 + PAGE.right * s, 1e-9) && near(f.leftEye.y, 100 + PAGE.eyeY * s, 1e-9) &&
+    near(f.rightEye.y, 100 + PAGE.eyeY * s, 1e-9) && near(f.nose.y, 100 + PAGE.noseY * s, 1e-9) && near(f.mouf.y, 100 + PAGE.moufY * s, 1e-9),
+    fmt(f.leftEye) + ' ' + fmt(f.rightEye) + ' ' + fmt(f.nose) + ' ' + fmt(f.mouf));
+  const fb = makeFb();
+  f.draw(fb);
+  const union = new Set();
+  for (const [g, x, y, k] of [
+    [I.eyes[6], f.leftEye.x, f.leftEye.y, es], [I.eyes[6], f.rightEye.x, f.rightEye.y, es],
+    [I.pupil, f.leftEye.x + (f.leftPupil.x + 0.5) * es, f.leftEye.y + (f.leftPupil.y + 0.5) * es, es],
+    [I.pupil, f.rightEye.x + (f.rightPupil.x + 0.5) * es, f.rightEye.y + (f.rightPupil.y + 0.5) * es, es],
+    [I.nose[0], f.nose.x, f.nose.y, s * PAGE.nose], [I.mouf[0], f.mouf.x, f.mouf.y, s * PAGE.mouf],
+  ]) {
+    const one = makeFb();
+    one.sprite(g, x, y, k, 0, 1, FACE.MIN_HITS);
+    for (const p of litSet(one)) union.add(p);
+  }
+  const u = same(litSet(fb), union);
+  check('page: eyes and pupils at ' + PAGE.eyes + ', nose at ' + PAGE.nose + ', mouth at ' + PAGE.mouf + ' of the face\'s scale', u.ok, u.detail);
+  console.log('\nthe page\'s proportions, blob centre (100, 100) r ' + b.radius.toFixed(1) + ', window x 50..149 y 60..149:\n' + dump(fb, 50, 60, 100, 90) + '\n');
 }
 
 console.log('\n' + (failures ? failures + ' failed' : 'all passed'));

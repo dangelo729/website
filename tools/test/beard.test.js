@@ -46,14 +46,18 @@ let nans = 0;
 function finite(b) {
   for (const p of all(b)) for (const q of p) if (!Number.isFinite(q.x) || !Number.isFinite(q.y)) nans++;
 }
-// strand i's root, segment and rest pose at a mouth and scale: straight
-// along its lean from its root
+// strand i's root, segment and pose at a mouth and scale: along its lean
+// from its root, turning by its curl at each point past the first
 const rootOf = (b, i, m, s) => ({ x: m.x + b.strands[i].x * s, y: m.y + b.strands[i].y * s });
 const segOf = (b, i, s) => b.strands[i].len / (b.strands[i].points - 1) * s;
 function restOf(b, m, s) {
   return b.strands.map((st, i) => {
-    const r = rootOf(b, i, m, s), seg = segOf(b, i, s), sx = Math.sin(st.lean), sy = Math.cos(st.lean);
-    return Array.from({ length: st.points }, (_, j) => ({ x: r.x + sx * seg * j, y: r.y + sy * seg * j }));
+    const r = rootOf(b, i, m, s), seg = segOf(b, i, s), out = [r];
+    for (let j = 1; j < st.points; j++) {
+      const a = st.lean - st.curl * Math.max(0, j - 1), q = out[j - 1];
+      out.push({ x: q.x + Math.sin(a) * seg, y: q.y + Math.cos(a) * seg });
+    }
+    return out;
   });
 }
 // the furthest any point is from where another pose puts it
@@ -113,13 +117,15 @@ function dump(fb, x0, y0, w, h) {
 const lay = new Beard(500, 300);
 {
   const S = lay.strands, B = BEARD;
-  check('layout: 40 strands, 20 a band, 3 points each', S.length === 40 && S.filter((s) => s.band === 0).length === 20 &&
-    S.filter((s) => s.band === 1).length === 20 && S.every((s) => s.points === 3), S.length + ' strands');
+  check('layout: every band\'s count of strands, in the bands\' order, each its band\'s points',
+    S.length === B.BANDS.reduce((n, d) => n + d.count, 0) && S.every((s, k) => k === 0 || s.band >= S[k - 1].band) &&
+    B.BANDS.every((d, b) => S.filter((s) => s.band === b).length === d.count) && S.every((s) => s.points === B.BANDS[s.band].points), S.length + ' strands');
   let onLine = true, uIn = true, inSpan = true, ordered = true, lens = true, leans = true, stiffs = true, phases = true, worstOff = 0;
   let i = 0;
   for (let b = 0; b < B.BANDS.length; b++) {
     const d = B.BANDS[b], ex = d.x1 - d.x0, ey = d.y1 - d.y0, span = 1 / d.locks;
-    let lastU = -Infinity;
+    // the furthest along of the locks before this one, and of this one so far
+    let before = -Infinity, sofar = -Infinity, lastL = 0;
     for (let k = 0; k < d.count; k++, i++) {
       const s = S[i], l = Math.floor(k * d.locks / d.count);
       // where along the band the root lies, and how far off the line
@@ -130,8 +136,9 @@ const lay = new Beard(500, 300);
       if (off > 1e-6) onLine = false;
       if (!(u >= 0 && u <= 1)) uIn = false;
       if (!(u > l * span && u < (l + 1) * span)) inSpan = false;
-      if (!(u > lastU)) ordered = false;
-      lastU = u;
+      if (l !== lastL) { before = Math.max(before, sofar); lastL = l; }
+      if (!(u > before)) ordered = false;
+      sofar = Math.max(sofar, u);
       const len = d.len0 + (d.len1 - d.len0) * u, lean = d.lean0 + (d.lean1 - d.lean0) * u, eps = 1e-9;
       if (!(s.len >= len * (1 - B.LEN_JITTER) - eps && s.len <= len * (1 + B.LEN_JITTER) + eps)) lens = false;
       if (!(Math.abs(s.lean - lean) <= B.LEAN_JITTER + B.STRAND_LEAN + eps)) leans = false;
@@ -140,15 +147,15 @@ const lay = new Beard(500, 300);
     }
   }
   check('layout: every root on its band\'s line', onLine && uIn, 'furthest off ' + worstOff.toExponential(2));
-  check('layout: every root inside its lock\'s span, the locks in order along the band', inSpan && ordered);
+  check('layout: every root inside its lock\'s span, each lock\'s past every one before it along the band', inSpan && ordered);
   check('layout: lengths within LEN_JITTER of the band\'s at the root', lens,
     S.reduce((m, s) => Math.min(m, s.len), Infinity).toFixed(2) + ' .. ' + S.reduce((m, s) => Math.max(m, s.len), 0).toFixed(2) + ' art px');
   check('layout: leans within LEAN_JITTER + STRAND_LEAN of the band\'s', leans);
   check('layout: stiffness within STIFF_JITTER of the band\'s', stiffs);
   check('layout: phases in [0, 2π)', phases);
   // beard.cpp's lay() copied into c++ with these bands, in doubles
-  const g0 = [-0.34892321765422823, -9.9597396287322049, 4.7577577705416676, -0.24462912395596506, 0.36292520284652707, 2.2647147819124469];
-  const g39 = [12.53881758660078, -8.5532133553922174, 7.3114433109344938, 0.97958446152508261, 0.3565121698379517, 2.9827488681028291];
+  const g0 = [-0.34892321765422823, -9.9597396287322049, 5.0179164827393539, -0.26886741355061528, 0.36292520284652707, 2.2647147819124469];
+  const g39 = [12.53881758660078, -8.5532133553922183, 7.0927815477266565, 1.1669434560090304, 0.3565121698379517, 2.9827488681028291];
   const same = (s, g) => [s.x, s.y, s.len, s.lean, s.stiff, s.phase].every((v, k) => Math.abs(v - g[k]) < 1e-12);
   check('layout: strands 0 and 39 as beard.cpp\'s lay() makes them', same(S[0], g0) && same(S[39], g39));
   const again = Beard.lay();
@@ -170,29 +177,31 @@ const mouth = { x: 100, y: 100 };
   b.reset();
   b.step(STEP, mouth, SCALE); // a step after a reset poses, whatever its dt
   finite(b);
-  let rootsOn = true, straight = true, still = true, worstErr = 0;
+  let rootsOn = true, still = true;
+  const want = restOf(b, mouth, SCALE);
   for (let i = 0; i < b.strands.length; i++) {
-    const p = b.points(i), r = rootOf(b, i, mouth, SCALE), seg = segOf(b, i, SCALE), s = b.strands[i];
+    const p = b.points(i), r = rootOf(b, i, mouth, SCALE);
     if (p[0].x !== r.x || p[0].y !== r.y) rootsOn = false;
     for (let j = 1; j < p.length; j++) {
-      const dx = p[j].x - p[j - 1].x, dy = p[j].y - p[j - 1].y;
-      const err = Math.max(Math.abs(dx - Math.sin(s.lean) * seg), Math.abs(dy - Math.cos(s.lean) * seg));
-      worstErr = Math.max(worstErr, err);
-      if (err > 1e-9) straight = false;
       const q = b.pts[i][j];
       if (q.px !== q.x || q.py !== q.y) still = false;
     }
   }
+  const worstErr = worst(all(b), want);
   check('pose: every root at the mouth plus its offset times the scale', rootsOn);
-  check('pose: every strand straight along its lean, segments len / 2 * 0.8', straight, 'worst ' + worstErr.toExponential(2) + ' px');
+  check('pose: every strand along its lean, turning by its curl, segments its length over its segments times the scale', worstErr <= 1e-9, 'worst ' + worstErr.toExponential(2) + ' px');
   check('pose: still, the breeze at 0', still && b.breeze === 0 && b.posed);
 }
 
 // --- a still root, 600 steps ---------------------------------------------------
+// after 5 s to settle from the pose (a curled strand sags a little under its
+// pull), 10 s more: the breeze sways it about where it settled, the longest
+// and limpest (28 px here) about 3 px at their tips
 {
   const b = new Beard(500, 300);
   b.step(0, mouth, SCALE);
-  const rest = restOf(b, mouth, SCALE);
+  for (let k = 0; k < 300; k++) b.step(STEP, mouth, SCALE);
+  const rest = all(b);
   let segWorst = 0, drift = 0, rootsHeld = true;
   const tipLo = b.strands.map(() => Infinity), tipHi = b.strands.map(() => -Infinity);
   for (let k = 0; k < 600; k++) {
@@ -216,7 +225,7 @@ const mouth = { x: 100, y: 100 };
   check('still: the roots stay exactly on their places', rootsHeld);
   check('still: the breeze sways every tip, by its own amount', sway.every((w) => w > 0.05) && Math.max(...sway) > 0.3,
     'tips sway ' + Math.min(...sway).toFixed(2) + ' .. ' + Math.max(...sway).toFixed(2) + ' px across their strands');
-  check('still: no point drifts more than 2 px from its rest place', drift <= 2, 'furthest ' + drift.toFixed(3) + ' px');
+  check('still: no point drifts more than 4 px from where it settled', drift <= 4, 'furthest ' + drift.toFixed(3) + ' px');
 }
 
 // --- determinism ---------------------------------------------------------------
@@ -266,8 +275,10 @@ const mouth = { x: 100, y: 100 };
 }
 
 // --- a jump --------------------------------------------------------------------
-// the root jumps 20 px right in one frame: the tips lag it, and the strands
-// settle back onto their rest. rest under the breeze is a twin posed at the
+// the root jumps 20 px right in one frame: the tips lag it (the shortest, 2
+// px, by a tenth of a px at least), and the strands settle back onto their
+// rest, the longest (the cheeks' and the chin's, up to 28 px here) within
+// 2.5 s. rest under the breeze is a twin posed at the
 // new place and stepped alike (the same breeze, never jolted); the straight
 // pose alone is printed too
 {
@@ -283,7 +294,7 @@ const mouth = { x: 100, y: 100 };
   const rootsOn = first.every((p, i) => { const r = rootOf(b, i, m, SCALE); return p[0].x === r.x && p[0].y === r.y; });
   const tipDx = first.map((p, i) => p[p.length - 1].x - before[i][p.length - 1].x);
   check('jump: the roots land on their targets on the first frame', rootsOn);
-  check('jump: every tip lags its root on the first frame', tipDx.every((d) => d < 20 - 0.25),
+  check('jump: every tip lags its root on the first frame', tipDx.every((d) => d < 20 - 0.1),
     'tips moved ' + Math.min(...tipDx).toFixed(2) + ' .. ' + Math.max(...tipDx).toFixed(2) + ' px, mean ' + (tipDx.reduce((a, d) => a + d, 0) / tipDx.length).toFixed(2));
   const rest = restOf(b, m, SCALE);
   let underTwin = -1, underRest = -1, at2 = 0;
@@ -292,12 +303,12 @@ const mouth = { x: 100, y: 100 };
     twin.step(STEP, there, SCALE);
     finite(b);
     const now = all(b), wt = worst(now, all(twin)), wr = worst(now, rest);
-    if (k === 120) at2 = wt;
+    if (k === 150) at2 = wt;
     if (wt >= 0.5) underTwin = -1; else if (underTwin < 0) underTwin = k;
     if (wr >= 0.5) underRest = -1; else if (underRest < 0) underRest = k;
   }
-  check('jump: settled within 2 s, every point within 0.5 px of its rest from then on', underTwin > 0 && underTwin <= 120,
-    'under 0.5 px of the twin from ' + (underTwin / 60).toFixed(2) + ' s (' + at2.toFixed(3) + ' px at 2 s); of the straight pose from ' + (underRest / 60).toFixed(2) + ' s');
+  check('jump: settled within 2.5 s, every point within 0.5 px of its rest from then on', underTwin > 0 && underTwin <= 150,
+    'under 0.5 px of the twin from ' + (underTwin / 60).toFixed(2) + ' s (' + at2.toFixed(3) + ' px at 2.5 s); of the pose from ' + (underRest / 60).toFixed(2) + ' s');
 }
 
 // --- kept in -------------------------------------------------------------------
@@ -350,7 +361,7 @@ check('no NaN anywhere, every check\'s every step', nans === 0, nans + ' non-fin
   full.bits.fill(1);
   b.draw(full);
   check('draw: nothing dark is written', full.bits.every((v) => v === 1));
-  console.log('\nthe mustache alone, mouth (100, 100) scale 0.8, 1.5 s on, window x 76..123 y 90..105:\n' + dump(fb, 76, 90, 48, 16) + '\n');
+  console.log('\nthe beard, mouth (100, 100) scale 0.8, 1.5 s on, window x 76..123 y 90..125:\n' + dump(fb, 76, 90, 48, 36) + '\n');
 }
 
 console.log('\n' + (failures ? failures + ' failed' : 'all passed'));
