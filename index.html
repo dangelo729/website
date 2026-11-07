@@ -35,6 +35,7 @@
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
   <script src="js/about-photo.js"></script>
+  <script src="js/logos.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -83,6 +84,8 @@
     // the four together, as makeLetter takes them: the name's letters take
     // these too (NAME.WOBBLE), and could be given their own
     const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
+    // none of it: a letter, or a picture, that holds still
+    const STILL = { SWAY_PX: 0, SWAY_HZ: 0, BOB_PX: 0, BOB_HZ: 0, BREATHE: 0, BREATHE_HZ: 0, TILT_RAD: 0, TILT_HZ: 0 };
 
     // the glyph cut to its ink columns as a sprite's bitmap, or null for a
     // blank
@@ -104,7 +107,9 @@
 
     // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
     // its rates and phases seeded from i, in v: ink, or a colour of the
-    // framebuffer's palette
+    // framebuffer's palette. g a picture ({ px, w, h }, the photo or a logo)
+    // rather than ink, it goes through Framebuffer.spritePixels in its own
+    // colours, wobbling as a letter does
     function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
       const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
       const phase = (k) => 2 * Math.PI * noise(i, k);
@@ -117,12 +122,12 @@
         // (clockwise) than its tilt, in v if given rather than its own
         draw(t, dy = 0, into = fb, turn = 0, v = this.v) {
           const w = 2 * Math.PI * t, m = this.wob;
-          into.sprite(this.g,
-            this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
-            this.cy + dy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
-            this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
-            m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn,
-            v);
+          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh);
+          const y = this.cy + dy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh);
+          const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
+          const a = m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn;
+          if (this.g.px) into.spritePixels(this.g, x, y, s, a);
+          else into.sprite(this.g, x, y, s, a, v);
         },
       };
     }
@@ -287,8 +292,8 @@
     // section that opens (SECTIONS, below): About, Professional work and
     // Personal work.
     // they are in the name's helvetica at SIZE of the name's size, or less
-    // when the widest would not fit across the screen, their ink's left on
-    // the name's (each centred, stacked), the first's top BELOW of the
+    // when the widest would not fit across the screen, their ink's left
+    // INDENT in from the name's (each centred, stacked), the first's top BELOW of the
     // name's ems under the header's ink and each next one's SPACE of their
     // size under the one before's. they are what scrolls: the document is
     // given height past the window (#scroll) and the canvas stays fixed
@@ -308,6 +313,7 @@
       SIZE: 0.6,   // of the name's world px to the em, the most
       BELOW: 1,    // the name's ems from the header's ink to the first word's ink
       SPACE: 1.8,  // of the words' size: from a word's ink, or its box, to the next word's ink
+      INDENT: 0.4, // of the words' size: their ink's left in from the name's, wide
       FIRST: 300,  // their letters' seeds run from here, a hundred a word, clear of the tag's
     };
     const scroller = document.getElementById('scroll');
@@ -387,6 +393,13 @@
       CARET: 0.45,   // the items' ems from the caret's ink to the name's
       DROP: 0.6,     // the items' ems from under a name to its text's top
       FLIP: 2.76,    // how many times as fast an item's caret turns as its text opens
+      LOGO_W: 12,    // the text's ems an item's logo may span, at most
+      LOGO_H: 4,     // and stand, at most
+      LOGO_LEAST: 20, // the text's ems its text keeps beside the logo, else the logo goes above it
+      LOGO_GAP: 2.5, // the text's ems between one logo and the next, under it or beside it
+      LOGO_WARBLE: true, // whether the logos wobble as the text does; a logo's own warble says otherwise
+      LOGO_COLOURS: 8, // its own colours, black and white among them,
+      PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
       CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
@@ -412,9 +425,9 @@
     const SECTIONS = [
       { title: 'About',             body: loremTypes, photo: true,  o: 0 },
       { title: 'Professional work', photo: false, o: 0, items: [
-        { title: 'Sennheiser',        links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
-        { title: 'BrandNewNoise',     links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
-        { title: 'Critter & Guitari', links: [['critterandguitari.com', 'https://critterandguitari.com']] },
+        { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
+        { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
+        { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
       ] },
       { title: 'Personal work',     body: loremTypes, photo: false, o: 0 },
     ];
@@ -453,12 +466,20 @@
       items: (s.items || []).map((x) => ({
         title: x.title, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
+        // its logos, each { key, scale, dx, photo, warble }: a key of
+        // js/logos.js, how big it may be of LOGO_W and LOGO_H, how many of
+        // the text's ems it is nudged right of the column, whether it is a
+        // photo (its colours PRODUCT_COLOURS) and whether it wobbles (else
+        // as LOGO_WARBLE has it); laid out, each dithered, placed and made
+        // a letter that wobbles,
+        // { g, x, y, letter }
+        logos: x.logos || [], logosAt: [],
         linkType: new Type((x.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
         open: false, p: 0, turn: 0, caret: null, letters: [], text: [], base: 0, clip: 0, span: 0, ext: 0, hit: null, shift: 0, right: 0, wide: 0,
       })),
       rest: 0,
       restX1: 0,
-      photoAt: null,    // the dithered photo and its top left, { g, x, y }
+      photoAt: null,    // the dithered photo, its top left and it as a letter that wobbles, { g, x, y, letter }
       // its warble: each edge its own sine, left and right at about the
       // letters' sway rate and top and bottom their bob's, rates and
       // phases seeded as a letter's are
@@ -467,6 +488,22 @@
         ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n - 2, e + 4),
       })),
     }));
+
+    // the logos, each once it has loaded with its own few colours worked
+    // out once, as the photo's are, by key: { img, colours }. the page is
+    // laid out again with each
+    const logoArt = {};
+    const photoLogos = new Set(SECTIONS.flatMap((s) => (s.items || []).flatMap((x) => (x.logos || []).filter((l) => l.photo).map((l) => l.key))));
+    if (typeof LOGOS !== 'undefined') for (const key in LOGOS) {
+      const img = new Image();
+      img.onload = () => {
+        const colours = imagePalette(img, photoLogos.has(key) ? BOX.PRODUCT_COLOURS : BOX.LOGO_COLOURS);
+        if (!colours) return;
+        logoArt[key] = { img, colours };
+        if (fb) layout();
+      };
+      img.src = LOGOS[key];
+    }
 
     // the photo, once it has loaded; it lays the page out again when it has
     const photo = new Image();
@@ -480,7 +517,7 @@
     // go to black and white, and, sharp, each channel sharpened by SHARPEN
     // of its difference from a 3 x 3 blur so edges survive the dither;
     // null if the canvas cannot be read
-    const PHOTO = { LEVELS: 0.02, SHARPEN: 1, COLOURS: 32, SAMPLE: 128 };
+    const PHOTO = { LEVELS: 0.02, SHARPEN: 1, COLOURS: 32, SAMPLE: 128, WARBLE: false }; // WARBLE: whether it wobbles as the text does
     function readPhoto(w, h, sharp, crop) {
       try {
         const c = document.createElement('canvas');
@@ -514,6 +551,47 @@
       } catch (e) {
         return null;
       }
+    }
+
+    // an image drawn at w x h over paper, read back as r, g, b; null if the
+    // canvas cannot be read
+    function readImage(img, w, h) {
+      try {
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        x.fillStyle = '#fff';
+        x.fillRect(0, 0, w, h);
+        x.imageSmoothingQuality = 'high';
+        x.drawImage(img, 0, 0, w, h);
+        const d = x.getImageData(0, 0, w, h).data, n = w * h, rgb = new Float32Array(3 * n);
+        for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) rgb[3 * i + k] = d[4 * i + k];
+        return rgb;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // a logo's own colours, as the photo's: n less two by median cut over
+    // it at PHOTO.SAMPLE px wide, and black and white, each a place in the
+    // framebuffer's palette. { rgb, v }, or null
+    function imagePalette(img, n) {
+      const w = PHOTO.SAMPLE, h = Math.max(1, Math.round(w * img.naturalHeight / img.naturalWidth)), rgb = readImage(img, w, h);
+      if (!rgb) return null;
+      const colours = [[0, 0, 0], [255, 255, 255], ...Framebuffer.medianCut(rgb, n - 2)];
+      const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+      return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
+    }
+
+    // a logo at w x h in its colours, dithered as the photo is: a bitmap
+    // { px, w, h } of the framebuffer's v's, or null
+    function ditherLogo(art, w, h) {
+      const rgb = readImage(art.img, w, h);
+      if (!rgb) return null;
+      const g = Framebuffer.ditherColour(rgb, w, h, art.colours.rgb);
+      for (let i = 0; i < g.px.length; i++) g.px[i] = art.colours.v[g.px[i]];
+      return g;
     }
 
     // the photo's own colours, worked out once it has loaded: COLOURS less
@@ -593,11 +671,11 @@
       if (laid.length) {
         // one size for them all, the most the widest leaves room for
         const widest = Math.max(...laid.map((s) => (s.type.left + s.type.right) / TYPE.EM));
-        const size = Math.min(ABOUT.SIZE * name.size, (stacked ? NAME.NARROW * W : W - 2 * NAME.X) / widest), k = size / TYPE.EM;
+        const size = Math.min(ABOUT.SIZE * name.size, stacked ? NAME.NARROW * W / widest : (W - 2 * NAME.X) / (widest + ABOUT.INDENT)), k = size / TYPE.EM;
         let y = bottom + ABOUT.BELOW * name.size; // the next word's ink's top
         for (const s of laid) {
           const t = s.type, ems = (t.left + t.right) / TYPE.EM;
-          const ox = (stacked ? (W - ems * size) / 2 : name.left) + k * t.left, base = y + k * t.ascent;
+          const ox = (stacked ? (W - ems * size) / 2 : name.left + ABOUT.INDENT * size) + k * t.left, base = y + k * t.ascent;
           let o = null, os = 0;
           for (const gl of t.glyphs) {
             const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
@@ -684,7 +762,7 @@
         });
         if (photoReady) {
           const g = ditherPhoto(pw, ph);
-          if (g) s.photoAt = { g, x: px, y: py };
+          if (g) s.photoAt = { g, x: px, y: py, letter: makeLetter(g, px + pw / 2, py + ph / 2, seed + 9000, 1, PHOTO.WARBLE ? WOBBLE : STILL) };
         }
         inside = py + ph + capH;
       }
@@ -734,9 +812,46 @@
           it.letters.push(makeLetter(gl.g, ox + ik * (gl.x + gl.dx), base + ik * gl.dy, seed + 3000 + 100 * i + gl.at, ik, WOBBLE));
         it.hit = { x0: ix0, y0: base - ik * t.ascent, x1: ox + ik * t.right, y1: base + ik * t.descent };
         it.right = it.hit.x1; // its furthest ink right, its text's too
+        // its logos that have loaded, each no more than its scale of LOGO_W
+        // ems across or LOGO_H tall: wide, LOGO_GAP apart down a column right
+        // of its text, a GUTTER on (and each its dx further) and level with
+        // its top, each centred across the column; stacked, or when that would leave the text under
+        // LOGO_LEAST ems, LOGO_GAP apart across a row above the text, each
+        // centred on the row's middle and all shrunk alike to fit it
+        const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
+        let colW = 0;
+        for (const a of arts) {
+          const aspect = a.art.img.naturalWidth / a.art.img.naturalHeight, k = a.l.scale || 1;
+          a.w = BOX.LOGO_W * k * bs;
+          a.h = a.w / aspect;
+          if (a.h > BOX.LOGO_H * k * bs) { a.h = BOX.LOGO_H * k * bs; a.w = a.h * aspect; }
+          colW = Math.max(colW, a.w);
+        }
+        const beside = arts.length > 0 && !stacked && ix1 - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
+        const fit = beside || across + gaps <= ix1 - nx ? 1 : Math.max(0, ix1 - nx - gaps) / across;
+        let rowH = 0;
+        for (const a of arts) {
+          a.w = Math.max(1, Math.round(a.w * fit));
+          a.h = Math.max(1, Math.round(a.h * fit));
+          rowH = Math.max(rowH, a.h);
+        }
         // its text, from DROP under its name
-        const tw = stacked ? ix1 - nx : Math.min(ix1 - nx, BOX.MEASURE * bs);
-        let tb = base + BOX.DROP * is + 0.75 * bs, tl = tb;
+        const room = beside ? ix1 - nx - BOX.GUTTER * bs - colW : ix1 - nx;
+        const tw = stacked ? room : Math.min(room, BOX.MEASURE * bs);
+        const top = base + BOX.DROP * is;
+        let tb = top + 0.75 * bs, tl = tb, logoBottom = top, ly = top, lx = nx;
+        it.logosAt = [];
+        for (const a of arts) {
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : lx);
+          const y = Math.round(beside ? ly : top + (rowH - a.h) / 2), g = ditherLogo(a.art, a.w, a.h);
+          if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
+          it.right = Math.max(it.right, x + a.w);
+          logoBottom = Math.max(logoBottom, y + a.h);
+          ly = y + a.h + BOX.LOGO_GAP * bs;
+          lx = x + a.w + BOX.LOGO_GAP * bs;
+        }
+        if (arts.length && !beside) tb = logoBottom + 0.9 * bs + 0.75 * bs;
         loremTypes.forEach((pt, p) => {
           for (const line of wrapType(pt, tw / bk)) {
             it.right = Math.max(it.right, nx + bk * (line.right - line.left));
@@ -766,7 +881,7 @@
           it.right = Math.max(it.right, ox + bk * lt.right);
           tl = tb;
         }
-        const bottom = tl + 0.3 * bs;
+        const bottom = Math.max(tl + 0.3 * bs, logoBottom);
         it.base = base;
         it.clip = base + 0.3 * is;
         it.span = bottom - it.clip;
@@ -907,10 +1022,7 @@
       cfb.clear();
       const lo = Math.max(top, 0) - BOX.MOST, hi = Math.min(bottom, H) + BOX.MOST;
       for (const L of s.bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
-      if (s.photoAt) {
-        const p = s.photoAt, x = p.x, y = p.y - sy;
-        cfb.blitPixels(p.g, x, y);
-      }
+      if (s.photoAt) s.photoAt.letter.draw(t, -sy, cfb);
       if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
@@ -928,6 +1040,7 @@
             const lv = hover && hover.link === k ? HOVER_LINK : undefined;
             for (const L of k.letters) if (see(L)) L.draw(t, d, cfb, 0, lv);
           }
+          for (const l of it.logosAt) l.letter.draw(t, Math.round(d), cfb);
           cfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
       }
