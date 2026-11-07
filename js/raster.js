@@ -1,6 +1,7 @@
 // the world bitmap: one byte a world pixel, 1 lit and 0 dark, row-major.
 // everything on the page is drawn into it and nothing else touches the
-// canvas; present() hands the whole of it over once a frame. the
+// canvas; present() hands the whole of it over once a frame, in the page's
+// two colours (lit is ink, dark is paper: black on white). the
 // primitives but sprite() are cicada's renderer's, pixel for pixel, so
 // what is drawn here lands where it did there. every write is clipped
 // silently.
@@ -182,10 +183,15 @@ Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
   }
 };
 
-// lit is opaque white and dark opaque black; the canvas is exactly this
-// size, so the copy lands at its corner
+// the page's two colours, as the little-endian ABGR words a canvas pixel
+// is: lit pixels are INK, dark ones PAPER, both opaque. black on white;
+// swap the two for white on black
+Framebuffer.INK = 0xFF000000;
+Framebuffer.PAPER = 0xFFFFFFFF;
+
+// the canvas is exactly this size, so the copy lands at its corner
 Framebuffer.prototype.present = function (ctx) {
-  const bits = this.bits, px = this.px, n = bits.length;
-  for (let i = 0; i < n; i++) px[i] = bits[i] ? 0xFFFFFFFF : 0xFF000000;
+  const bits = this.bits, px = this.px, n = bits.length, ink = Framebuffer.INK, paper = Framebuffer.PAPER;
+  for (let i = 0; i < n; i++) px[i] = bits[i] ? ink : paper;
   ctx.putImageData(this.img, 0, 0);
 };

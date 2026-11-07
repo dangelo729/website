@@ -282,9 +282,11 @@ const between = (a, b) => a + (b - a) * rand();
   fb.present(ctx);
   check(calls.length === 1 && calls[0].x === 0 && calls[0].y === 0, 'present puts at 0, 0');
   check(calls[0].img.width === 3 && calls[0].img.height === 2, 'present image size');
-  const L = 0xFFFFFFFF, D = 0xFF000000;
+  // lit is ink, black; dark is paper, white
+  const L = Framebuffer.INK, D = Framebuffer.PAPER;
+  check(L === 0xFF000000 && D === 0xFFFFFFFF, 'ink is opaque black, paper opaque white');
   check(same(calls[0].px.map(String), [L, D, D, D, D, L].map(String)), 'present words: ' + calls[0].px.map((v) => v.toString(16)).join(' '));
-  check(same(calls[0].data.slice(0, 8).map(String), [255, 255, 255, 255, 0, 0, 0, 255].map(String)), 'present bytes are opaque white and black');
+  check(same(calls[0].data.slice(0, 8).map(String), [0, 0, 0, 255, 255, 255, 255, 255].map(String)), 'present bytes are opaque black and white');
   fb.set(0, 0, 0);
   fb.present(ctx);
   check(calls[1].img === calls[0].img, 'present reuses one image');

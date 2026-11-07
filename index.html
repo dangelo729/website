@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Peter D'Angelo</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
+    html, body { margin: 0; height: 100%; background: #fff; overflow: hidden; }
     /* a press on the canvas is the page's own: no scrolling, no selecting.
        no cursor either: the pointer is drawn into the frame as a hand */
     canvas { display: block; image-rendering: pixelated; cursor: none;
@@ -23,6 +24,7 @@
   <script src="js/beard.js"></script>
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
+  <script src="js/type.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -66,6 +68,9 @@
     const BOB_PX   = 0.5,  BOB_HZ     = 0.23; // along y
     const BREATHE  = 0.04, BREATHE_HZ = 0.31; // of the scale: 0.845 to 0.915
     const TILT_RAD = 0.03, TILT_HZ    = 0.17; // about the centre
+    // the four together, as makeLetter takes them: the name's letters take
+    // these too (NAME.WOBBLE), and could be given their own
+    const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
 
     // the glyph cut to its ink columns as a sprite's bitmap, or null for a
     // blank
@@ -85,20 +90,22 @@
       return s - Math.floor(s);
     }
 
-    function makeLetter(g, cx, cy, i) {
+    // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
+    // its rates and phases seeded from i
+    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE) {
       const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
       const phase = (k) => 2 * Math.PI * noise(i, k);
       return {
-        g, cx, cy,
-        swayHz: rate(SWAY_HZ, 1), bobHz: rate(BOB_HZ, 2), breatheHz: rate(BREATHE_HZ, 3), tiltHz: rate(TILT_HZ, 4),
+        g, cx, cy, scale, wob,
+        swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
         draw(t) {
-          const w = 2 * Math.PI * t;
+          const w = 2 * Math.PI * t, m = this.wob;
           fb.sprite(this.g,
-            this.cx + SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
-            this.cy + BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
-            LETTER_SCALE * (1 + BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
-            TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh));
+            this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
+            this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
+            this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
+            m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh));
         },
       };
     }
@@ -129,12 +136,57 @@
       return last ? w - LETTER_SCALE : w;
     }
 
+    // --- the name ----------------------------------------------------------------
+    // the name across the top left, in helvetica, as big as the page gives
+    // it room for. it is not browser text: js/type.js fills each glyph once,
+    // big, into an offscreen canvas and reads it back as a bitmap, and here
+    // each one is a letter like the menu's, drawn through the same sampler
+    // at the name's size with the same sway, bob, breathe and tilt, seeded
+    // from its own place in the name. the bitmaps are made once, at the em;
+    // a resize only places them and sets their scale, size over the em. at
+    // these sizes the breathe and the tilt do most of the moving: the sway
+    // and the bob are half a world pixel whatever the letter's size. wide,
+    // its ink's top left sits on the menu's margin, at SIZE or smaller when
+    // the page is too narrow for that; narrow, it is centred across the top
+    // and the bubble and the menu stack under it. the rest of the page keeps
+    // GAP clear of its box. with no 2d canvas there is no name, as there
+    // is no menu without font.js.
+    const NAME = {
+      TEXT: 'Peter D\'Angelo',
+      SIZE: 64,        // world px to the em, the most it will be
+      WIDTH: 0.68,     // of the viewport's width its ink may span, wide
+      NARROW: 0.9,     // the same, stacked
+      X: 12,           // its ink's left edge, wide: the menu's margin
+      TOP: 12,         // world px from the top edge to its tallest ink
+      GAP: 12,         // from its box's bottom to anything under it
+      FIRST: 100,      // its letters' seeds run from here, clear of the menu's
+      WOBBLE,          // the menu's sway, bob, breathe and tilt
+    };
+    const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
+
+    // the name's letters into letters, sized to fit and placed; the bottom
+    // of its box, or null when there is no name
+    function layoutName(stacked) {
+      const t = nameType;
+      if (!t.glyphs.length) return null;
+      const ems = (t.left + t.right) / TYPE.EM; // its ink's width, in ems
+      const size = Math.min(NAME.SIZE, (stacked ? NAME.NARROW : NAME.WIDTH) * W / ems);
+      const k = size / TYPE.EM;
+      // the line's origin on its baseline, from where its ink's top left goes
+      const ox = (stacked ? (W - ems * size) / 2 : NAME.X) + k * t.left, base = NAME.TOP + k * t.ascent;
+      for (const gl of t.glyphs)
+        letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE));
+      return base + k * t.descent;
+    }
+
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and the bubble in the middle, each
-    // centred on the viewport's height. narrow (a phone): the bubble on top
-    // and the menu under it, every line centred, the stack centred. the
-    // bubble is made here the first time; after that a resize carries its
-    // lock, skin, face and all, to the new middle, so nothing flies across.
+    // centred on the viewport's height, or pushed down clear of the name
+    // when the page is too short for that. narrow (a phone): the bubble on
+    // top and the menu under it, every line centred, the stack centred in
+    // what the name leaves. the bubble is made here the first time; after
+    // that a resize carries its lock, skin, face and all, to the new middle,
+    // so nothing flies across.
     const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
     const PANEL_W = 128, PANEL_H = 64;
     const STACK_BELOW = 260; // viewport width in world px under which it stacks
@@ -147,10 +199,13 @@
       const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 6;
       const menuH = MENU.length * lineH - 6;
       const stacked = W < STACK_BELOW;
-      const top = stacked ? (H - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
+      // the name first: everything else keeps clear under it
+      const nameBottom = layoutName(stacked);
+      const under = nameBottom === null ? 0 : nameBottom + NAME.GAP;
+      const top = stacked ? under + (H - under - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
       // the middle of the centre object, unrounded; the panel, when shown,
       // sits on the same middle
-      const cx = W / 2, cy = stacked ? top + BUBBLE_R : H / 2;
+      const cx = W / 2, cy = stacked ? top + BUBBLE_R : Math.max(H / 2, under + BUBBLE_R);
       panelX = Math.floor(cx - PANEL_W / 2);
       panelY = Math.floor(cy - PANEL_H / 2);
       // before the font check: the bubble does not need the font
@@ -170,7 +225,7 @@
         beard.reset();
       }
       if (typeof FONT === 'undefined') return;
-      let y = stacked ? top + 2 * BUBBLE_R + GAP : (H - menuH) / 2, i = 0;
+      let y = stacked ? top + 2 * BUBBLE_R + GAP : Math.max((H - menuH) / 2, under), i = 0;
       for (const line of MENU) {
         letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : 12, y, i));
         i += line.length;
