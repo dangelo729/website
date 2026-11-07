@@ -109,7 +109,8 @@
     // its rates and phases seeded from i, in v: ink, or a colour of the
     // framebuffer's palette. g a picture ({ px, w, h }, the photo or a logo)
     // rather than ink, it goes through Framebuffer.spritePixels in its own
-    // colours, wobbling as a letter does
+    // colours, wobbling as a letter does. g null, it is the wobble alone,
+    // for something drawn its own way (the bubble)
     function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
       const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
       const phase = (k) => 2 * Math.PI * noise(i, k);
@@ -117,17 +118,23 @@
         g, cx, cy, scale, wob, v,
         swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
         swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
+        // where it is at time t: its centre, its scale and its tilt, { x, y, s, a }
+        pose(t) {
+          const w = 2 * Math.PI * t, m = this.wob;
+          return {
+            x: this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
+            y: this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
+            s: this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
+            a: m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
+          };
+        },
         // at time t, dy world px down from home (up, for a scroll), into
         // the page's framebuffer or another, turned turn radians more
         // (clockwise) than its tilt, in v if given rather than its own
         draw(t, dy = 0, into = fb, turn = 0, v = this.v) {
-          const w = 2 * Math.PI * t, m = this.wob;
-          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh);
-          const y = this.cy + dy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh);
-          const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
-          const a = m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn;
-          if (this.g.px) into.spritePixels(this.g, x, y, s, a);
-          else into.sprite(this.g, x, y, s, a, v);
+          const p = this.pose(t);
+          if (this.g.px) into.spritePixels(this.g, p.x, p.y + dy, p.s, p.a + turn);
+          else into.sprite(this.g, p.x, p.y + dy, p.s, p.a + turn, v);
         },
       };
     }
@@ -345,7 +352,9 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // inside, lorem ipsum in the tag's face, under the x at BODY size wide
+    // Personal work's box is as wide as About's and BUBBLE of its height,
+    // with the bubble (below) in the middle of it and nothing else. in the others, lorem ipsum in the
+    // tag's face, under the x at BODY size wide
     // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
     // the photo (js/about-photo.js)
     // dithered at its size in its own few colours, each a place in the
@@ -400,6 +409,7 @@
       LOGO_WARBLE: true, // whether the logos wobble as the text does; a logo's own warble says otherwise
       LOGO_COLOURS: 8, // its own colours, black and white among them,
       PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
+      BUBBLE: 0.6,   // of the photo's box's height, the bubble's box's
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
       CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
@@ -417,8 +427,8 @@
     const LINK_SEP = ' | '; // between an item's links
 
     // each section: its word, what goes in its box (paragraphs of type,
-    // and the photo or not, or items) and, laid out, its letters and its
-    // box. every
+    // and the photo or not, or items, or the bubble) and, laid out, its
+    // letters and its box. every
     // place below is world px from the page's top as laid out, with every
     // box above it shut; off is how far down the boxes above have it now.
     // o is which of the word's o's, from 0, its box comes out of
@@ -429,7 +439,7 @@
         { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
         { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
       ] },
-      { title: 'Personal work',     body: loremTypes, photo: false, o: 0 },
+      { title: 'Personal work',     bubble: true, o: 0 },
     ];
     const sections = SECTIONS.map((s, n) => ({
       ...s,
@@ -480,6 +490,9 @@
       rest: 0,
       restX1: 0,
       photoAt: null,    // the dithered photo, its top left and it as a letter that wobbles, { g, x, y, letter }
+      // with the bubble, its world's place in the box, whole px, and its
+      // wobble, a letter's with nothing to draw: { x, y, w, h, letter }
+      room: null,
       // its warble: each edge its own sine, left and right at about the
       // letters' sway rate and top and bottom their bob's, rates and
       // phases seeded as a letter's are
@@ -664,7 +677,7 @@
       for (const s of sections) {
         s.letters = [];
         s.bodyLetters = [];
-        s.photoAt = null;
+        s.photoAt = s.room = null;
         s.ink = s.box.shut = s.box.full = s.box.close = null;
       }
       const laid = name ? sections.filter((s) => s.type.glyphs.length) : [];
@@ -722,6 +735,15 @@
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
+      if (s.bubble) {
+        // as wide as the photo's box and BUBBLE as tall, and the bubble's
+        // world its inside, within its outline
+        const like = sections.find((o) => o.photo && o.box.full), tall = BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * edge);
+        box.full = { x0, y0, x1, y1: y0 + tall, r: BOX.RADIUS * size, line: BOX.LINE };
+        const rx = Math.ceil(x0 + BOX.LINE), ry = Math.ceil(y0 + BOX.LINE);
+        s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
+        return;
+      }
       // the caption under the photo, and how tall it stands with its gap
       const cs = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), ck = cs / TYPE.EM;
       const capH = (BOX.CAP_GAP + 0.75 + (captionTypes.length - 1) * BOX.CAP_LEAD + 0.3) * cs;
@@ -1023,6 +1045,7 @@
       const lo = Math.max(top, 0) - BOX.MOST, hi = Math.min(bottom, H) + BOX.MOST;
       for (const L of s.bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
       if (s.photoAt) s.photoAt.letter.draw(t, -sy, cfb);
+      if (s.room && bubble) drawBubble(roomView(cfb, t, sy));
       if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
@@ -1096,6 +1119,7 @@
     // a click: the x shuts its box, a link opens its site in a new tab, an
     // item opens or shuts its text, a word opens its box
     canvas.addEventListener('click', (e) => {
+      if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e), h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) window.open(h.link.url, '_blank', 'noopener');
@@ -1117,17 +1141,19 @@
     canvas.addEventListener('pointerleave', () => { hoverAt = null; });
 
     // --- layout ------------------------------------------------------------------
-    // wide: the menu down the left side and the bubble in the middle, each
-    // centred on the viewport's height, or pushed down clear of the name
-    // when the page is too short for that. narrow (a phone): the bubble on
-    // top and the menu under it, every line centred, the stack centred in
-    // what the name leaves. the bubble is made here the first time; after
-    // that a resize carries its lock, skin, face and all, to the new middle,
-    // so nothing flies across.
-    // the menu and the bubble are off for now, the name and its tag alone
-    // on the page; true brings each back. with no bubble the world is
-    // still made, empty, so a press grabs nothing
-    const SHOW_MENU = false, SHOW_BUBBLE = false;
+    // wide: the menu down the left side and daedalus's panel in the middle,
+    // each centred on the viewport's height, or pushed down clear of the
+    // name when the page is too short for that. narrow (a phone): the panel
+    // on top and the menu under it, every line centred, the stack centred
+    // in what the name leaves. the menu is off for now; true brings it
+    // back.
+    //
+    // the bubble's world is its room in Personal work's box (layoutBox),
+    // the bubble locked to its middle. the bubble is made here the first
+    // time there is a room; after that a resize carries its lock, skin,
+    // face and all to the new middle, so nothing flies across. with no room
+    // the world is the viewport, empty, so a press grabs nothing
+    const SHOW_MENU = false;
     const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
     const PANEL_W = 128, PANEL_H = 64;
     const STACK_BELOW = 463; // viewport width in world px under which it stacks
@@ -1154,23 +1180,20 @@
       panelX = Math.floor(cx - PANEL_W / 2);
       panelY = Math.floor(cy - PANEL_H / 2);
       // before the font check: the bubble does not need the font
-      if (!world) {
-        world = new World(W, H);
-        if (SHOW_BUBBLE) {
-          bubble = new SoftBlob(cx, cy, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
-          world.blobs.push(bubble);
-          face = new Face(bubble);
-          beard = new Beard(W, H);
-        }
-      } else if (!bubble) {
-        world.resize(W, H);
-      } else {
-        world.resize(W, H);
-        face.moveBy(cx - bubble.lockX, cy - bubble.lockY);
-        bubble.moveLockTo(cx, cy);
+      const room = bubbleHome && bubbleHome.room, ww = room ? room.w : W, wh = room ? room.h : H;
+      if (!world) world = new World(ww, wh);
+      else world.resize(ww, wh);
+      if (room && !bubble) {
+        bubble = new SoftBlob(ww / 2, wh / 2, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
+        world.blobs.push(bubble);
+        face = new Face(bubble);
+        beard = new Beard(ww, wh);
+      } else if (bubble) {
+        face.moveBy(ww / 2 - bubble.lockX, wh / 2 - bubble.lockY);
+        bubble.moveLockTo(ww / 2, wh / 2);
         // the face is carried in one jump: the strands pose afresh on the
         // mouth rather than whip across after it
-        beard.resize(W, H);
+        beard.resize(ww, wh);
         beard.reset();
       }
       if (!SHOW_MENU || typeof FONT === 'undefined') return;
@@ -1183,25 +1206,67 @@
     }
 
     // --- the bubble --------------------------------------------------------------
-    // the centre object is cicada's bubble at 4/3 its size: a ring of
-    // verlet points (js/softbody.js) locked to the middle, which gives when
-    // pulled and wobbles home. it lives in a world the size of the viewport
-    // that runs whole 60 hz steps from wall time, so a 120 hz screen does
-    // not run it twice as fast and a slow frame catches up. it is filled
-    // dark and then outlined, the skin a bresenham line from point to
-    // point, so it covers whatever is under it as a solid thing, and its
-    // face (js/face.js) goes on top, trailing the skin when it moves. the
+    // Personal work's box holds cicada's bubble at twice its size: a ring of
+    // verlet points (js/softbody.js) locked to the middle of the box, which
+    // gives when pulled and wobbles home. it lives in a world the size of
+    // the box's inside (its room), which keeps it in the box and runs
+    // whole 60 hz steps from wall time, so a 120 hz screen does not run it
+    // twice as fast and a slow frame catches up. it is drawn into the box's
+    // insides with the text's, so the box wipes it in and it scrolls and is
+    // pushed with the box, and it wobbles as one letter does, sway, bob,
+    // breathe and tilt about its lock. it is filled with paper and then
+    // outlined, the skin a bresenham line from point to point, so it covers
+    // whatever is under it as a solid thing, and its face (js/face.js)
+    // goes on top, trailing the skin when it moves. the
     // mustache (js/beard.js, daedalus's) hangs from the mouth, so it trails
     // as the mouth does and swings when it is carried. cicada's bubble is
-    // radius 36 with the face's art put down 1:1. at 4/3 nothing lands 1:1:
-    // the face scales with the radius and goes through the letters'
-    // sampler, its 1 px strokes as 1.33 px ones.
-    const BUBBLE_SCALE = 4 / 3;
-    // its radius in world px (48), its points, and its
+    // radius 36 with the face's art put down 1:1. the face scales with the
+    // radius, drawn as line art (roomView), so at 2 its strokes stay 1 px.
+    const BUBBLE_SCALE = 2;
+    // its radius in world px (72), its points, and its
     // air: the area it fills over its circle's
     const BUBBLE_R = 36 * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
     let beard = null;
+    const bubbleHome = sections.find((s) => s.bubble) || null; // the section whose box it is in
+
+    // a framebuffer the bubble draws into as into its world: what goes into
+    // it at its world's px lands in into at the page's, its box dy up, and
+    // warbled about its lock by its room's letter. the face's sprites go
+    // down as line art (Framebuffer.strokeSprite), so at any size their
+    // strokes are 1 px, as the skin's are
+    function roomView(into, t, dy) {
+      const r = bubbleHome.room, w = r.letter.pose(t), lx = bubble.lockX, ly = bubble.lockY;
+      const c = w.s * Math.cos(w.a), n = w.s * Math.sin(w.a), ox = r.x + lx + w.x, oy = r.y - dy + ly + w.y;
+      const at = (x, y) => [ox + c * (x - lx) - n * (y - ly), oy + n * (x - lx) + c * (y - ly)];
+      return {
+        sprite(g, x, y, s, a, v) { const [X, Y] = at(x, y); into.strokeSprite(g, X, Y, s * w.s, a + w.a, v); },
+        line(x0, y0, x1, y1, v) { const [a, b] = at(x0, y0), [c, d] = at(x1, y1); into.line(a, b, c, d, v); },
+        fillPolygon(pts, v) { into.fillPolygon(pts.map((p) => { const [x, y] = at(p.x, p.y); return { x, y }; }), v); },
+      };
+    }
+
+    // the bubble through view: filled with paper and outlined, its face
+    // and its mustache over it
+    function drawBubble(view) {
+      const pts = bubble.points;
+      view.fillPolygon(pts, 0);
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i], q = pts[(i + 1) % pts.length];
+        view.line(p.x, p.y, q.x, q.y);
+      }
+      face.draw(view);
+      beard.draw(view);
+    }
+
+    // a point in world px on the screen as its world's px, wherever the page
+    // has scrolled to and the boxes have pushed the bubble's; as it is with
+    // no room
+    function toRoom(p) {
+      const r = bubbleHome && bubbleHome.room;
+      if (!r) return p;
+      return { x: p.x - r.x, y: p.y + Math.round(window.scrollY / SCALE) - bubbleHome.off - r.y };
+    }
 
     // --- the cursor --------------------------------------------------------------
     // the native pointer is hidden over the canvas and drawn into the frame
@@ -1214,26 +1279,33 @@
     const cursor = new Cursor();
 
     // --- the drag ----------------------------------------------------------------
-    // a press near the skin takes hold of its nearest point and two either
+    // a press near the skin, while its box is open and the press presses
+    // nothing else, takes hold of its nearest point and two either
     // side and pulls them toward the pointer, until the press lifts or the
-    // pull goes too far and the skin lets go. the pointer is captured, so a
+    // pull goes too far and the skin lets go; the click it ends in presses
+    // nothing. the pointer is captured, so a
     // drag carries on outside the window; only a pointer that leaves with
-    // nothing held is forgotten, and the eyes stop following it.
+    // nothing held is forgotten, and the eyes stop following it. where it
+    // is goes to the world each frame, so a scroll or a box pushing the
+    // bubble's moves it in the world as a move would
     function worldPointer(e) {
       const rect = canvas.getBoundingClientRect();
       return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
     }
+    let pointerAt = null, grabbed = false; // the pointer, world px on the screen, or null; whether the last press took hold
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
       const p = worldPointer(e);
       cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
       cursor.press();
-      world.grab(p.x, p.y);
+      pointerAt = p;
+      const q = toRoom(p);
+      grabbed = !!(bubbleHome && bubbleHome.box.open && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
     });
     canvas.addEventListener('pointermove', (e) => {
       const p = worldPointer(e);
       cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
-      world.pointer(p.x, p.y);
+      pointerAt = p;
     });
     // a lifted press opens the hand again. it goes when there is nothing
     // left to hover: a finger lifted, or a captured drag let go outside the
@@ -1246,13 +1318,14 @@
     canvas.addEventListener('pointerup', (e) => { liftCursor(e); world.release(); });
     canvas.addEventListener('pointercancel', (e) => { liftCursor(e); world.release(); });
     // a captured drag carried outside the window keeps its hand: moves still come
-    canvas.addEventListener('pointerleave', () => { if (!world.drag) { world.pointerOff(); cursor.hide(); } });
+    canvas.addEventListener('pointerleave', () => { if (!world.drag) { pointerAt = null; world.pointerOff(); cursor.hide(); } });
 
     // cicada's drag line: dashed, from the grabbed point to the pointer,
     // its dashes shrinking and gaps opening over the last 30 % of the reach
-    // before the skin lets go. cicada also put a plus on every held point;
-    // those are left off, the skin is not to be marked
-    function drawDrag() {
+    // before the skin lets go, through view as the bubble is drawn. cicada
+    // also put a plus on every held point; those are left off, the skin is
+    // not to be marked
+    function drawDrag(view) {
       const d = world.drag;
       if (!d) return;
       const c = d.points[0].point;
@@ -1267,7 +1340,7 @@
       const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
       for (let at = 0, drawing = true; at < len; drawing = !drawing) {
         const end = Math.min(at + (drawing ? dashLength : gapLength), len);
-        if (drawing) fb.line(x0 + ux * at, y0 + uy * at, x0 + ux * end, y0 + uy * end);
+        if (drawing) view.line(x0 + ux * at, y0 + uy * at, x0 + ux * end, y0 + uy * end);
         at = end;
       }
     }
@@ -1345,10 +1418,9 @@
     // framebuffer. first the bubble's world, its face, its mustache and the
     // cursor's hand and the boxes catch up with the clock, and the words
     // under them are pushed down; then the bits are cleared, the words and
-    // their boxes drawn scrolled, every other
+    // their boxes drawn scrolled, the bubble in its box, every other
     // letter over them on its own
     // clock, daedalus's panel if it is shown, the
-    // bubble filled dark and outlined over them, its face and mustache, the
     // drag's marks, and last the hand on its backing, over the end of the
     // drag's line, each layer simply writing over the bits of the last. then
     // the whole of it goes to the canvas in one copy.
@@ -1357,6 +1429,7 @@
       const t = now / 1000;
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
+      if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
       world.step(now);
       if (bubble) face.update(bubble, world, dt);
       cursor.update(dt);
@@ -1381,17 +1454,7 @@
       for (const s of sections) drawBox(s, t, sy - s.off, hit && hit.s === s ? hit : null);
       for (const L of letters) L.draw(t);
       if (SHOW_DAEDALUS && panel) panel.draw();
-      if (bubble) {
-        const pts = bubble.points;
-        fb.fillPolygon(pts, 0);
-        for (let i = 0; i < pts.length; i++) {
-          const p = pts[i], q = pts[(i + 1) % pts.length];
-          fb.line(p.x, p.y, q.x, q.y);
-        }
-        face.draw(fb);
-        beard.draw(fb);
-      }
-      drawDrag();
+      if (bubble && bubbleHome.room) drawDrag(roomView(fb, t, sy - bubbleHome.off));
       cursor.draw(fb);
       fb.present(ctx);
       requestAnimationFrame(frame);

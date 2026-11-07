@@ -206,28 +206,23 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   check('close, then gone: nose and mouth back to 0', close.noseFrame === 0 && close.moufFrame === 0, close.noseFrame + ' ' + close.moufFrame);
 }
 
-// --- held: sniff, gape and wide eyes ---------------------------------------------
+// --- held: sniff, gape and stare -----------------------------------------------
 // the pointer's drag on this bubble's skin: the nose sniffs and the mouth
-// opens as for something close, the eyes grow to WIDE of their size, eased,
-// and the pupils with them; a drag on some other bubble is nothing to him
+// opens as for something close, the eyes stay their size; a drag on some
+// other bubble is nothing to him
 {
   const other = fakeBlob(300, 300, 36);
   const heldWorld = fakeWorld(null, 130, 100, { blob, points: [], x: 130, y: 100 });
   const f = new Face(blob);
-  let wideAt = -1, mouthAt = -1, top = -1, bottomAfterTop = -1;
+  let mouthAt = -1, top = -1, bottomAfterTop = -1;
   run(f, blob, heldWorld, 200, STEP, (f, i) => {
-    if (wideAt < 0 && f.wide === FACE.EYES.WIDE) wideAt = i;
     if (mouthAt < 0 && f.moufFrame === 9) mouthAt = i;
     if (top < 0 && f.noseFrame >= 2.9) top = i;
     if (top >= 0 && bottomAfterTop < 0 && f.noseFrame <= 0.1) bottomAfterTop = i;
   });
   check('held: he knows he is held, sniffs and gapes', f.held && f.sniffing && f.mouthOpen && mouthAt >= 0 && top >= 0 && bottomAfterTop > top,
     'mouth open at update ' + mouthAt + ', sniff up at ' + top + ', down at ' + bottomAfterTop);
-  check('held: the eyes ease to ' + FACE.EYES.WIDE + ' of their size, there within a second', wideAt > 0 && wideAt < 60 && f.wide === FACE.EYES.WIDE, 'at update ' + wideAt + ', wide ' + f.wide);
-  const one = new Face(blob);
-  one.update(blob, heldWorld, STEP);
-  check('held: the first step widens them a little, not all at once', one.wide > 1 && one.wide < FACE.EYES.WIDE, 'wide ' + one.wide.toFixed(4));
-  // drawn: the eyes' box wider and taller than at rest, the rest of the face as at rest
+  // drawn: the eyes' box as at rest
   const eyeBox = (face) => {
     const fb = makeFb();
     face.draw(fb);
@@ -236,24 +231,24 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
     return { x0, x1, y0, y1, w: x1 - x0 + 1, h: y1 - y0 + 1, n, fb };
   };
   const r = eyeBox(rest), h = eyeBox(f);
-  check('held: drawn, the eyes are wider and taller than at rest, on the same middles', h.w > r.w + 4 && h.h > r.h + 1 && near((h.x0 + h.x1) / 2, (r.x0 + r.x1) / 2, 1) && near((h.y0 + h.y1) / 2, (r.y0 + r.y1) / 2, 1.5),
+  check('held: drawn, the eyes are the size they are at rest, on the same middles', h.w === r.w && h.h === r.h && near((h.x0 + h.x1) / 2, (r.x0 + r.x1) / 2, 1) && near((h.y0 + h.y1) / 2, (r.y0 + r.y1) / 2, 1.5),
     'rest ' + r.w + 'x' + r.h + ' px over x ' + r.x0 + '..' + r.x1 + ' y ' + r.y0 + '..' + r.y1 + ', held ' + h.w + 'x' + h.h + ' over x ' + h.x0 + '..' + h.x1 + ' y ' + h.y0 + '..' + h.y1);
-  // the pupils look at the pointer, to the right, inside the wide eye ring
-  const wideEye = (face, eye, pupil) => {
-    const fb = makeFb(), es = face.scale * face.wide;
-    fb.sprite(Framebuffer.ink(FACE.PUPILS.ART), eye.x + (pupil.x + 0.5) * es, eye.y + (pupil.y + 0.5) * es, es, 0, 1, FACE.MIN_HITS);
+  // the pupils look at the pointer, to the right, inside the eye ring
+  const pupilAt = (face, eye, pupil) => {
+    const fb = makeFb(), s = face.scale;
+    fb.sprite(Framebuffer.ink(FACE.PUPILS.ART), eye.x + (pupil.x + 0.5) * s, eye.y + (pupil.y + 0.5) * s, s, 0, 1, FACE.MIN_HITS);
     return litSet(fb);
   };
-  const lp = wideEye(f, f.leftEye, f.leftPupil), drawnHeld = litSet(h.fb);
-  check('held: the pupils are drawn at the wide eye\'s scale, looking right at the pointer', f.leftPupil.x > 1 && [...lp].every((k) => drawnHeld.has(k)), 'left pupil at ' + fmt(f.leftPupil));
-  console.log('held, the wide eyes and the open mouth, x 60..140 y 70..130:\n' + dump(h.fb, 60, 70, 80, 60));
+  const lp = pupilAt(f, f.leftEye, f.leftPupil), drawnHeld = litSet(h.fb);
+  check('held: the pupils are drawn at the face\'s scale, looking right at the pointer', f.leftPupil.x > 1 && [...lp].every((k) => drawnHeld.has(k)), 'left pupil at ' + fmt(f.leftPupil));
+  console.log('held, the staring eyes and the open mouth, x 60..140 y 70..130:\n' + dump(h.fb, 60, 70, 80, 60));
   // a drag on another bubble: nothing
   const g = new Face(blob);
   run(g, blob, fakeWorld(null, 130, 100, { blob: other, points: [], x: 300, y: 300 }), 60);
-  check('held: a drag on another bubble leaves him be', !g.held && !g.sniffing && !g.mouthOpen && g.wide === 1 && g.moufFrame === 0);
+  check('held: a drag on another bubble leaves him be', !g.held && !g.sniffing && !g.mouthOpen && g.moufFrame === 0);
   // let go: back to rest
   run(f, blob, empty, 200);
-  check('let go: nose, mouth and eyes back to rest', !f.held && f.noseFrame === 0 && f.moufFrame === 0 && f.wide === 1, f.noseFrame + ' ' + f.moufFrame + ' ' + f.wide);
+  check('let go: nose and mouth back to rest', !f.held && f.noseFrame === 0 && f.moufFrame === 0, f.noseFrame + ' ' + f.moufFrame);
   // held, the eyes do not blink: 8 s held with the blink on and a 5 s wait,
   // never off frame 6, the wait not counted down; let go, it runs and the
   // blink comes 5 s on

@@ -196,6 +196,34 @@ Framebuffer.prototype.spritePixels = function (g, cx, cy, s, a) {
   }
 };
 
+// g, a bitmap { ink, w, h } of 1 px strokes, with its centre at (cx, cy),
+// scaled by s and turned by a radians as sprite() takes it, drawn as line
+// art: each ink pixel's middle carried through the transform and every two
+// that touch joined by a line, so its strokes stay 1 px at any scale, as a
+// line's do. two that touch only at a corner are not joined when a pixel
+// both touch is ink, the stroke turning through that one; a pixel that
+// touches none is a dot
+Framebuffer.prototype.strokeSprite = function (g, cx, cy, s, a, v = 1) {
+  const cos = Math.cos(a) * s, sin = Math.sin(a) * s, w = g.w, h = g.h;
+  const ink = (x, y) => x >= 0 && x < w && y >= 0 && y < h && g.ink[y * w + x] === 1;
+  const at = (x, y) => {
+    const tx = x + 0.5 - w / 2, ty = y + 0.5 - h / 2;
+    return [cx + cos * tx - sin * ty, cy + sin * tx + cos * ty];
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (!ink(x, y)) continue;
+    const [x0, y0] = at(x, y);
+    // right, below and the two corners below, so each pair is joined once
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+      if (!ink(x + dx, y + dy) || (dx && dy && (ink(x + dx, y) || ink(x, y + dy)))) continue;
+      const [x1, y1] = at(x + dx, y + dy);
+      this.line(x0, y0, x1, y1, v);
+    }
+    const lone = [-1, 0, 1].every((dy) => [-1, 0, 1].every((dx) => !(dx || dy) || !ink(x + dx, y + dy)));
+    if (lone) this.set(Math.round(x0), Math.round(y0), v);
+  }
+};
+
 // a bitmap { ink, w, h } with its top left at integer (x, y): ink is
 // written v and the rest left alone
 Framebuffer.prototype.blitInk = function (g, x, y, v = 1) {
