@@ -547,6 +547,19 @@ const between = (a, b) => a + (b - a) * rand();
   check(fb.get(1, 1) === 0 && fb.get(2, 1) === 1 && fb.get(1, 2) === 5 && fb.get(2, 2) === 7 && fb.get(0, 0) === 9, 'blitPixels writes every pixel, paper too');
 }
 
+// clearRows
+{
+  const fb = new Framebuffer(3, 4);
+  fb.bits.fill(5);
+  fb.clearRows(1, 3);
+  check(same(Array.from(fb.bits).map(String), '555000000555'.split('')), 'clearRows clears the rows between, the last not included: ' + Array.from(fb.bits).join(''));
+  fb.bits.fill(5);
+  fb.clearRows(-2, 1);
+  fb.clearRows(3, 9);
+  fb.clearRows(2, 2);
+  check(same(Array.from(fb.bits).map(String), '000555555000'.split('')), 'clearRows clips to the bitmap and clears nothing when empty: ' + Array.from(fb.bits).join(''));
+}
+
 if (failures.length) {
   for (const f of failures) console.error('FAIL ' + f);
   console.error('raster: ' + failures.length + ' failed of ' + checks);

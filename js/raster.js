@@ -314,6 +314,14 @@ Framebuffer.ditherColour = function (rgb, w, h, colours) {
   return { px, w, h };
 };
 
+// rows y0 up to y1 (integers, y1 not included) back to paper, as far as
+// they are on the bitmap: what was drawn there is cut off
+Framebuffer.prototype.clearRows = function (y0, y1) {
+  y0 = Math.max(0, y0);
+  y1 = Math.min(this.h, y1);
+  if (y1 > y0) this.bits.fill(0, y0 * this.w, y1 * this.w);
+};
+
 // a bitmap { px, w, h } of v's, its top left at integer (x, y), every
 // pixel written: an opaque picture in the page's colours
 Framebuffer.prototype.blitPixels = function (g, x, y) {
