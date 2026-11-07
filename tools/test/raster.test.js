@@ -580,6 +580,37 @@ const between = (a, b) => a + (b - a) * rand();
   check(same(Array.from(fb.bits).map(String), '000555555000'.split('')), 'clearRows clips to the bitmap and clears nothing when empty: ' + Array.from(fb.bits).join(''));
 }
 
+// strokeSprite
+{
+  // at its own size, unturned, on whole pixels: the art pixel for pixel, as blitInk puts it
+  for (const rows of [['#....', '.#...', '.##..', '...##', '....#'], ['.#.', '#.#', '.#.'], ['#.#.', '..#.', '####']]) {
+    const g = Framebuffer.ink(rows), a = new Framebuffer(12, 12), b = new Framebuffer(12, 12);
+    a.blitInk(g, 3, 4);
+    b.strokeSprite(g, 3 + g.w / 2 - 0.5, 4 + g.h / 2 - 0.5, 1, 0);
+    check(same(lit(a), lit(b)), 'strokeSprite at rest is blitInk: ' + rows.join('/') + ' got ' + lit(b).join(' '));
+  }
+  // three times the size, a 1 px stroke is still 1 px, its ends at its end pixels' middles
+  let fb = new Framebuffer(20, 10);
+  fb.strokeSprite(Framebuffer.ink(['####']), 10, 5, 3, 0);
+  expectLit(fb, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((x) => [x, 5]), 'strokeSprite scales a stroke to a 1 px line');
+  // a corner turns through its corner pixel, not across it
+  fb = new Framebuffer(20, 20);
+  fb.strokeSprite(Framebuffer.ink(['##', '.#']), 10, 10, 4, 0);
+  expectLit(fb, [[8, 8], [9, 8], [10, 8], [11, 8], [12, 8], [12, 9], [12, 10], [12, 11], [12, 12]], 'strokeSprite turns a corner through its pixel');
+  // two touching only at a corner are joined
+  fb = new Framebuffer(20, 20);
+  fb.strokeSprite(Framebuffer.ink(['#.', '.#']), 10, 10, 4, 0);
+  expectLit(fb, [[8, 8], [9, 9], [10, 10], [11, 11], [12, 12]], 'strokeSprite joins a diagonal');
+  // pixels touching nothing are dots
+  fb = new Framebuffer(20, 10);
+  fb.strokeSprite(Framebuffer.ink(['#.#']), 10, 5, 3, 0);
+  expectLit(fb, [[7, 5], [13, 5]], 'strokeSprite draws a lone pixel as a dot');
+  // a quarter turn clockwise stands a row up, its left end at the top
+  fb = new Framebuffer(20, 20);
+  fb.strokeSprite(Framebuffer.ink(['##.']), 10, 10, 2, Math.PI / 2);
+  expectLit(fb, [[10, 8], [10, 9], [10, 10]], 'strokeSprite turns as sprite does');
+}
+
 if (failures.length) {
   for (const f of failures) console.error('FAIL ' + f);
   console.error('raster: ' + failures.length + ' failed of ' + checks);
