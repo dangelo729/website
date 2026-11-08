@@ -178,9 +178,56 @@ const between = (a, b) => a + (b - a) * rand();
     const c = [between(-10, 50), between(-10, 40), between(-10, 50), between(-10, 40)];
     a.line(...c); b.drawColoredPixelLineWorld(...c);
     ok = matches(a, b);
+    // thick 1 asked for is the same line
+    const t = new Framebuffer(40, 30);
+    t.line(...c, 1, 1);
+    ok = ok && matches(t, b);
     if (!ok) failures.push('line vs cicada at ' + c.join(' '));
   }
-  check(ok, 'line vs cicada');
+  check(ok, 'line vs cicada, thick 1 asked for or not');
+}
+
+// --- thick lines
+{
+  // 2 px: a horizontal line is its row and the one below, a vertical one
+  // its column and the one right
+  let fb = new Framebuffer(16, 12);
+  fb.line(2, 4, 12, 4, 1, 2);
+  expectLit(fb, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].flatMap((x) => [[x, 4], [x, 5]]), 'thick 2 horizontal: two rows its whole length');
+  fb = new Framebuffer(16, 12);
+  fb.line(6, 9, 6, 1, 1, 2);
+  expectLit(fb, [1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((y) => [[6, y], [7, y]]), 'thick 2 vertical: two columns its whole length');
+  fb = new Framebuffer(16, 12);
+  fb.line(3, 3, 3, 3, 1, 2);
+  expectLit(fb, [[3, 3], [3, 4]], 'thick 2 point: it and the one below');
+  // the 1 px line's pixels, each with one more across it: exactly two lit
+  // in every column of a line at least as wide as it is tall (the one below
+  // the 1 px line's), and in every row of a steeper one (the one right)
+  let ok = true, bad = '';
+  for (let n = 0; n < 600 && ok; n++) {
+    const W = 50, H = 40;
+    let c;
+    if (n < 4) c = [[4, 4, 30, 30], [30, 4, 4, 30], [30, 30, 4, 4], [4, 30, 30, 4]][n]; // 45 degrees, every way
+    else c = [between(2, W - 4), between(2, H - 4), between(2, W - 4), between(2, H - 4)];
+    const thin = new Framebuffer(W, H), thick = new Framebuffer(W, H);
+    thin.line(...c);
+    thick.line(...c, 1, 2);
+    const [x0, y0, x1, y1] = c.map(Math.round), wide = Math.abs(x1 - x0) >= Math.abs(y1 - y0);
+    for (let i = 0; i < (wide ? W : H) && ok; i++) {
+      let got = 0, want = 0;
+      for (let j = 0; j < (wide ? H : W); j++) {
+        const [x, y] = wide ? [i, j] : [j, i];
+        got += thick.get(x, y);
+        // the thin line's pixel or the one before it across the line
+        want += thin.get(x, y) || (wide ? thin.get(x, y - 1) : thin.get(x - 1, y)) ? 1 : 0;
+        if (thick.get(x, y) !== (thin.get(x, y) || (wide ? thin.get(x, y - 1) : thin.get(x - 1, y)))) { ok = false; bad = 'at ' + x + ',' + y; }
+      }
+      const inside = wide ? i >= Math.min(x0, x1) && i <= Math.max(x0, x1) : i >= Math.min(y0, y1) && i <= Math.max(y0, y1);
+      if (got !== (inside ? 2 : 0) || want !== got) { ok = false; bad = bad || (wide ? 'column ' : 'row ') + i + ' has ' + got; }
+    }
+    if (!ok) bad = c.map((q) => q.toFixed(2)).join(' ') + ' ' + bad;
+  }
+  check(ok, 'thick 2: the 1 px line and one more across it, exactly two lit along its whole length, at every slope, 45 degrees too ' + bad);
 }
 
 // --- polygon
@@ -379,6 +426,92 @@ const between = (a, b) => a + (b - a) * rand();
     check(ok, 'sprite vs the old drawGlyph, 300 places, scales 0.8..1, turns');
   }
 
+  // the sampler worked out directly: every pixel of the turned box a pixel
+  // wider all round, each of its points carried back on its own until it
+  // has minHits, and lit through set(). sprite() lights exactly what this
+  // does, wherever it is, at any scale, turn and minHits
+  function spriteRef(g, cx, cy, s, a, v = 1, minHits = Framebuffer.SAMPLE.MIN_HITS) {
+    const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
+    const hw = g.w * s / 2, hh = g.h * s / 2;
+    // the turned box, a pixel wider all round
+    const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
+    const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
+    for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
+      let hits = 0;
+      // once it has enough the rest cannot change it
+      for (let k = 0; k < SUB.length && hits < minHits; k++) {
+        const tx = px + 0.5 + SUB[k][0] - cx, ty = py + 0.5 + SUB[k][1] - cy;
+        const bx = (cos * tx + sin * ty) * inv + g.w / 2, by = (-sin * tx + cos * ty) * inv + g.h / 2;
+        const gx = Math.floor(bx), gy = Math.floor(by);
+        if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
+      }
+      if (hits >= minHits) this.set(px, py, v);
+    }
+  }
+  {
+    // type's glyphs are big bitmaps drawn small: rings like an o, bars like
+    // an l, and blots, 100 to 200 px, at 0.03 to 0.06. font.js's are 12 x 14
+    // drawn at 1 to 3. the cursor and the face are unturned, on whole and
+    // half pixels, at scales like 0.53 and 0.75, where a point lands
+    // exactly on a bitmap pixel's edge
+    const ring = (size, r0, r1) => {
+      const ink = new Uint8Array(size * size), c = size / 2;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const d = Math.hypot(x + 0.5 - c, y + 0.5 - c);
+        ink[y * size + x] = d >= r0 && d <= r1 ? 1 : 0;
+      }
+      return { ink, w: size, h: size };
+    };
+    const big = [];
+    for (let n = 0; n < 8; n++) {
+      const size = 100 + Math.floor(rand() * 101);
+      big.push(ring(size, size * between(0.2, 0.35), size * between(0.4, 0.5)));
+      const w = 10 + Math.floor(rand() * 40), h = 100 + Math.floor(rand() * 101);
+      big.push({ ink: new Uint8Array(w * h).fill(1), w, h });
+      big.push(Framebuffer.ink(randomRows(100 + Math.floor(rand() * 101), 100 + Math.floor(rand() * 101), 0.5)));
+    }
+    const W = 40, H = 30, turns = [0, -0, Math.PI / 2, -Math.PI / 2, Math.PI];
+    const scales = [0.53, 0.45 * 5 / 3, 0.85 * 5 / 3, 1.2 * 5 / 3, 1, 1.56, 11 / 256, 1 / 3, 2.5, 0.1];
+    let poses = 0, mismatched = 0, first = '';
+    for (let n = 0; n < 6000; n++) {
+      const kind = n % 3, minHits = 1 + Math.floor(rand() * 16);
+      let g, s, a, cx, cy;
+      if (kind === 0) {
+        g = big[Math.floor(rand() * big.length)];
+        s = between(0.03, 0.06);
+        a = n % 2 ? between(-0.01, 0.01) : between(-Math.PI, Math.PI);
+        cx = between(-10, W + 10);
+        cy = between(-10, H + 10);
+      } else if (kind === 1) {
+        g = Framebuffer.ink(randomRows(12, 14, 0.45));
+        s = between(1, 3);
+        a = n % 2 ? between(-0.01, 0.01) : between(-Math.PI, Math.PI);
+        cx = between(-20, W + 20);
+        cy = between(-20, H + 20);
+      } else {
+        g = Framebuffer.ink(randomRows(1 + Math.floor(rand() * 20), 1 + Math.floor(rand() * 20), 0.5));
+        s = n % 4 ? scales[Math.floor(rand() * scales.length)] : between(0.05, 3);
+        a = turns[Math.floor(rand() * turns.length)];
+        const step = [1, 1 / 2, 1 / 8][Math.floor(rand() * 3)];
+        cx = Math.round(between(-10, W + 10) / step) * step;
+        cy = Math.round(between(-10, H + 10) / step) * step;
+      }
+      // now and then wholly off the framebuffer
+      if (n % 50 === 0) cx += (rand() < 0.5 ? -1 : 1) * (W + 200);
+      const got = new Framebuffer(W, H), want = new Framebuffer(W, H);
+      got.bits.fill(3); want.bits.fill(3);
+      got.sprite(g, cx, cy, s, a, 1, minHits);
+      spriteRef.call(want, g, cx, cy, s, a, 1, minHits);
+      poses++;
+      if (!got.bits.every((b, i) => b === want.bits[i])) {
+        mismatched++;
+        first = first || [g.w, g.h, cx, cy, s, a, minHits].join(' ');
+      }
+    }
+    console.log('sprite vs the direct sampler: ' + mismatched + ' of ' + poses + ' poses differ');
+    check(mismatched === 0, 'sprite vs the direct sampler, ' + poses + ' poses: ' + mismatched + ' differ' + (first ? ' (first ' + first + ')' : ''));
+  }
+
   // v is what is written; minHits is how much ink it takes
   {
     const g = Framebuffer.ink(randomRows(9, 7, 0.5));
@@ -565,6 +698,70 @@ const between = (a, b) => a + (b - a) * rand();
   const big = new Framebuffer(6, 6);
   big.spritePixels({ px: Uint8Array.from([1, 2, 3, 4]), w: 2, h: 2 }, 3, 3, 2, 0);
   check(big.get(1, 1) === 1 && big.get(2, 2) === 1 && big.get(3, 1) === 2 && big.get(1, 3) === 3 && big.get(4, 4) === 4 && big.get(0, 0) === 0, 'spritePixels scales: ' + Array.from(big.bits).join(''));
+
+  // blitPixels writes what a set() of each pixel would, and spritePixels
+  // unturned at its own size with its top left on a whole pixel lands as
+  // blitPixels puts it: inside, over each edge and corner, wholly off, and
+  // turned by -0
+  const W = 16, H = 12;
+  const setEach = (fb, g, x, y) => { for (let by = 0; by < g.h; by++) for (let bx = 0; bx < g.w; bx++) fb.set(x + bx, y + by, g.px[by * g.w + bx]); };
+  const places = [[3, 2], [-2, 4], [W - 3, 5], [6, -3], [5, H - 2], [-3, -2], [W - 2, -3], [-4, H - 3], [W - 2, H - 2], [-2, -2],
+    [W + 2, 3], [-30, 3], [4, H + 1], [4, -30], [0, 0]];
+  let blitOk = true, restOk = true, bad = '';
+  for (let n = 0; n < 400; n++) {
+    const w = 1 + Math.floor(rand() * 20), h = 1 + Math.floor(rand() * 16);
+    const g = { px: Uint8Array.from({ length: w * h }, () => Math.floor(rand() * 40)), w, h };
+    const [x, y] = n < places.length ? places[n] : [Math.floor(between(-w - 2, W + 2)), Math.floor(between(-h - 2, H + 2))];
+    const blit = new Framebuffer(W, H), each = new Framebuffer(W, H), rest = new Framebuffer(W, H);
+    blit.bits.fill(99); each.bits.fill(99); rest.bits.fill(99);
+    blit.blitPixels(g, x, y);
+    setEach(each, g, x, y);
+    rest.spritePixels(g, x + w / 2, y + h / 2, 1, n % 2 ? 0 : -0);
+    if (!blit.bits.every((b, i) => b === each.bits[i])) { blitOk = false; bad = bad || w + 'x' + h + ' at ' + x + ',' + y; }
+    if (!rest.bits.every((b, i) => b === blit.bits[i])) { restOk = false; bad = bad || 'at rest ' + w + 'x' + h + ' at ' + x + ',' + y; }
+  }
+  check(blitOk, 'blitPixels is a set() of every pixel, clipped at every edge, 400 places ' + bad);
+  check(restOk, 'spritePixels at rest on whole pixels is blitPixels, clipped at every edge, 400 places ' + bad);
+}
+
+// medianCut, its boxes' spans worked out once each, cuts as one that
+// works out every box's span afresh before each cut, ties to the first box
+{
+  function medianCutRef(rgb, n) {
+    const count = Math.floor(rgb.length / 3);
+    if (!count) return [];
+    const boxes = [Array.from({ length: count }, (_, i) => i)];
+    const widest = (b) => {
+      let ch = 0, span = -1;
+      for (let c = 0; c < 3; c++) {
+        let lo = Infinity, hi = -Infinity;
+        for (const i of b) { const v = rgb[3 * i + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
+        if (hi - lo > span) { span = hi - lo; ch = c; }
+      }
+      return { ch, span };
+    };
+    while (boxes.length < n) {
+      let best = -1, ch = 0, most = 0;
+      boxes.forEach((b, i) => {
+        if (b.length < 2) return;
+        const w = widest(b);
+        if (w.span > most) { most = w.span; best = i; ch = w.ch; }
+      });
+      if (best < 0) break;
+      const b = boxes[best].sort((p, q) => rgb[3 * p + ch] - rgb[3 * q + ch]), mid = b.length >> 1;
+      boxes.splice(best, 1, b.slice(0, mid), b.slice(mid));
+    }
+    return boxes.map((b) => [0, 1, 2].map((c) => Math.round(b.reduce((sum, i) => sum + rgb[3 * i + c], 0) / b.length)));
+  }
+  let ok = true, bad = '';
+  for (let k = 0; k < 300 && ok; k++) {
+    // few levels make ties between boxes and between channels
+    const count = Math.floor(rand() * 300), levels = [2, 4, 16, 256][k % 4], n = 1 + Math.floor(rand() * 40);
+    const rgb = Array.from({ length: 3 * count }, () => Math.floor(rand() * levels) * Math.floor(255 / (levels - 1)));
+    const got = JSON.stringify(Framebuffer.medianCut(rgb.slice(), n)), want = JSON.stringify(medianCutRef(rgb.slice(), n));
+    if (got !== want) { ok = false; bad = count + ' px, ' + levels + ' levels, n ' + n; }
+  }
+  check(ok, 'medianCut cuts as one that works out every span afresh, 300 images ' + bad);
 }
 
 // clearRows
@@ -609,6 +806,53 @@ const between = (a, b) => a + (b - a) * rand();
   fb = new Framebuffer(20, 20);
   fb.strokeSprite(Framebuffer.ink(['##.']), 10, 10, 2, Math.PI / 2);
   expectLit(fb, [[10, 8], [10, 9], [10, 10]], 'strokeSprite turns as sprite does');
+
+  // thick 1, asked for or not, is the 1 px line art: each touching pair
+  // joined by a 1 px line once, the corner rule, and a lone pixel a dot
+  function strokeRef(g, cx, cy, s, a, v = 1) {
+    const cos = Math.cos(a) * s, sin = Math.sin(a) * s, w = g.w, h = g.h;
+    const ink = (x, y) => x >= 0 && x < w && y >= 0 && y < h && g.ink[y * w + x] === 1;
+    const at = (x, y) => {
+      const tx = x + 0.5 - w / 2, ty = y + 0.5 - h / 2;
+      return [cx + cos * tx - sin * ty, cy + sin * tx + cos * ty];
+    };
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!ink(x, y)) continue;
+      const [x0, y0] = at(x, y);
+      for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+        if (!ink(x + dx, y + dy) || (dx && dy && (ink(x + dx, y) || ink(x, y + dy)))) continue;
+        const [x1, y1] = at(x + dx, y + dy);
+        this.line(x0, y0, x1, y1, v);
+      }
+      const lone = [-1, 0, 1].every((dy) => [-1, 0, 1].every((dx) => !(dx || dy) || !ink(x + dx, y + dy)));
+      if (lone) this.set(Math.round(x0), Math.round(y0), v);
+    }
+  }
+  const randomRows = (w, h, p) => Array.from({ length: h }, () => Array.from({ length: w }, () => (rand() < p ? '#' : '.')).join(''));
+  let ok = true, bad = '';
+  for (let n = 0; n < 400 && ok; n++) {
+    const g = Framebuffer.ink(randomRows(1 + Math.floor(rand() * 10), 1 + Math.floor(rand() * 10), 0.35));
+    const cx = between(-4, 34), cy = between(-4, 34), s = between(0.5, 4), t = n % 2 ? between(-0.05, 0.05) : between(-Math.PI, Math.PI);
+    const one = new Framebuffer(30, 30), told = new Framebuffer(30, 30), want = new Framebuffer(30, 30);
+    one.strokeSprite(g, cx, cy, s, t);
+    told.strokeSprite(g, cx, cy, s, t, 1, 1);
+    strokeRef.call(want, g, cx, cy, s, t);
+    ok = one.bits.every((b, i) => b === want.bits[i]) && told.bits.every((b, i) => b === want.bits[i]);
+    if (!ok) bad = [g.w, g.h, cx, cy, s, t].map((q) => +q.toFixed(3)).join(' ');
+  }
+  check(ok, 'strokeSprite thick 1, asked for or not, is the 1 px line art, 400 places ' + bad);
+
+  // thick 2: a lone pixel is a 2 x 2 block, it and right, below and below right
+  fb = new Framebuffer(20, 10);
+  fb.strokeSprite(Framebuffer.ink(['#.#']), 10, 5, 3, 0, 1, 2);
+  expectLit(fb, [[7, 5], [8, 5], [7, 6], [8, 6], [13, 5], [14, 5], [13, 6], [14, 6]], 'strokeSprite thick 2 draws a lone pixel as a 2 x 2 block');
+  // a straight stroke is 2 px: across, its row and the one below; down, its column and the one right
+  fb = new Framebuffer(20, 10);
+  fb.strokeSprite(Framebuffer.ink(['####']), 10, 5, 3, 0, 1, 2);
+  expectLit(fb, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15].flatMap((x) => [[x, 5], [x, 6]]), 'strokeSprite thick 2 scales a stroke across to a 2 px line');
+  fb = new Framebuffer(10, 20);
+  fb.strokeSprite(Framebuffer.ink(['#', '#', '#', '#']), 5, 10, 3, 0, 1, 2);
+  expectLit(fb, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15].flatMap((y) => [[5, y], [6, y]]), 'strokeSprite thick 2 scales a stroke down to a 2 px line');
 }
 
 if (failures.length) {

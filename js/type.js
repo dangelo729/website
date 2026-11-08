@@ -1,14 +1,17 @@
 // --- type --------------------------------------------------------------------
 // a line of type in a system font (the name across the top of index.html,
 // in helvetica) as bitmaps for the sprite sampler (js/raster.js), so it is
-// drawn the way font.js's letters are and never as browser text. each glyph
-// is filled once, black, EM bitmap px to the em, into an offscreen canvas,
-// read back, cut at half alpha into a 0/1 bitmap in Framebuffer.ink's shape
-// and cropped to the ink the cut leaves, as index.html cuts font.js's
-// glyphs to their ink. the page draws them at its size over EM, far smaller
-// than they were filled, so the canvas's antialiasing is thrown away at the
-// cut and the sampler, not the canvas, decides every world pixel; the
-// bitmaps do not depend on the size, so a resize only moves and scales them.
+// drawn the way font.js's letters are and never as browser text. each
+// character is filled once in each font, black, EM bitmap px to the em,
+// into an offscreen canvas, read back, cut at half alpha into a 0/1 bitmap
+// in Framebuffer.ink's shape and cropped to the ink the cut leaves, as
+// index.html cuts font.js's glyphs to their ink; it is kept (Type.rasters),
+// and every glyph of it, in any line in that font, shares the one bitmap,
+// as each fills and measures alike. the page draws them at its size over
+// EM, far smaller than they were filled, so the canvas's antialiasing is
+// thrown away at the cut and the sampler, not the canvas, decides every
+// world pixel; the bitmaps do not depend on the size, so a resize only
+// moves and scales them.
 //
 // measureText's box for a glyph is only where to fill it and how much to
 // read back, with PAD round it: across, webkit gives the glyph's advance
@@ -46,9 +49,9 @@ class Type {
     this.text = text;
     this.font = Type.font(face.weight, face.family);
     // a glyph is { ch, at, g, x, dx, dy }: ch at index `at` in the text, g
-    // its bitmap { ink, w, h } cropped to its ink, x its origin along the
-    // line and (dx, dy) the bitmap's centre from that origin. a space, or
-    // a glyph with no ink at the cut, has none
+    // its bitmap { ink, w, h } cropped to its ink (its character's, shared),
+    // x its origin along the line and (dx, dy) the bitmap's centre from that
+    // origin. a space, or a glyph with no ink at the cut, has none
     this.glyphs = [];
     // the whole line's ink, from its origin: how far left of it and right,
     // above the baseline and below
@@ -61,10 +64,11 @@ class Type {
     if (!ctx) return;
     Type.pen(ctx, this.font);
 
-    // measured first, all of them, so one canvas can be sized to hold any.
-    // each is filled with its measured box PAD in from the corner
+    // measured first, all of them, so one canvas can be sized to hold any
+    // not yet filled in this font. each is filled with its measured box PAD
+    // in from the corner
     const todo = [];
-    let mostW = 1, mostH = 1;
+    let mostW = 0, mostH = 0;
     for (let at = 0; at < text.length;) {
       const ch = String.fromCodePoint(text.codePointAt(at)), next = at + ch.length;
       if (!/\s/.test(ch)) {
@@ -75,42 +79,57 @@ class Type {
         const w = Math.max(0, Math.ceil(L + R)) + 2 * TYPE.PAD, h = Math.max(0, Math.ceil(A + D)) + 2 * TYPE.PAD;
         const x = ctx.measureText(text.slice(0, next)).width - m.width;
         todo.push({ ch, at, x, w, h, ox: TYPE.PAD + L, oy: TYPE.PAD + A });
-        mostW = Math.max(mostW, w);
-        mostH = Math.max(mostH, h);
+        if (!Type.rasters.has(this.font + ch)) {
+          mostW = Math.max(mostW, w);
+          mostH = Math.max(mostH, h);
+        }
       }
       at = next;
     }
     if (!todo.length) return;
 
-    // sizing the canvas clears it and resets the pen, so the pen goes on after
-    canvas.width = mostW;
-    canvas.height = mostH;
-    Type.pen(ctx, this.font);
+    // sizing the canvas clears it and resets the pen, so the pen goes on
+    // after; with every glyph filled already it is left alone
+    if (mostW) {
+      canvas.width = mostW;
+      canvas.height = mostH;
+      Type.pen(ctx, this.font);
+    }
     let left = -Infinity, right = -Infinity, ascent = -Infinity, descent = -Infinity;
     for (const t of todo) {
-      ctx.clearRect(0, 0, mostW, mostH);
-      ctx.fillText(t.ch, t.ox, t.oy);
-      const a = ctx.getImageData(0, 0, t.w, t.h).data;
-      // the ink's own box at the cut
-      let x0 = t.w, x1 = -1, y0 = t.h, y1 = -1;
-      for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) {
-        if (a[(y * t.w + x) * 4 + 3] < TYPE.THRESHOLD) continue;
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
+      const key = this.font + t.ch;
+      if (!Type.rasters.has(key)) {
+        ctx.clearRect(0, 0, mostW, mostH);
+        ctx.fillText(t.ch, t.ox, t.oy);
+        const a = ctx.getImageData(0, 0, t.w, t.h).data;
+        // the ink's own box at the cut
+        let x0 = t.w, x1 = -1, y0 = t.h, y1 = -1;
+        for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) {
+          if (a[(y * t.w + x) * 4 + 3] < TYPE.THRESHOLD) continue;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+        let r = null;
+        if (x1 >= 0) {
+          const w = x1 - x0 + 1, h = y1 - y0 + 1, ink = new Uint8Array(w * h);
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+            ink[y * w + x] = a[((y0 + y) * t.w + x0 + x) * 4 + 3] >= TYPE.THRESHOLD ? 1 : 0;
+          // the crop's middle from the glyph's origin
+          r = { g: { ink, w, h }, dx: x0 + w / 2 - t.ox, dy: y0 + h / 2 - t.oy };
+        }
+        Type.rasters.set(key, r);
       }
-      if (x1 < 0) continue;
-      const w = x1 - x0 + 1, h = y1 - y0 + 1, ink = new Uint8Array(w * h);
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
-        ink[y * w + x] = a[((y0 + y) * t.w + x0 + x) * 4 + 3] >= TYPE.THRESHOLD ? 1 : 0;
-      // the crop's middle from the glyph's origin, and the line's ink grown to take it
-      const dx = x0 + w / 2 - t.ox, dy = y0 + h / 2 - t.oy;
-      this.glyphs.push({ ch: t.ch, at: t.at, g: { ink, w, h }, x: t.x, dx, dy });
-      left = Math.max(left, w / 2 - t.x - dx);
-      right = Math.max(right, t.x + dx + w / 2);
-      ascent = Math.max(ascent, h / 2 - dy);
-      descent = Math.max(descent, dy + h / 2);
+      const r = Type.rasters.get(key);
+      if (!r) continue;
+      // the line's ink grown to take it
+      const { g, dx, dy } = r;
+      this.glyphs.push({ ch: t.ch, at: t.at, g, x: t.x, dx, dy });
+      left = Math.max(left, g.w / 2 - t.x - dx);
+      right = Math.max(right, t.x + dx + g.w / 2);
+      ascent = Math.max(ascent, g.h / 2 - dy);
+      descent = Math.max(descent, dy + g.h / 2);
     }
     if (!this.glyphs.length) return;
     this.left = left;
@@ -135,3 +154,9 @@ class Type {
     ctx.fillStyle = '#000';
   }
 }
+
+// every character filled so far, by its font and itself: { g, dx, dy },
+// its bitmap and the bitmap's centre from its origin, or null for one with
+// no ink at the cut. kept across every Type, so a character is filled and
+// read back once in each font, and every glyph of it shares the one bitmap
+Type.rasters = new Map();

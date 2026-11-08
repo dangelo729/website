@@ -130,11 +130,21 @@
         },
         // at time t, dy world px down from home (up, for a scroll), into
         // the page's framebuffer or another, turned turn radians more
-        // (clockwise) than its tilt, in v if given rather than its own
+        // (clockwise) than its tilt, in v if given rather than its own. its
+        // pose is pose(t)'s, worked out in place with no object made for
+        // it. a picture unturned at its own size with its top left (x0, y0)
+        // on a whole pixel is blitted, which lands it pixel for pixel as
+        // the sprite would
         draw(t, dy = 0, into = fb, turn = 0, v = this.v) {
-          const p = this.pose(t);
-          if (this.g.px) into.spritePixels(this.g, p.x, p.y + dy, p.s, p.a + turn);
-          else into.sprite(this.g, p.x, p.y + dy, p.s, p.a + turn, v);
+          const w = 2 * Math.PI * t, m = this.wob, g = this.g;
+          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh);
+          const y = this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh) + dy;
+          const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
+          const a = m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn;
+          const x0 = x - g.w / 2, y0 = y - g.h / 2;
+          if (!g.px) into.sprite(g, x, y, s, a, v);
+          else if (s === 1 && a === 0 && Number.isInteger(x0) && Number.isInteger(y0)) into.blitPixels(g, x0, y0);
+          else into.spritePixels(g, x, y, s, a);
         },
       };
     }
@@ -503,8 +513,9 @@
     }));
 
     // the logos, each once it has loaded with its own few colours worked
-    // out once, as the photo's are, by key: { img, colours }. the page is
-    // laid out again with each
+    // out once, as the photo's are, by key: { img, colours, dithers }, the
+    // last its dithers by size (ditherLogo). the page is laid out again
+    // with each
     const logoArt = {};
     const photoLogos = new Set(SECTIONS.flatMap((s) => (s.items || []).flatMap((x) => (x.logos || []).filter((l) => l.photo).map((l) => l.key))));
     if (typeof LOGOS !== 'undefined') for (const key in LOGOS) {
@@ -512,7 +523,7 @@
       img.onload = () => {
         const colours = imagePalette(img, photoLogos.has(key) ? BOX.PRODUCT_COLOURS : BOX.LOGO_COLOURS);
         if (!colours) return;
-        logoArt[key] = { img, colours };
+        logoArt[key] = { img, colours, dithers: new Map() };
         if (fb) layout();
       };
       img.src = LOGOS[key];
@@ -521,7 +532,7 @@
     // the photo, once it has loaded; it lays the page out again when it has
     const photo = new Image();
     let photoReady = false;
-    photo.onload = () => { photoReady = true; photoColours = photoPalette(); if (fb) layout(); };
+    photo.onload = () => { photoReady = true; photoColours = photoPalette(); photoDithers.clear(); if (fb) layout(); };
     if (typeof ABOUT_PHOTO !== 'undefined') photo.src = ABOUT_PHOTO;
 
     // the photo, or the part of it crop gives ({ sx, sy, sw, sh } in its
@@ -597,14 +608,31 @@
       return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
     }
 
-    // a logo at w x h in its colours, dithered as the photo is: a bitmap
-    // { px, w, h } of the framebuffer's v's, or null
-    function ditherLogo(art, w, h) {
-      const rgb = readImage(art.img, w, h);
-      if (!rgb) return null;
-      const g = Framebuffer.ditherColour(rgb, w, h, art.colours.rgb);
-      for (let i = 0; i < g.px.length; i++) g.px[i] = art.colours.v[g.px[i]];
+    // make() for key, a dithered picture or null, kept in memo: a layout
+    // at a size laid out lately (a phone's toolbar going and coming back
+    // resizes between two) finds it made. the MEMO keys asked for latest
+    // are kept, and a null is not
+    const MEMO = 8;
+    function remember(memo, key, make) {
+      let g = memo.get(key);
+      if (g) memo.delete(key);
+      else if (!(g = make())) return null;
+      memo.set(key, g);
+      if (memo.size > MEMO) memo.delete(memo.keys().next().value);
       return g;
+    }
+
+    // a logo at w x h in its colours, dithered as the photo is: a bitmap
+    // { px, w, h } of the framebuffer's v's, or null. each size made is
+    // kept with the logo (art.dithers)
+    function ditherLogo(art, w, h) {
+      return remember(art.dithers, w + 'x' + h, () => {
+        const rgb = readImage(art.img, w, h);
+        if (!rgb) return null;
+        const g = Framebuffer.ditherColour(rgb, w, h, art.colours.rgb);
+        for (let i = 0; i < g.px.length; i++) g.px[i] = art.colours.v[g.px[i]];
+        return g;
+      });
     }
 
     // the photo's own colours, worked out once it has loaded: COLOURS less
@@ -634,14 +662,18 @@
     }
 
     // the photo at w x h in its colours, cut to fill it, dithered: a bitmap
-    // { px, w, h } of the framebuffer's v's, or null
+    // { px, w, h } of the framebuffer's v's, or null. each size made is
+    // kept (photoDithers), until the photo's colours are worked out again
+    const photoDithers = new Map();
     function ditherPhoto(w, h) {
       if (!photoColours) return null;
-      const rgb = readPhoto(w, h, true, photoCrop(w, h));
-      if (!rgb) return null;
-      const g = Framebuffer.ditherColour(rgb, w, h, photoColours.rgb);
-      for (let i = 0; i < g.px.length; i++) g.px[i] = photoColours.v[g.px[i]];
-      return g;
+      return remember(photoDithers, w + 'x' + h, () => {
+        const rgb = readPhoto(w, h, true, photoCrop(w, h));
+        if (!rgb) return null;
+        const g = Framebuffer.ditherColour(rgb, w, h, photoColours.rgb);
+        for (let i = 0; i < g.px.length; i++) g.px[i] = photoColours.v[g.px[i]];
+        return g;
+      });
     }
 
     // a paragraph's glyphs in lines no wider than width, in the type's px:
@@ -1223,8 +1255,10 @@
     // it trails as the mouth does and swings when it is carried. the face's
     // art goes down 1:1 on a bubble of FACE.DEFAULT_RADIUS (js/face.js) and
     // scales with the radius, each feature by its own size, drawn as line
-    // art (roomView), so its strokes stay 1 px.
+    // art (roomView), so its strokes are BUBBLE_LINE px at any size, as the
+    // skin's are.
     const BUBBLE_SCALE = 5 / 3;
+    const BUBBLE_LINE = 2; // world px, every stroke of the skin and the face
     // its radius in world px (about 38), its points, and its
     // air: the area it fills over its circle's
     const BUBBLE_R = FACE.DEFAULT_RADIUS * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
@@ -1236,26 +1270,27 @@
     // it at its world's px lands in into at the page's, its box dy up, and
     // warbled about its lock by its room's letter. the face's sprites go
     // down as line art (Framebuffer.strokeSprite), so at any size their
-    // strokes are 1 px, as the skin's are
+    // strokes are BUBBLE_LINE px, as the skin's are; a line is as thick as
+    // it is asked, 1 px unless told
     function roomView(into, t, dy) {
       const r = bubbleHome.room, w = r.letter.pose(t), lx = bubble.lockX, ly = bubble.lockY;
       const c = w.s * Math.cos(w.a), n = w.s * Math.sin(w.a), ox = r.x + lx + w.x, oy = r.y - dy + ly + w.y;
       const at = (x, y) => [ox + c * (x - lx) - n * (y - ly), oy + n * (x - lx) + c * (y - ly)];
       return {
-        sprite(g, x, y, s, a, v) { const [X, Y] = at(x, y); into.strokeSprite(g, X, Y, s * w.s, a + w.a, v); },
-        line(x0, y0, x1, y1, v) { const [a, b] = at(x0, y0), [c, d] = at(x1, y1); into.line(a, b, c, d, v); },
+        sprite(g, x, y, s, a, v) { const [X, Y] = at(x, y); into.strokeSprite(g, X, Y, s * w.s, a + w.a, v, BUBBLE_LINE); },
+        line(x0, y0, x1, y1, v, thick = 1) { const [a, b] = at(x0, y0), [c, d] = at(x1, y1); into.line(a, b, c, d, v, thick); },
         fillPolygon(pts, v) { into.fillPolygon(pts.map((p) => { const [x, y] = at(p.x, p.y); return { x, y }; }), v); },
       };
     }
 
-    // the bubble through view: filled with paper and outlined, its face
-    // over it
+    // the bubble through view: filled with paper and outlined BUBBLE_LINE
+    // px thick, its face over it
     function drawBubble(view) {
       const pts = bubble.points;
       view.fillPolygon(pts, 0);
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i], q = pts[(i + 1) % pts.length];
-        view.line(p.x, p.y, q.x, q.y);
+        view.line(p.x, p.y, q.x, q.y, 1, BUBBLE_LINE);
       }
       face.draw(view);
       // beard.draw(view);

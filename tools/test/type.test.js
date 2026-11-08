@@ -187,9 +187,9 @@ const log = made[0] && made[0].log;
     log.contexts[0].kind === '2d' && log.contexts[0].attrs && log.contexts[0].attrs.willReadFrequently === true);
   check('glyphs: one a letter, the space left out', t.glyphs.length === 5 && t.glyphs.map((g) => g.ch).join('') === 'AVAgi' &&
     list(t.glyphs.map((g) => g.at)) === '[0, 1, 2, 4, 5]', t.glyphs.map((g) => g.ch + '@' + g.at).join(' '));
-  check('fills: one a glyph, never the space, each with its measured box PAD in from the corner', log.fills.map((f) => f.ch).join('') === 'AVAgi' &&
+  check('fills: one a character, the second A not filled again, never the space, each with its measured box PAD in from the corner', log.fills.map((f) => f.ch).join('') === 'AVgi' &&
     log.fills.every((f) => f.x === PAD + GLYPH[f.ch].L && f.y === PAD + GLYPH[f.ch].A), log.fills.map((f) => f.ch + ' ' + f.x + ',' + f.y).join(' '));
-  check('reads: each the measured box, rounded up, and PAD a side', log.reads.length === 5 && log.reads.every((r) => {
+  check('reads: one a fill, each the measured box, rounded up, and PAD a side', log.reads.length === 4 && log.reads.every((r) => {
     const m = GLYPH[r.ch];
     return r.w === Math.ceil(m.L + m.R) + 2 * PAD && r.h === Math.ceil(m.A + m.D) + 2 * PAD;
   }), log.reads.map((r) => r.ch + ' ' + r.w + 'x' + r.h).join(', '));
@@ -246,7 +246,9 @@ const log = made[0] && made[0].log;
   check('canvas: sized once to the biggest read, and every read inside it', made[0].canvas.width === 30 + 2 * PAD && made[0].canvas.height === 42 + 2 * PAD &&
     log.sizes.length === 2, made[0].canvas.width + 'x' + made[0].canvas.height);
   // the fake throws on a fill in its reset font: getting here means the pen went back on
-  check('pen: put back on after the canvas was sized', log.fills.length === 5);
+  check('pen: put back on after the canvas was sized', log.fills.length === 4);
+  check('shared: both A\'s glyphs are the one bitmap, each at its own place', t.glyphs[0].g === t.glyphs[2].g &&
+    t.glyphs[0].dx === t.glyphs[2].dx && t.glyphs[0].dy === t.glyphs[2].dy && t.glyphs[0].x !== t.glyphs[2].x);
 }
 
 // --- odd glyphs --------------------------------------------------------------------
@@ -255,6 +257,9 @@ const log = made[0] && made[0].log;
   const mp = maker(), p = new Type('PA', mp.make), P = p.glyphs[0];
   check('webkit box: the read is the measured box, the bitmap only the ink', mp.made[0].log.reads[0].w === 30 + 2 * PAD && P.g.w === 23,
     'read ' + mp.made[0].log.reads[0].w + ', bitmap ' + P.g.w);
+  // A was filled for the line above, in the same font
+  check('shared: a later line fills only its new characters, the rest the bitmaps already made',
+    mp.made[0].log.fills.map((f) => f.ch).join('') === 'P' && p.glyphs[1].g === t.glyphs[0].g, mp.made[0].log.fills.map((f) => f.ch).join(''));
   check('webkit box: its middle the ink\'s, 15.5 from the origin, not the box\'s 15', P.dx === 15.5);
   check('webkit box: the line\'s left edge is the ink\'s, 4 right of the origin', p.left === -4 && p.right === 60, 'left ' + p.left + ', right ' + p.right);
 
@@ -267,12 +272,15 @@ const log = made[0] && made[0].log;
   const q = new Type('\'', maker().make).glyphs[0];
   check('apostrophe: all above the baseline, 11 tall, its centre 33.5 up', q && q.g.h === 11 && q.dy === -33.5, q && q.g.h + ' tall, dy ' + q.dy);
 
-  const k = new Type('\'A', maker().make);
+  const mk = maker(), k = new Type('\'A', mk.make);
   check('kerning: \'A pulls the A in by 4', k.glyphs.length === 2 && k.glyphs[1].x === 4, list(k.glyphs.map((g) => g.x)));
+  check('shared: a line of characters all filled already fills nothing and leaves its canvas unsized',
+    mk.made[0].log.fills.length === 0 && mk.made[0].log.reads.length === 0 && mk.made[0].log.sizes.length === 0);
 
+  // A filled already, only the ~ is filled
   const mf = maker(), faint = new Type('A~A', mf.make);
   check('faint: a glyph with no ink at the cut is left out, the rest kept', faint.glyphs.length === 2 && list(faint.glyphs.map((g) => g.at)) === '[0, 2]' &&
-    mf.made[0].log.fills.length === 3);
+    mf.made[0].log.fills.map((f) => f.ch).join('') === '~');
 }
 
 // --- nothing to draw ----------------------------------------------------------------
@@ -344,6 +352,7 @@ function cropBox(gl, k, ox, base) {
   const mw = maker({ font: '700 256px ' + TYPE.FAMILY }), w = new Type(TEXT, mw.make, { weight: 700 });
   check('face: a weight alone keeps the family', w.font === '700 256px ' + TYPE.FAMILY && w.glyphs.length === t.glyphs.length);
   check('face: none given is regular helvetica', t.font === FONT);
+  check('face: its own bitmaps, not the regular line\'s', f.glyphs.every((gl, i) => gl.g !== t.glyphs[i].g) && w.glyphs[0].g !== f.glyphs[0].g);
 }
 
 console.log('\n' + (failures ? failures + ' failed' : 'all passed'));
