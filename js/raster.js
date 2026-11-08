@@ -13,6 +13,10 @@ function Framebuffer(w, h) {
   // made once: a frame should not allocate
   this.img = new ImageData(w, h);
   this.px = new Uint32Array(this.img.data.buffer);
+  // sprite()'s working: two products for each column of points across the
+  // framebuffer, and for each row of points down one pixel
+  this.across = new Float64Array(2 * SAMPLE.GRID * w);
+  this.down = new Float64Array(2 * SAMPLE.GRID);
 }
 
 Framebuffer.prototype.clear = function () {
@@ -29,14 +33,21 @@ Framebuffer.prototype.get = function (x, y) {
 };
 
 // bresenham, ends included. the ends are rounded first, as cicada's world
-// lines were, so the walk lands exactly on (x1, y1)
-Framebuffer.prototype.line = function (x0, y0, x1, y1, v = 1) {
+// lines were, so the walk lands exactly on (x1, y1). thick is 1 or 2: at 2
+// each pixel of the walk takes its neighbour across the line with it, the
+// one below on a line at least as wide as it is tall and the one right of
+// it on a steeper one, so it is 2 px thick at every slope as a 1 px line
+// is 1
+Framebuffer.prototype.line = function (x0, y0, x1, y1, v = 1, thick = 1) {
   x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
   const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
   const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  // the second pixel's step from the first
+  const ax = dx >= dy ? 0 : 1, ay = 1 - ax;
   let err = dx - dy;
   for (;;) {
     this.set(x0, y0, v);
+    if (thick === 2) this.set(x0 + ax, y0 + ay, v);
     if (x0 === x1 && y0 === y1) break;
     const e2 = 2 * err;
     if (e2 > -dy) { err -= dy; x0 += sx; }
@@ -139,6 +150,9 @@ for (let i = 0; i < SAMPLE.GRID; i++) for (let j = 0; j < SAMPLE.GRID; j++)
   SUB.push([(i + 0.5) / SAMPLE.GRID - 0.5, (j + 0.5) / SAMPLE.GRID - 0.5]);
 Framebuffer.SAMPLE = SAMPLE;
 Framebuffer.SUB = SUB;
+// the same offsets along one side: a column's across and a row's down, the
+// points every pairing of the two
+const SUB_AT = Array.from({ length: SAMPLE.GRID }, (_, i) => (i + 0.5) / SAMPLE.GRID - 0.5);
 
 // rows in font.js's format as a sprite's bitmap, '#' 1 and '.' 0, as
 // wide as the longest row and not trimmed
@@ -154,23 +168,51 @@ Framebuffer.ink = function (rows) {
 // g, a bitmap { ink, w, h }, with its centre at (cx, cy), scaled by s and
 // turned by a radians (clockwise on screen). a pixel with minHits of its
 // points on ink is written v; the rest are left alone, so a sprite lays
-// over what is there as a blit does
+// over what is there as a blit does. a point tx, ty from the centre lands
+// in the bitmap at ((cos tx + sin ty) / s + w / 2, (-sin tx + cos ty) / s
+// + h / 2). the products with tx are made once a sprite for each column
+// of points and those with ty once a row; a point adds its two in the
+// order the sum is written, so every rounding is the one it would get
+// worked out alone. only the pixels with a point in the turned box are
+// asked, the box grown a sixteenth of a pixel all round (far more than
+// rounding can move a point) and cut to the framebuffer, and a pixel
+// stops asking once it has minHits or has missed too many to get them
 Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPLE.MIN_HITS) {
-  const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s;
+  const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s, n = SAMPLE.GRID;
   const hw = g.w * s / 2, hh = g.h * s / 2;
-  // the turned box, a pixel wider all round
-  const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1;
-  const x0 = Math.floor(cx - ex), x1 = Math.ceil(cx + ex), y0 = Math.floor(cy - ey), y1 = Math.ceil(cy + ey);
-  for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
-    let hits = 0;
-    // once it has enough the rest cannot change it
-    for (let k = 0; k < SUB.length && hits < minHits; k++) {
-      const tx = px + 0.5 + SUB[k][0] - cx, ty = py + 0.5 + SUB[k][1] - cy;
-      const bx = (cos * tx + sin * ty) * inv + g.w / 2, by = (-sin * tx + cos * ty) * inv + g.h / 2;
-      const gx = Math.floor(bx), gy = Math.floor(by);
-      if (gx >= 0 && gx < g.w && gy >= 0 && gy < g.h && g.ink[gy * g.w + gx] === 1) hits++;
+  const ex = Math.abs(cos) * hw + Math.abs(sin) * hh + 1 / 16, ey = Math.abs(sin) * hw + Math.abs(cos) * hh + 1 / 16;
+  // a pixel's points sit lo to hi in from its top left
+  const lo = 0.5 + SUB_AT[0], hi = 0.5 + SUB_AT[n - 1];
+  const x0 = Math.max(0, Math.ceil(cx - ex - hi)), x1 = Math.min(this.w, Math.floor(cx + ex - lo) + 1);
+  const y0 = Math.max(0, Math.ceil(cy - ey - hi)), y1 = Math.min(this.h, Math.floor(cy + ey - lo) + 1);
+  if (x1 <= x0 || y1 <= y0) return;
+  // each column's cos tx and -sin tx, and the row's sin ty and cos ty
+  const across = this.across, down = this.down;
+  for (let px = x0, k = 0; px < x1; px++) for (let i = 0; i < n; i++, k += 2) {
+    const tx = px + 0.5 + SUB_AT[i] - cx;
+    across[k] = cos * tx;
+    across[k + 1] = -sin * tx;
+  }
+  const gw = g.w, gh = g.h, ink = g.ink, bits = this.bits, w = this.w, mx = gw / 2, my = gh / 2;
+  const most = n * n - minHits; // misses a pixel can take and still light
+  for (let py = y0; py < y1; py++) {
+    for (let j = 0, k = 0; j < n; j++, k += 2) {
+      const ty = py + 0.5 + SUB_AT[j] - cy;
+      down[k] = sin * ty;
+      down[k + 1] = cos * ty;
     }
-    if (hits >= minHits) this.set(px, py, v);
+    for (let px = x0, c = 0; px < x1; px++, c += 2 * n) {
+      let hits = 0, misses = 0;
+      points: for (let i = c; i < c + 2 * n; i += 2) {
+        const ax = across[i], ay = across[i + 1];
+        for (let j = 0; j < 2 * n; j += 2) {
+          const bx = (ax + down[j]) * inv + mx, by = (ay + down[j + 1]) * inv + my;
+          if (bx >= 0 && bx < gw && by >= 0 && by < gh && ink[Math.floor(by) * gw + Math.floor(bx)] === 1) { if (++hits >= minHits) break points; }
+          else if (++misses > most) break points;
+        }
+      }
+      if (hits >= minHits) bits[py * w + px] = v;
+    }
   }
 };
 
@@ -196,14 +238,20 @@ Framebuffer.prototype.spritePixels = function (g, cx, cy, s, a) {
   }
 };
 
+// the neighbours strokeSprite() joins a pixel to: right, below and the two
+// corners below, so every pair that touches is joined once
+const JOINS = [[1, 0], [0, 1], [1, 1], [-1, 1]];
+
 // g, a bitmap { ink, w, h } of 1 px strokes, with its centre at (cx, cy),
 // scaled by s and turned by a radians as sprite() takes it, drawn as line
 // art: each ink pixel's middle carried through the transform and every two
-// that touch joined by a line, so its strokes stay 1 px at any scale, as a
-// line's do. two that touch only at a corner are not joined when a pixel
-// both touch is ink, the stroke turning through that one; a pixel that
-// touches none is a dot
-Framebuffer.prototype.strokeSprite = function (g, cx, cy, s, a, v = 1) {
+// that touch joined by a line thick px thick (1 or 2), so its strokes are
+// thick px at any scale, as a line's are. two that touch only at a corner
+// are not joined when a pixel both touch is ink, the stroke turning
+// through that one; a pixel that touches none is a dot, at thick 2 a 2 x 2
+// block, it and the pixels right of it, below it and below right, where a
+// line puts its second pixels
+Framebuffer.prototype.strokeSprite = function (g, cx, cy, s, a, v = 1, thick = 1) {
   const cos = Math.cos(a) * s, sin = Math.sin(a) * s, w = g.w, h = g.h;
   const ink = (x, y) => x >= 0 && x < w && y >= 0 && y < h && g.ink[y * w + x] === 1;
   const at = (x, y) => {
@@ -213,14 +261,20 @@ Framebuffer.prototype.strokeSprite = function (g, cx, cy, s, a, v = 1) {
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (!ink(x, y)) continue;
     const [x0, y0] = at(x, y);
-    // right, below and the two corners below, so each pair is joined once
-    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
+    for (const [dx, dy] of JOINS) {
       if (!ink(x + dx, y + dy) || (dx && dy && (ink(x + dx, y) || ink(x, y + dy)))) continue;
       const [x1, y1] = at(x + dx, y + dy);
-      this.line(x0, y0, x1, y1, v);
+      this.line(x0, y0, x1, y1, v, thick);
     }
-    const lone = [-1, 0, 1].every((dy) => [-1, 0, 1].every((dx) => !(dx || dy) || !ink(x + dx, y + dy)));
-    if (lone) this.set(Math.round(x0), Math.round(y0), v);
+    // a dot when none of the eight round it is ink
+    let lone = true;
+    for (let dy = -1; dy <= 1 && lone; dy++) for (let dx = -1; dx <= 1; dx++)
+      if ((dx || dy) && ink(x + dx, y + dy)) { lone = false; break; }
+    if (lone) {
+      const px = Math.round(x0), py = Math.round(y0);
+      this.set(px, py, v);
+      if (thick === 2) { this.set(px + 1, py, v); this.set(px, py + 1, v); this.set(px + 1, py + 1, v); }
+    }
   }
 };
 
@@ -312,29 +366,29 @@ Framebuffer.atkinson = function (grey, w, h) {
 Framebuffer.medianCut = function (rgb, n) {
   const count = Math.floor(rgb.length / 3);
   if (!count) return [];
-  const boxes = [Array.from({ length: count }, (_, i) => i)];
-  // a box's widest channel and how far it spans
-  const widest = (b) => {
+  // a box: its pixels, and its widest channel and how far it spans,
+  // worked out once when it is made
+  const box = (b) => {
     let ch = 0, span = -1;
     for (let c = 0; c < 3; c++) {
       let lo = Infinity, hi = -Infinity;
       for (const i of b) { const v = rgb[3 * i + c]; if (v < lo) lo = v; if (v > hi) hi = v; }
       if (hi - lo > span) { span = hi - lo; ch = c; }
     }
-    return { ch, span };
+    return { b, ch, span };
   };
+  const boxes = [box(Array.from({ length: count }, (_, i) => i))];
   while (boxes.length < n) {
-    let best = -1, ch = 0, most = 0;
-    boxes.forEach((b, i) => {
-      if (b.length < 2) return;
-      const w = widest(b);
-      if (w.span > most) { most = w.span; best = i; ch = w.ch; }
+    let best = -1, most = 0;
+    boxes.forEach((x, i) => {
+      if (x.b.length < 2) return;
+      if (x.span > most) { most = x.span; best = i; }
     });
     if (best < 0) break;
-    const b = boxes[best].sort((p, q) => rgb[3 * p + ch] - rgb[3 * q + ch]), mid = b.length >> 1;
-    boxes.splice(best, 1, b.slice(0, mid), b.slice(mid));
+    const ch = boxes[best].ch, b = boxes[best].b.sort((p, q) => rgb[3 * p + ch] - rgb[3 * q + ch]), mid = b.length >> 1;
+    boxes.splice(best, 1, box(b.slice(0, mid)), box(b.slice(mid)));
   }
-  return boxes.map((b) => [0, 1, 2].map((c) => Math.round(b.reduce((sum, i) => sum + rgb[3 * i + c], 0) / b.length)));
+  return boxes.map(({ b }) => [0, 1, 2].map((c) => Math.round(b.reduce((sum, i) => sum + rgb[3 * i + c], 0) / b.length)));
 };
 
 // an rgb image, w x h, r, g, b per pixel from 0 to 255, in the nearest of
@@ -373,9 +427,15 @@ Framebuffer.prototype.clearRows = function (y0, y1) {
 };
 
 // a bitmap { px, w, h } of v's, its top left at integer (x, y), every
-// pixel written: an opaque picture in the page's colours
+// pixel written: an opaque picture in the page's colours. what is on the
+// framebuffer of each row is copied across whole
 Framebuffer.prototype.blitPixels = function (g, x, y) {
-  for (let by = 0; by < g.h; by++) for (let bx = 0; bx < g.w; bx++) this.set(x + bx, y + by, g.px[by * g.w + bx]);
+  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + g.w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + g.h);
+  if (x1 <= x0) return;
+  for (let py = y0; py < y1; py++) {
+    const from = (py - y) * g.w + x0 - x;
+    this.bits.set(g.px.subarray(from, from + x1 - x0), py * this.w + x0);
+  }
 };
 
 // a 1-bit image, msb first, each row `stride` bytes from bytes[off], top-left
