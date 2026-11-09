@@ -31,7 +31,7 @@ const Voice = {
   // other pulse weaker, an octave under the note, heard as growl), tension
   // (breathy 0 .. pressed 1), diction (consonants crisp above 1, lazy
   // under) and wobble (the drift that keeps a held note alive)
-  VOICE: { sections: 28, breathiness: 0.05, roughness: 0.75, tension: 0.75, diction: 1, wobble: 1.2 },
+  VOICE: { sections: 33, breathiness: 0.05, roughness: 0.75, tension: 0.75, diction: 1, wobble: 1.2 },
   // what it says when taken hold of: arpabet phones, stress digits on the
   // vowels and a / at each word's end, spoken on a baseline midi note, an
   // accented syllable lifted range semitones over it, at a speed (1
@@ -39,25 +39,25 @@ const Voice = {
   // and its text, the subtitle, a syllable for each vowel, split by the
   // spaces between words and a | inside one (js/subtitle.js)
   LINES: [
-    { phones: 'S T AA1 P / DH AE2 T', midi: 43, range: 5, speed: 0.8, breath: 0.8, text: 'Stop that' },
-    { phones: 'K W IH1 T / IH0 T', midi: 43, range: 5, speed: 0.8, breath: 0.8, text: 'Quit it' },
-    { phones: 'AW1 CH', midi: 43, range: 5, speed: 0.8, breath: 0.8, text: 'Ouch' },
+    { phones: 'S T AA1 P / DH AE2 T', midi: 63, range: 5, speed: 0.8, breath: 0.8, text: 'Stop that' },
+    { phones: 'K W IH1 T / IH0 T', midi: 63, range: 5, speed: 0.8, breath: 0.8, text: 'Quit it' },
+    { phones: 'AW1 CH', midi: 63, range: 5, speed: 0.8, breath: 0.8, text: 'Ouch' },
   ],
   // what it says once it has eaten, the same way
   THANKS: [
-    { phones: 'TH AE1 NG K / Y UW0', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: 'Thank you' },
-    { phones: 'N AY1 S', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: 'Nice' },
-    { phones: 'DH AE2 T S / W AH0 T / AY0 M / T AO1 K IH0 NG / AH0 B AW2 T', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: "That's what I'm talk|ing a|bout" },
-    { phones: 'G UH2 D / S T AH1 F', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: 'Good stuff' },
-    { phones: 'B AH1 B AH0 L / T AY2 M', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|ble time' },
-    { phones: 'B AH2 B IH0 L IH1 SH AH0 S', midi: 45, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|bi|li|cious' },
+    { phones: 'TH AE1 NG K / Y UW0', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Thank you' },
+    { phones: 'N AY1 S', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Nice' },
+    { phones: 'DH AE2 T S / W AH0 T / AY0 M / T AO1 K IH0 NG / AH0 B AW2 T', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: "That's what I'm talk|ing a|bout" },
+    { phones: 'G UH2 D / S T AH1 F', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Good stuff' },
+    { phones: 'B AH1 B AH0 L / T AY2 M', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|ble time' },
+    { phones: 'B AH2 B IH0 L IH1 SH AH0 S', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|bi|li|cious' },
   ],
   THANK_MS: 500, // from the meal to its thanks
   // the master gain: the lines and the thanks above, at the voice above,
-  // peak through it at 0.43 to 0.55, each played many times in random
+  // peak through it at 0.18 to 0.56, each played many times in random
   // order with gaps between them as grabs come (tools/test/voice.test.js
   // prints each one's peak); a voice or a sound tuned again moves them
-  MASTER: 2.4,
+  MASTER: 1.5,
   // ms a grab's line is held for the worklet to be ready and the context
   // running; past it the line is dropped, too late to answer its grab
   HOLD: 1000,
