@@ -204,7 +204,7 @@ function settledWorld(x = 100, y = 100, steps = 600) {
     if (b.points.length !== before - 1) ok = false;
     steps++;
   }
-  check('reduce: one point per INTERVAL_MS of virtual time', ok && steps === 60 - R.TARGET, steps + ' intervals');
+  check('reduce: near TARGET, RATE a point per INTERVAL_MS of virtual time', ok && steps === 60 - R.TARGET, steps + ' intervals');
   for (let i = 0; i < 20; i++) { t += R.INTERVAL_MS; b.step(500, 300, null, t); }
   check('reduce: stops at exactly TARGET', b.points.length === R.TARGET, b.points.length);
   check('reduce: chord = circumference / points', b.chord === b.circumference / b.points.length);
@@ -235,7 +235,7 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   check('reduce: at MIN_VIABLE it refuses', small.reduce(0, 1) === false);
 
   // through the world: the clock is STEP_MS a step, so a 20 ms interval
-  // comes round every second step
+  // comes round every second step, and sheds at least RATE each time
   const world = new World(500, 300);
   const w60 = new SoftBlob(250, 150, 60, 36, 1.2, true);
   world.blobs.push(w60);
@@ -243,7 +243,23 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   while (w60.points.length > R.TARGET && ticks < 500) { world.tick(); ticks++; }
   for (let i = 0; i < 60; i++) world.tick();
   check('reduce: the world clock drives it to TARGET', w60.points.length === R.TARGET, ticks + ' steps');
-  check('reduce: two steps a removal at 60 Hz', ticks === 2 * (60 - R.TARGET), ticks);
+  check('reduce: at least RATE every second step at 60 Hz', ticks <= 2 * (60 - R.TARGET), ticks);
+
+  // grown huge, it sheds SHARE of its points past TARGET a step: two
+  // steps' worth when the interval comes round, and back to TARGET from a
+  // thousand points within five seconds, its skin evened out a second on
+  const big = new World(500, 300);
+  const w1000 = new SoftBlob(250, 150, 1000, 60, 1.2, true);
+  big.blobs.push(w1000);
+  big.tick();
+  big.tick();
+  const shed = 1000 - w1000.points.length, want = Math.round((1000 - R.TARGET) * (1 - Math.pow(1 - R.SHARE, 2)));
+  check('reduce: a big blob sheds SHARE of its excess a step', shed === want, shed + ' of ' + want);
+  let bt = 2;
+  while (w1000.points.length > R.TARGET && bt < 1000) { big.tick(); bt++; }
+  check('reduce: a thousand points back to TARGET within five seconds', w1000.points.length === R.TARGET && bt <= 300, bt + ' steps');
+  for (let i = 0; i < 60; i++) big.tick();
+  check('reduce: the big blob holds together', finite(w1000) && worstChord(w1000) < 0.5, 'worst chord ' + (100 * worstChord(w1000)).toFixed(1) + ' %');
 }
 
 // --- the world's clock -------------------------------------------------------

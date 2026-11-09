@@ -19,7 +19,11 @@ const SOFT = {
   DISTANCE_ERROR_THRESHOLD: 0.01, DISTANCE_CORRECTION_FACTOR: 0.5,
   LOCK_RATE: 0.1, LOCK_DAMPING: 0.92, LOCK_DIFF_THRESHOLD: 0.1,
   COLLISION_THRESHOLD: 1.86, MERGE_PUFF_SHARE: 0.3, MAX_PUFFINESS: 2.5,
-  REDUCE: { ENABLED: true, TARGET: 32, RATE: 1, INTERVAL_MS: 20, MIN_SPACING: 2, MIN_VIABLE: 8 },
+  // a locked blob's points past TARGET are shed every INTERVAL_MS, SHARE
+  // of them a step for the time since it last shed and never fewer than
+  // RATE, each removal MIN_SPACING from the next round the ring and the
+  // ring never under MIN_VIABLE
+  REDUCE: { ENABLED: true, TARGET: 32, RATE: 1, SHARE: 0.03, INTERVAL_MS: 20, MIN_SPACING: 2, MIN_VIABLE: 8 },
   // the pull on a held point, a fraction of its distance to the pointer
   // each iteration, cicada's as it runs: a pull barely moves the locked
   // bubble's skin, and a small blob comes after the pointer slowly,
@@ -190,11 +194,17 @@ class SoftBlob {
       }
     }
 
-    // every merge adds points; a locked blob sheds them back to TARGET one
-    // at a time, so it cannot grow without bound by eating
+    // every merge adds points; a locked blob sheds them back toward TARGET
+    // by the house approach, SHARE of the points past it a step, so the
+    // more it has eaten the faster it sheds and it cannot grow without
+    // bound by eating, and RATE at a time at the least, so it gets there
     const R = SOFT.REDUCE;
     if (this.locked && R.ENABLED && tMs - this.lastReduceMs >= R.INTERVAL_MS) {
-      if (this.points.length > R.TARGET) this.reduce(R.TARGET, R.RATE);
+      const over = this.points.length - R.TARGET;
+      if (over > 0) {
+        const share = 1 - Math.pow(1 - R.SHARE, (tMs - this.lastReduceMs) / SOFT.STEP_MS);
+        this.reduce(R.TARGET, Math.max(R.RATE, Math.round(over * share)));
+      }
       this.lastReduceMs = tMs;
     }
 
