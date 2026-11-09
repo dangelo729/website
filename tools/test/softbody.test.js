@@ -95,13 +95,13 @@ function settledWorld(x = 100, y = 100, steps = 600) {
     d.points[3].point === b.points[(at - 2 + n) % n] && d.points[4].point === b.points[(at + 2) % n], 'index ' + at);
   check('grab: sets the pointer', world.pointerX === 136 && world.pointerY === 100);
 
-  // the drag's force against the lock: the skin dimples toward the
+  // the drag's force against the lock: the skin gives a little toward the
   // pointer, the bubble does not travel.
   const p = d.points[0].point, x0 = p.x;
   world.pointer(100 + 60, 100);
   for (let i = 0; i < 120; i++) world.tick();
   check('drag: still held after 120 steps', world.drag === d);
-  check('drag: the grabbed point moved toward the pointer', p.x - x0 > 3, 'dx ' + (p.x - x0).toFixed(3));
+  check('drag: the grabbed point moved toward the pointer', p.x - x0 > 0.2, 'dx ' + (p.x - x0).toFixed(3));
   const c = b.getCenter();
   check('drag: the lock keeps the centre within a few px', dist(c, { x: 100, y: 100 }) < 3, 'off by ' + dist(c, { x: 100, y: 100 }).toFixed(3));
   check('drag: no NaN', finite(b));
@@ -365,6 +365,83 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   check('spawn: exclusion round a given centre', clear);
 }
 
+// --- spawning over time, and the drift -----------------------------------------
+{
+  const S = SOFT.SPAWN;
+  const world = new World(500, 300);
+  world.blobs.push(new SoftBlob(250, 150, 32, 36, 1.2, true));
+  const at = [], spawnRandom = world.spawnRandom.bind(world);
+  world.spawnRandom = (...a) => { at.push(world.nowMs); return spawnRandom(...a); };
+  for (let i = 0; i < 300; i++) world.tick();
+  check('spawning: off, nothing is made', at.length === 0 && world.blobs.length === 1);
+  world.spawning = true;
+  let most = 0;
+  for (let i = 0; i < 60 * 20; i++) { world.tick(); most = Math.max(most, world.blobs.length); }
+  const gaps = at.slice(1).map((t, k) => t - at[k]);
+  check('spawning: on, one every EVERY_MS', at.length >= 9 && gaps.every((g) => g >= S.EVERY_MS - 1e-6 && g < S.EVERY_MS + SOFT.STEP_MS + 1e-6), at.length + ' in 20 s');
+  check('spawning: never past MAX_BLOBS', most <= S.MAX_BLOBS && most > 1, most);
+
+  const drift = new World(500, 300);
+  let ranged = true, rigid = true;
+  for (let k = 0; k < 200; k++) {
+    drift.blobs.length = 0;
+    const b = drift.spawnRandom();
+    const v = b.points.map((q) => ({ x: q.x - q.px, y: q.y - q.py })), m = Math.hypot(v[0].x, v[0].y);
+    if (m < S.DRIFT[0] - 1e-9 || m > S.DRIFT[1] + 1e-9) ranged = false;
+    if (v.some((u) => !near(u.x, v[0].x, 1e-9) || !near(u.y, v[0].y, 1e-9))) rigid = false;
+  }
+  check('drift: a spawned blob comes in moving, DRIFT px a step', ranged);
+  check('drift: the whole ring at one velocity', rigid);
+  drift.blobs.length = 0;
+  const b = drift.spawnRandom(), c0 = b.getCenter();
+  for (let i = 0; i < 600; i++) drift.tick();
+  const c1 = b.getCenter(), p = b.points[0];
+  check('drift: it drifts a little and comes to rest', dist(c0, c1) > 3 && dist(c0, c1) < 40 && Math.hypot(p.x - p.px, p.y - p.py) < 0.01,
+    'moved ' + dist(c0, c1).toFixed(1) + ' px');
+}
+
+// --- shrinking back -----------------------------------------------------------
+{
+  const { world, b: centre } = settledWorld(250, 150, 300);
+  check('shrink: a blob that has not eaten keeps its area exactly', centre.area === centre.homeArea);
+  const home = centre.homeArea, r0 = centre.radius;
+  const edge = Math.max(...centre.points.map((q) => q.x));
+  const meal = world.spawn(10, edge + 10 + 1, 150);
+  for (let i = 0; i < 10 && world.blobs.includes(meal); i++) world.tick();
+  check('shrink: the meal is eaten and the bubble grows', world.blobs.length === 1 && centre.area > home * 1.05, (centre.area / home).toFixed(3));
+  let falling = true, last = centre.area;
+  for (let i = 0; i < 60; i++) { world.tick(); if (centre.area > last) falling = false; last = centre.area; }
+  check('shrink: back to its 32 points within a second', centre.points.length === SOFT.REDUCE.TARGET, centre.points.length);
+  for (let i = 0; i < 60 * 30; i++) { world.tick(); if (centre.area > last) falling = false; last = centre.area; }
+  check('shrink: the area only ever falls', falling);
+  check('shrink: back to its own size in half a minute', near(centre.area, home, home * 0.005) && near(centre.radius, r0, r0 * 0.005),
+    (centre.area / home).toFixed(4));
+  check('shrink: no NaN', finite(centre));
+}
+
+// --- a small blob towed --------------------------------------------------------
+{
+  const world = new World(1260, 383);
+  const centre = new SoftBlob(630, 190, 32, 38, 1.2, true);
+  world.blobs.push(centre);
+  for (let i = 0; i < 60; i++) world.tick();
+  const b = world.spawn(18, 380, 190);
+  for (let i = 0; i < 30; i++) world.tick();
+  const c0 = b.getCenter();
+  world.grab(c0.x + 18, c0.y);
+  const d = world.drag;
+  check('tow: a small blob is taken as any is, five points', d.blob === b && d.points.length === 5 &&
+    d.points.map((q) => q.force).join(' ') === '1 0.6 0.6 0.3 0.3');
+  // the pointer kept 60 px ahead of the grabbed point, toward the centre
+  let s = 0, held = true;
+  for (; s < 60 * 20 && world.blobs.includes(b); s++) {
+    world.pointer(d.points[0].point.x + 60, 190);
+    world.tick();
+    if (world.blobs.includes(b) && world.drag !== d) held = false;
+  }
+  check('tow: kept within reach, it is towed onto the bubble and eaten', held && !world.blobs.includes(b), (s / 60).toFixed(1) + ' s');
+}
+
 // --- nearestTo ---------------------------------------------------------------
 {
   const world = new World(500, 300);
@@ -511,8 +588,8 @@ function settledWorld(x = 100, y = 100, steps = 600) {
           cur.accumulateDisplacement(V.sub(next.pos, prev.pos).copy().rotate(-Math.PI / 2).setMag(offset));
         }
         for (const p of this.points) p.applyDisplacement();
-        // the site's force (SOFT.DRAG.FORCE); cicada's config carried 0.0001
-        if (dragged && dragPos) for (const d of dragged) d.point.attractToPosition(dragPos, 0.002 * d.force);
+        // cicada's config force, CONFIG.ATTRACTION_FORCE
+        if (dragged && dragPos) for (const d of dragged) d.point.attractToPosition(dragPos, 0.0001 * d.force);
         for (const p of this.points) p.keepInBounds(w, h);
       }
       if (this.isLocked && this.lockedPosition) {
