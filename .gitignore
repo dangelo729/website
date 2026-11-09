@@ -1,4 +1,5 @@
 tools/daedalus-web/build/
+tools/upright-web/build/
 .DS_Store
 *PLAN*.md
 CLAUDE.md

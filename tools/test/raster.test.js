@@ -263,6 +263,50 @@ const between = (a, b) => a + (b - a) * rand();
   check(ok, 'polygon vs cicada');
 }
 
+// --- polygon from a framebuffer
+{
+  // a generator of its own, so the checks after these see the numbers they always have
+  let rng = 11;
+  const rnd = () => (rng = (rng * 16807) % 2147483647) / 2147483647, span = (a, b) => a + (b - a) * rnd();
+  // rings of many points, some a box's skin's size, and tangles whose rows
+  // cross many edges, some hanging off every edge, against cicada
+  let ok = true;
+  for (let n = 0; n < 200 && ok; n++) {
+    const W = 80, H = 60, a = new Framebuffer(W, H), b = new Cicada(W, H);
+    const cx = span(-20, W + 20), cy = span(-20, H + 20), r = span(2, 60), k = 3 + Math.floor(rnd() * 1500);
+    const ring = [];
+    for (let i = 0; i < k; i++) {
+      const t = -Math.PI / 2 + i / k * 2 * Math.PI, rr = n % 4 === 0 ? r * span(0.1, 1) : r * (1 + 0.1 * Math.sin(7 * t));
+      ring.push({ x: cx + rr * Math.cos(t), y: cy + rr * Math.sin(t) });
+    }
+    if (n % 5 === 0) for (const p of ring) { p.x = Math.round(p.x); p.y = Math.round(p.y); }
+    a.fillPolygon(ring); b.drawFilledPolygon(ring);
+    ok = matches(a, b);
+    if (!ok) failures.push('big polygon vs cicada at ' + JSON.stringify(ring.slice(0, 8)) + '...');
+  }
+  check(ok, 'big and tangled polygons vs cicada');
+  // from a source: exactly what 1 lights, each pixel taking the source's
+  // value at the same place, and the rest left alone
+  const W = 60, H = 45, src = new Framebuffer(W, H);
+  for (let i = 0; i < src.bits.length; i++) src.bits[i] = 4 + (i % 3);
+  let same = true, bad = '';
+  for (let n = 0; n < 300 && same; n++) {
+    const a = new Framebuffer(W, H), b = new Framebuffer(W, H);
+    a.bits.fill(9);
+    const cx = span(-20, W + 20), cy = span(-20, H + 20), r = span(1, 40), k = 3 + Math.floor(rnd() * (n % 10 ? 40 : 600));
+    const ring = [];
+    for (let i = 0; i < k; i++) {
+      const t = -Math.PI / 2 + i / k * 2 * Math.PI, rr = r * span(0.6, 1.3);
+      ring.push({ x: cx + rr * Math.cos(t), y: cy + rr * Math.sin(t) });
+    }
+    a.fillPolygon(ring, src); b.fillPolygon(ring, 1);
+    for (let i = 0; i < W * H && same; i++) {
+      if (b.bits[i] ? a.bits[i] !== src.bits[i] : a.bits[i] !== 9) { same = false; bad = 'at ' + (i % W) + ',' + Math.floor(i / W); }
+    }
+  }
+  check(same, 'polygon from a framebuffer lights what 1 does, each pixel the source\'s, and leaves the rest alone ' + bad);
+}
+
 // --- circles
 {
   const fb = new Framebuffer(11, 11);
@@ -329,11 +373,11 @@ const between = (a, b) => a + (b - a) * rand();
   fb.present(ctx);
   check(calls.length === 1 && calls[0].x === 0 && calls[0].y === 0, 'present puts at 0, 0');
   check(calls[0].img.width === 3 && calls[0].img.height === 2, 'present image size');
-  // lit is ink, black; dark is paper, white
+  // lit is ink, black; dark is paper, #fbf6f0
   const L = Framebuffer.INK, D = Framebuffer.PAPER;
-  check(L === 0xFF000000 && D === 0xFFFFFFFF, 'ink is opaque black, paper opaque white');
+  check(L === 0xFF000000 && D === 0xFFF0F6FB, 'ink is opaque black, paper opaque #fbf6f0');
   check(same(calls[0].px.map(String), [L, D, D, D, D, L].map(String)), 'present words: ' + calls[0].px.map((v) => v.toString(16)).join(' '));
-  check(same(calls[0].data.slice(0, 8).map(String), [0, 0, 0, 255, 255, 255, 255, 255].map(String)), 'present bytes are opaque black and white');
+  check(same(calls[0].data.slice(0, 8).map(String), [0, 0, 0, 255, 251, 246, 240, 255].map(String)), 'present bytes are opaque black and paper');
   fb.set(0, 0, 0);
   fb.present(ctx);
   check(calls[1].img === calls[0].img, 'present reuses one image');

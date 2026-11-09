@@ -6,7 +6,7 @@
   <title>Peter D'Angelo</title>
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
-    html, body { margin: 0; background: #fff; }
+    html, body { margin: 0; background: #fbf6f0; }
     /* the document scrolls, only to move the about text: #scroll gives it
        its height and the canvas stays fixed over the window. no bar, no
        bounce past either end */
@@ -28,6 +28,7 @@
   <script src="daedalus/daedalus.js"></script>
   <script src="js/raster.js"></script>
   <script src="js/softbody.js"></script>
+  <script src="js/skin.js"></script>
   <script src="js/face-art.js"></script>
   <script src="js/face.js"></script>
   <!-- <script src="js/beard.js"></script> -->
@@ -36,6 +37,7 @@
   <script src="js/type.js"></script>
   <script src="js/about-photo.js"></script>
   <script src="js/logos.js"></script>
+  <script src="js/piano.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -190,6 +192,15 @@
     // and the bubble and the menu stack under it. the rest of the page keeps
     // GAP clear of its box. with no 2d canvas there is no name, as there
     // is no menu without font.js.
+    //
+    // its letters are a row of keys, each one struck on the piano as the
+    // pointer comes onto it (the name's keys, below): a key is a column
+    // from the name's ink top to its bottom, split from its neighbours
+    // halfway between their inks, so the row has no gaps, the apostrophe is
+    // as easy to hit as any letter and the space is shared by the r and the
+    // d; the row ends at the first letter's ink and the last's. each
+    // letter has a colour of the tag's three, in turn along the name,
+    // drawn while the pointer is on it.
     const NAME = {
       TEXT: 'Peter D\'Angelo',
       SIZE: 114,       // world px to the em, the most it will be
@@ -203,13 +214,15 @@
     };
     const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
 
-    // the name's letters into letters, sized to fit and placed; its ink's
+    // the name's letters into letters, sized to fit and placed, and its
+    // keys into nameRow; its ink's
     // box and size, { left, right, top, base, bottom, size } with base its
     // baseline and size world px to the em, or null
     // when there is no name. wide, it leaves room on its right for the tag
     // at its least
     function layoutName(stacked) {
       const t = nameType;
+      nameRow = null;
       if (!t.glyphs.length) return null;
       const ems = (t.left + t.right) / TYPE.EM; // its ink's width, in ems
       const room = tagStair ? 2 * TAG.GAP + TAG.LEAST * tagStair.ems : 0;
@@ -217,9 +230,31 @@
       const k = size / TYPE.EM;
       // the line's origin on its baseline, from where its ink's top left goes
       const ox = (stacked ? (W - ems * size) / 2 : NAME.X) + k * t.left, base = NAME.TOP + k * t.ascent;
-      for (const gl of t.glyphs)
-        letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE));
-      return { left: ox - k * t.left, right: ox + k * t.right, top: NAME.TOP, base, bottom: base + k * t.descent, size };
+      const keys = t.glyphs.map((gl, i) => {
+        const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE);
+        letters.push(L);
+        return { L, lo: L.cx - k * gl.g.w / 2, hi: L.cx + k * gl.g.w / 2, v: tagLines[i % 3].v };
+      });
+      // each pair of keys meets halfway between their inks
+      for (let i = 1; i < keys.length; i++) keys[i].lo = keys[i - 1].hi = (keys[i - 1].hi + keys[i].lo) / 2;
+      const box = { left: ox - k * t.left, right: ox + k * t.right, top: NAME.TOP, base, bottom: base + k * t.descent, size };
+      nameRow = { top: box.top, bottom: box.bottom, keys };
+      return box;
+    }
+
+    // the name's keys, { top, bottom, keys }: the row's top and bottom, and
+    // in glyph order each letter's key, { L, lo, hi, v }, the letter, the
+    // key's left and right and the letter's colour, all world px on the
+    // screen; or null when there is no name
+    let nameRow = null;
+
+    // the name's key at (x, y), world px on the screen, as its index, or -1
+    function nameAt(x, y) {
+      const r = nameRow;
+      if (!r || y < r.top || y > r.bottom || x < r.keys[0].lo || x > r.keys[r.keys.length - 1].hi) return -1;
+      let i = 0;
+      while (x > r.keys[i].hi) i++;
+      return i;
     }
 
     // --- the tag -----------------------------------------------------------------
@@ -364,21 +399,30 @@
 
     // --- the boxes -----------------------------------------------------------------
     // a press on a word opens a box round it: a slightly rounded rect, a
-    // LINE px outline through the framebuffer like everything, that comes out
-    // of the word's o. shut, it is the o's own ink box with corners as round
-    // as they go, a circle behind the o; open, it stands PAD clear of the
+    // LINE px outline through the framebuffer like everything, that grows
+    // out of the word's o. shut, the box is the o: a ring LINE px thick in
+    // the o's own ink box, its corners as round as they go, drawn in the
+    // o's place all the time, where the o's glyph is not drawn, with the
+    // insides showing through it; open, it stands PAD clear of the
     // words' ink at its top and left (every box the same width, edged by
     // the word furthest left), as far in from the window's right, and,
     // with the photo, down to as far up from the window's bottom, or past
     // it when its insides need more; without, as far down as its text
     // needs. every edge and the corners' radius go from one to the other
-    // together, by how far open it is. opening, each 60 hz frame takes it
-    // RATE of the way left to open, fast out of the o and slowing in;
-    // shutting is the same run backwards, its way from open growing by
-    // RATE of itself and HEAD more a frame, slower out of open and fastest
-    // going into the o, HEAD keeping it from creeping off open. a frame of any other length moves it as far as
-    // that many 60 hz frames would. its outline starts as thick as the o's stroke, so
-    // shut it stands in for the o, and thins to LINE as it opens. it is
+    // together, by how far open it is, and that moves on a spring,
+    // RESPONSE s a swing, pulled toward open or back toward the o from
+    // wherever it has got to and at whatever speed. opening, it swings
+    // past open, further the more BOUNCE, the words under it pushed with
+    // it, and settles back; shutting, it speeds into the o and stops
+    // there, never smaller. each frame steps the spring exactly by the
+    // frame's length, so it moves alike at any frame rate. where the
+    // spring has it is where the box is headed; its shape is a skin
+    // (js/skin.js), a ring of points chasing that outline, its corners'
+    // and edges' middles pulled hardest so they lead and drag the rest
+    // after them like jelly, gaining points as it grows and shedding them
+    // as it shrinks. it is filled from the insides and outlined LINE px,
+    // as the bubbles are, in the word's hover colour while the word is
+    // hovered. it is
     // drawn over the word, so it covers the word as it grows and shows it
     // again as it shrinks. open, an x stands in its top left corner, inside
     // its padding where the word's ink starts: the pixel font's X (font.js,
@@ -405,21 +449,19 @@
     // than CROP of its width (the box grows past the screen only when the
     // text leaves less than that). they are laid out to
     // the open box and there all along, drawn each frame into a framebuffer
-    // of their own (cfb) and copied into the page's only where the box is
-    // (Framebuffer.roundRect), so the growing box wipes them in. box,
+    // of their own (cfb) and copied into the page's only inside the skin
+    // (Framebuffer.fillPolygon), so what lies behind the o is seen through
+    // it before a press and the growing box wipes the rest in. box,
     // insides and word scroll together and go under the header alike.
     const BOX = {
       PAD: 0.2,      // of the word's size: its ink to the box's edge
       RADIUS: 0.15,  // of the word's size: the open box's corners
       LINE: 2,       // world px, the outline's thickness open, and the x's strokes'
       CLOSE: 1,      // the scale the pixel font's X is drawn at, turned a quarter: 1 is its own pixels, 11 world px wide
-      RATE: 0.3,     // of the way left to open each 60 hz frame opening, of the way from open shutting
-      HEAD: 0.08,    // shutting, the way from open grows as if this much further: its start's speed over its end's
-      // the smear while it moves: dotted 1 px outlines where it will be part
-      // of the way to the next frame opening, or where it was part of the way
-      // back from the last shutting (outside it, either way), as [how much of
-      // a frame's step, dots]: nearer and denser, further and sparser
-      SMEAR: [[1 / 3, 2], [2 / 3, 3]],
+      RATE: 0.3,     // an item's text: of the way left to open each 60 hz frame opening, of the way from open shutting
+      HEAD: 0.08,    // an item's text shutting: the way from open grows as if this much further, its start's speed over its end's
+      RESPONSE: 0.4, // seconds, the box's spring's swing undamped: how quick it swings
+      BOUNCE: 0.35,  // how far it swings past open and back: its damping is 1 - BOUNCE, so over 0 and under 1 (0.35 swings about 7 % past open)
       WARBLE: 0.24,  // world px each edge drifts either way, on its own slow sine at the letters' rates
       GAP: 0.45,     // of the word's size: from under its ink to the insides
       PHOTO: 0.45,   // of the insides' width the photo may take, wide
@@ -444,7 +486,7 @@
       LOGO_LEAST: 20, // the text's ems its text keeps beside the logo, else the logo goes above it
       LOGO_GAP: 2.5, // the text's ems between one logo and the next, under it or beside it
       LOGO_WARBLE: true, // whether the logos wobble as the text does; a logo's own warble says otherwise
-      LOGO_COLOURS: 8, // its own colours, black and white among them,
+      LOGO_COLOURS: 8, // its own colours, black and the paper among them,
       PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
       BUBBLE: 0.45,  // of the photo's box's height, the bubble's box's
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
@@ -468,7 +510,8 @@
     // letters and its box. every
     // place below is world px from the page's top as laid out, with every
     // box above it shut; off is how far down the boxes above have it now.
-    // o is which of the word's o's, from 0, its box comes out of
+    // o is which of the word's o's, from 0, its shut box is: that o is
+    // drawn as the box, not as a letter
     const SECTIONS = [
       { title: 'About',             body: loremTypes, photo: true,  o: 0 },
       { title: 'Professional work', photo: false, o: 0, items: [
@@ -487,13 +530,14 @@
       off: 0,           // whole world px
       box: {
         open: false,  // where it is going: open, or back into the o
-        shown: false, // drawn: from a press until it is back in the o
+        shown: false, // out of the o: from a press until it is back in it
         p: 0,         // how far open it is, 0 in the o to 1 open
-        step: 0,      // how far it went in the last frame, the same measure
-        shut: null,   // where it starts and ends: the o, { x0, y0, x1, y1, r, line }
+        v: 0,         // how fast p is moving, a second
+        shut: null,   // where it starts and ends: the o's ink box, { x0, y0, x1, y1, r }
         full: null,   // where it opens to
         close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size
       },
+      skin: null,       // its box's shape, laid out: a ring of points chasing it (js/skin.js)
       bodyLetters: [],  // its text's and its caption's
       // its items, each { title, open, p, ... }: where it is going and how
       // far open its text is, as a box's, and how far its caret has turned
@@ -604,6 +648,13 @@
       }
     }
 
+    // the paper's colour as [r, g, b], the palette's first: what an image is
+    // drawn over, and the colour its palette has for paper
+    function paperRGB() {
+      const w = Framebuffer.PALETTE[0];
+      return [w & 255, w >> 8 & 255, w >> 16 & 255];
+    }
+
     // an image drawn at w x h over paper, read back as r, g, b; null if the
     // canvas cannot be read
     function readImage(img, w, h) {
@@ -612,7 +663,7 @@
         c.width = w;
         c.height = h;
         const x = c.getContext('2d', { willReadFrequently: true });
-        x.fillStyle = '#fff';
+        x.fillStyle = 'rgb(' + paperRGB().join(',') + ')';
         x.fillRect(0, 0, w, h);
         x.imageSmoothingQuality = 'high';
         x.drawImage(img, 0, 0, w, h);
@@ -625,12 +676,12 @@
     }
 
     // a logo's own colours, as the photo's: n less two by median cut over
-    // it at PHOTO.SAMPLE px wide, and black and white, each a place in the
-    // framebuffer's palette. { rgb, v }, or null
+    // it at PHOTO.SAMPLE px wide, and black and the paper, each a place in
+    // the framebuffer's palette. { rgb, v }, or null
     function imagePalette(img, n) {
       const w = PHOTO.SAMPLE, h = Math.max(1, Math.round(w * img.naturalHeight / img.naturalWidth)), rgb = readImage(img, w, h);
       if (!rgb) return null;
-      const colours = [[0, 0, 0], [255, 255, 255], ...Framebuffer.medianCut(rgb, n - 2)];
+      const colours = [[0, 0, 0], paperRGB(), ...Framebuffer.medianCut(rgb, n - 2)];
       const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
       return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
     }
@@ -663,13 +714,13 @@
     }
 
     // the photo's own colours, worked out once it has loaded: COLOURS less
-    // two by median cut over it at SAMPLE px wide, and black and white, each
-    // given a place in the framebuffer's palette. { rgb, v }, or null
+    // two by median cut over it at SAMPLE px wide, and black and the paper,
+    // each given a place in the framebuffer's palette. { rgb, v }, or null
     let photoColours = null;
     function photoPalette() {
       const w = PHOTO.SAMPLE, h = Math.round(w * photo.naturalHeight / photo.naturalWidth), rgb = readPhoto(w, h, false);
       if (!rgb) return null;
-      const colours = [[0, 0, 0], [255, 255, 255], ...Framebuffer.medianCut(rgb, PHOTO.COLOURS - 2)];
+      const colours = [[0, 0, 0], paperRGB(), ...Framebuffer.medianCut(rgb, PHOTO.COLOURS - 2)];
       const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
       return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
     }
@@ -738,6 +789,7 @@
         s.bodyLetters = [];
         s.photoAt = s.room = null;
         s.ink = s.box.shut = s.box.full = s.box.close = null;
+        s.skin = null;
       }
       const laid = name ? sections.filter((s) => s.type.glyphs.length) : [];
       if (laid.length) {
@@ -753,21 +805,21 @@
             const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
             s.letters.push(L);
             // its o, the first glyph until there is one, and the last
-            // o it has if it has fewer
-            if (!o || (gl.ch === 'o' && os++ <= s.o)) {
-              // its stroke: the ink across from its left on its middle row
-              const g = gl.g, row = Math.floor(g.h / 2) * g.w;
-              let run = 0;
-              while (run < g.w && g.ink[row + run]) run++;
-              o = { cx: L.cx, cy: L.cy, w: k * g.w, h: k * g.h, stroke: k * run };
-            }
+            // o it has if it has fewer: its letter laid out for its place
+            // and size, which its box takes shut
+            if (!o || (gl.ch === 'o' && os++ <= s.o)) o = { L, cx: L.cx, cy: L.cy, w: k * gl.g.w, h: k * gl.g.h };
           }
+          // the box shut is the o, so its letter is not drawn
+          s.letters.splice(s.letters.indexOf(o.L), 1);
           s.ink = { x0: ox - k * t.left, y0: y, x1: ox + k * t.right, y1: base + k * t.descent };
-          s.box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2, line: Math.max(BOX.LINE, o.stroke) };
+          s.box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2 };
           y = s.ink.y1 + ABOUT.SPACE * size;
         }
         const edge = Math.max(2, Math.min(NAME.X, ...laid.map((s) => s.ink.x0)) - BOX.PAD * size);
         for (const s of laid) layoutBox(s, name, size, stacked, edge);
+        // each box's skin settled where its box is now: laid out again, it
+        // is put straight there rather than sent across
+        for (const s of laid) if (s.box.full) s.skin = new Skin(boxAt(s, s.box.p));
       }
       settle();
       setScroll();
@@ -798,7 +850,7 @@
         // as wide as the photo's box and BUBBLE as tall, and the bubble's
         // world its inside, within its outline
         const like = sections.find((o) => o.photo && o.box.full), tall = BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * edge);
-        box.full = { x0, y0, x1, y1: y0 + tall, r: BOX.RADIUS * size, line: BOX.LINE };
+        box.full = { x0, y0, x1, y1: y0 + tall, r: BOX.RADIUS * size };
         const rx = Math.ceil(x0 + BOX.LINE), ry = Math.ceil(y0 + BOX.LINE);
         s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
         return;
@@ -862,8 +914,8 @@
       // with the photo it reaches across the window and down to its
       // bottom; without, only as far as its text, and SLACK, or its word
       // if that is wider, so it covers the word
-      box.full = s.photo ? { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size, line: BOX.LINE }
-        : { x0, y0, x1: Math.min(x1, Math.max(right, s.ink.x1) + BOX.SLACK * bs + pad), y1: inside + pad, r: BOX.RADIUS * size, line: BOX.LINE };
+      box.full = s.photo ? { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size }
+        : { x0, y0, x1: Math.min(x1, Math.max(right, s.ink.x1) + BOX.SLACK * bs + pad), y1: inside + pad, r: BOX.RADIUS * size };
     }
 
     // a box's items down it from top, under the x: each its caret, its ink
@@ -976,7 +1028,7 @@
       s.rest = last + 0.3 * is + pad;
       s.restX1 = edge(Math.max(s.ink.x1, ...s.items.map((it) => it.hit.x1)));
       for (const it of s.items) it.wide = Math.max(0, edge(it.right) - s.restX1);
-      s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size, line: BOX.LINE };
+      s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       grow(s);
     }
 
@@ -1029,6 +1081,7 @@
       if (box.open && !box.shown) {
         box.shown = true;
         box.p = 0;
+        box.v = 0;
       }
       setScroll();
     }
@@ -1039,9 +1092,14 @@
       setScroll();
     }
 
-    // p, how far open, dt on toward open or back to shut, as a box goes
-    // from its o (below), travel px the most anything moves on the way,
-    // speed times as fast
+    // p, how far an item's text is open (or its caret turned), dt on
+    // toward open or back to shut, travel px the most anything moves on
+    // the way, speed times as fast. in the way left to open, q = 1 - p:
+    // opening it shrinks by RATE of itself a 60 hz frame, and goes to
+    // nothing once under a px of travel; shutting, it and HEAD grow by as
+    // much, so it leaves open going and speeds up into shut, and out at 1
+    // it is shut. a frame of any other length moves it as far as that
+    // many 60 hz frames would
     function ease(p, open, dt, travel, speed = 1) {
       const px = 1 / Math.max(1, travel), f = Math.pow(1 - BOX.RATE, 60 * dt * speed);
       let q = 1 - p;
@@ -1050,8 +1108,8 @@
       return 1 - q;
     }
 
-    // a box's items dt on toward open or shut, as the box goes, and their
-    // carets turning FLIP times as fast
+    // a box's items dt on toward open or shut (ease), and their carets
+    // turning FLIP times as fast
     function stepItems(s, dt) {
       for (const it of s.items) {
         const was = it.p;
@@ -1061,50 +1119,61 @@
       }
     }
 
-    // dt on toward open, or back toward the o (RATE), in the way left to
-    // open, q = 1 - p: opening it shrinks by RATE of itself a 60 hz frame,
-    // and goes to nothing once under a px of the edge that moves furthest;
-    // shutting, it and HEAD grow by as much, so it leaves open going and
-    // speeds up into the o, and out at 1 it is back in the o, and gone
+    // dt on toward open, or back toward the o, on a spring: p and its
+    // speed v stepped exactly by dt, by the underdamped spring's closed
+    // form (RESPONSE s a swing undamped, damped 1 - BOUNCE), so it moves
+    // alike at any frame rate. opening it swings past open and settles
+    // back, at rest open once within a px of it and moving under a px a
+    // 60 hz frame, on the edge that moves furthest; shutting it speeds
+    // into the o and stops dead there, never smaller, which would turn the
+    // box inside out, and stays there
     function stepBox(s, dt) {
       const box = s.box;
       if (!box.shown) return;
-      const was = box.p, a = box.shut, b = box.full;
-      box.p = ease(box.p, box.open, dt, Math.max(Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1)));
-      box.step = Math.abs(box.p - was);
+      const a = box.shut, b = box.full;
+      const px = 1 / Math.max(1, Math.max(Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1)));
+      const target = box.open ? 1 : 0, w = 2 * Math.PI / BOX.RESPONSE, z = 1 - BOX.BOUNCE;
+      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = box.p - target, v0 = box.v;
+      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      const x = e * (x0 * c + (v0 + sg * x0) / wd * sn);
+      box.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+      box.p = target + x;
+      if (box.p <= 0) { box.p = 0; box.v = Math.max(0, box.v); }
+      if (box.open && Math.abs(box.p - 1) < px && Math.abs(box.v) / 60 < px) { box.p = 1; box.v = 0; }
       if (box.p === 0 && !box.open) {
         box.shown = false;
+        box.v = 0;
         setScroll();
       }
     }
 
-    // a section's box sy up: its insides into cfb, the letters near enough
-    // the screen to show, the photo and the x, then copied into the page
-    // through the box and the box's outline over them, and its SMEAR
-    // outside it while it moves. where it is goes straight from the o to
-    // open by how far open it is, each edge warbled WARBLE px either way
-    function drawBox(s, t, sy, hover) {
+    // a section's insides sy up into cfb, as much of them as shows through
+    // the window (x0, y0) to (x1, y1), world px on the screen: the window's
+    // rows cleared, the letters near enough it to show, the photo and the
+    // bubble if they reach it, the x and the items, the ones hover is on
+    // in their colours (hover null, none)
+    function drawInsides(s, t, sy, x0, y0, x1, y1, hover) {
       const box = s.box;
-      if (!box.shown || !box.shut || !box.full) return;
-      // where the box is at p, warbled: [x0, y0, x1, y1]
-      const wb = s.warble.map((e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * e.hz + e.ph));
-      const at = (p) => {
-        const c = {};
-        for (const k of ['x0', 'y0', 'x1', 'y1', 'r', 'line']) c[k] = box.shut[k] + (box.full[k] - box.shut[k]) * p;
-        c.x0 += wb[0];
-        c.y0 += wb[1];
-        c.x1 += wb[2];
-        c.y1 += wb[3];
-        return c;
-      };
-      const c = at(box.p);
-      const top = c.y0 - sy, bottom = c.y1 - sy;
-      if (bottom < 0 || top >= H) return;
-      cfb.clear();
-      const lo = Math.max(top, 0) - BOX.MOST, hi = Math.min(bottom, H) + BOX.MOST;
-      for (const L of s.bodyLetters) if (L.cy - sy > lo && L.cy - sy < hi) L.draw(t, -sy, cfb);
-      if (s.photoAt) s.photoAt.letter.draw(t, -sy, cfb);
-      if (s.room && bubble) drawBubble(roomView(cfb, t, sy));
+      cfb.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
+      const lo = Math.max(y0, 0) - BOX.MOST, hi = Math.min(y1, H) + BOX.MOST;
+      for (const L of s.bodyLetters)
+        if (L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST) L.draw(t, -sy, cfb);
+      // the photo when its box, 2 px more all round, reaches the window,
+      // and the bubble when its skin's does where it is drawn (bubbleAt), a
+      // stroke and 4 px more for its wobble
+      const ph = s.photoAt;
+      if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, cfb);
+      if (s.room && bubble) {
+        let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+        for (const p of bubble.points) {
+          bx0 = Math.min(bx0, p.x);
+          by0 = Math.min(by0, p.y);
+          bx1 = Math.max(bx1, p.x);
+          by1 = Math.max(by1, p.y);
+        }
+        const b = bubbleAt(), lx = bubble.lockX, ly = bubble.lockY, m = BUBBLE_LINE + 4;
+        if (b.x + b.k * (bx0 - lx) - m < x1 && b.x + b.k * (bx1 - lx) + m > x0 && b.y + b.k * (by0 - ly) - sy - m < y1 && b.y + b.k * (by1 - ly) - sy + m > y0) drawBubble(roomView(cfb, t, sy));
+      }
       if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
@@ -1126,13 +1195,42 @@
           cfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
       }
-      fb.roundRect(c.x0, top, c.x1, bottom, c.r, cfb, 1, Math.max(1, Math.round(c.line)));
-      // the smear, while it moves: further open than it is, so outside it
-      if (box.step > 0) for (const [part, dots] of BOX.SMEAR) {
-        const q = box.p + part * box.step;
-        if (q >= 1) continue;
-        const g = at(q);
-        fb.roundRect(g.x0, g.y0 - sy, g.x1, g.y1 - sy, g.r, null, 1, 1, dots);
+    }
+
+    // where a section's box is at p, from the o (0) to open (1), as
+    // { x0, y0, x1, y1, r }: every edge and the corners' radius that much
+    // of the way from one to the other, and, given a time t, each edge
+    // warbled WARBLE px either way on its own sine
+    function boxAt(s, p, t) {
+      const a = s.box.shut, b = s.box.full, c = {};
+      for (const k of ['x0', 'y0', 'x1', 'y1', 'r']) c[k] = a[k] + (b[k] - a[k]) * p;
+      if (t !== undefined) {
+        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * s.warble[e].hz + s.warble[e].ph);
+        c.x0 += w(0);
+        c.y0 += w(1);
+        c.x1 += w(2);
+        c.y1 += w(3);
+      }
+      return c;
+    }
+
+    // a section's box sy up, its skin wherever it has got to, shut in the
+    // o's place or open or between: its insides into cfb (drawInsides) as
+    // far as the skin's box, LINE + 1 px more all round, reaches, then
+    // copied into the page inside the skin and the skin outlined over
+    // them, a LINE px line from point to point as the bubbles' skins are,
+    // in the word's hover colour when the word is hovered
+    function drawBox(s, t, sy, hover) {
+      const skin = s.skin;
+      if (!skin) return;
+      const b = skin.bounds(), m = BOX.LINE + 1, top = b.y0 - m - sy, bottom = b.y1 + m - sy;
+      if (bottom < 0 || top >= H) return;
+      drawInsides(s, t, sy, b.x0 - m, top, b.x1 + m, bottom, hover);
+      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close ? HOVER : 1;
+      fb.fillPolygon(pts, cfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        fb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
       }
     }
 
@@ -1187,17 +1285,53 @@
     });
 
     // hover: a mouse's pointer over anything a press would press turns it
-    // a colour of the tag's while it is there: a word the first
-    // (Inventor's), anything in a box, its x and its items, the second
+    // a colour of the tag's while it is there: a word, and its box's
+    // outline while the box is not open, the first (Inventor's), anything
+    // in a box, its x and its items, the second
     // (Software Engineer's), and a link the third (Musician's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
-    // scrolls and the boxes move under a still pointer
+    // scrolls and the boxes move under a still pointer. the name's letters
+    // light their own way, under a finger too (the name's keys, below)
     const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v, HOVER_LINK = tagLines[2].v;
     let hoverAt = null;
     canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
     canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
     canvas.addEventListener('pointerleave', () => { hoverAt = null; });
+
+    // --- the name's keys ---------------------------------------------------------
+    // the name is a row of piano keys (js/piano.js), a note a letter: the
+    // pointer coming onto a letter's key strikes it, and the letter is
+    // drawn in its colour while the pointer is on it, a mouse over it or a
+    // finger down on it. a strike rings its plink out whatever the pointer
+    // does next: the piano lets the key go once it has rung. moving within
+    // a key strikes nothing; leaving it and coming back strikes it again. a
+    // sweep too fast for the moves to land on every key strikes each key it
+    // crossed, in order, then the one it came onto, when it went from the
+    // row to the row; coming into the row from outside strikes only the key
+    // it came onto. a finger strikes where it presses and as it drags along
+    // the name; a drag up or down scrolls instead, and cancels the press.
+    // only the first pointer plays. the header's letters are drawn
+    // screen-fixed, so where the pointer is goes in world px on the screen,
+    // as the hover's does, with no scroll in it. the audio is made on the
+    // visitor's first gesture, as browsers want
+    let nameOn = -1; // the key the pointer is on, or -1
+    function nameTo(p) {
+      const i = nameAt(p.x, p.y);
+      if (i >= 0 && i !== nameOn) {
+        const step = i > nameOn ? 1 : -1;
+        for (let k = nameOn < 0 ? i : nameOn + step; k !== i + step; k += step) Piano.strike(k);
+      }
+      nameOn = i;
+    }
+    canvas.addEventListener('pointerdown', (e) => { if (e.isPrimary) nameTo(worldPointer(e)); });
+    canvas.addEventListener('pointermove', (e) => { if (e.isPrimary) nameTo(worldPointer(e)); });
+    // a finger lifted, or its press taken by a scroll, is on nothing
+    const nameLift = (e) => { if (e.isPrimary && e.pointerType === 'touch') nameOn = -1; };
+    canvas.addEventListener('pointerup', nameLift);
+    canvas.addEventListener('pointercancel', nameLift);
+    canvas.addEventListener('pointerleave', () => { nameOn = -1; });
+    Piano.listen(window);
 
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and daedalus's panel in the middle,
@@ -1283,7 +1417,10 @@
     // art goes down 1:1 on a bubble of FACE.DEFAULT_RADIUS (js/face.js) and
     // scales with the radius, each feature by its own size, drawn as line
     // art (roomView), so its strokes are BUBBLE_LINE px at any size, as the
-    // skin's are.
+    // skin's are. shut, it is drawn shrunk into the o, its skin under the
+    // o's ring, so its face shows through the o; as the box opens it is
+    // drawn growing out of the o to its room's middle (bubbleAt), its world
+    // and its physics as they are.
     const BUBBLE_SCALE = 5 / 3;
     const BUBBLE_LINE = 2; // world px, every stroke of the skin and the face
     // its radius in world px (about 38), its points, and its
@@ -1293,18 +1430,33 @@
     // let beard = null;
     const bubbleHome = sections.find((s) => s.bubble) || null; // the section whose box it is in
 
+    // where the bubble's lock is drawn, world px on the page as laid out,
+    // and how much it is drawn scaled, { x, y, k }, as far as its box is
+    // open: shut, in the middle of its o, its skin at rest (BUBBLE_R
+    // puffed, PUFFED) as big round as the o's ring is across its longer
+    // way, so it sits under the ring there and the porthole cuts it off
+    // under the ring the other way; open, its room's middle at its own
+    // size; between, that far from one to the other, and past open as the
+    // box swings past it
+    function bubbleAt() {
+      const r = bubbleHome.room, o = bubbleHome.box.shut, q = 1 - bubbleHome.box.p;
+      const hx = r.x + bubble.lockX, hy = r.y + bubble.lockY, k = Math.max(o.x1 - o.x0, o.y1 - o.y0) / 2 / (BUBBLE_R * PUFFED);
+      return { x: hx + ((o.x0 + o.x1) / 2 - hx) * q, y: hy + ((o.y0 + o.y1) / 2 - hy) * q, k: 1 - (1 - k) * q };
+    }
+
     // a framebuffer the bubble draws into as into its world: what goes into
-    // it at its world's px lands in into at the page's, its box dy up, and
+    // it at its world's px lands in into at the page's, its box dy up,
+    // scaled about its lock and its lock moved as bubbleAt has it, and
     // warbled about its lock by its room's letter. the face's sprites go
     // down as line art (Framebuffer.strokeSprite), so at any size their
     // strokes are BUBBLE_LINE px, as the skin's are; a line is as thick as
     // it is asked, 1 px unless told
     function roomView(into, t, dy) {
-      const r = bubbleHome.room, w = r.letter.pose(t), lx = bubble.lockX, ly = bubble.lockY;
-      const c = w.s * Math.cos(w.a), n = w.s * Math.sin(w.a), ox = r.x + lx + w.x, oy = r.y - dy + ly + w.y;
+      const w = bubbleHome.room.letter.pose(t), b = bubbleAt(), lx = bubble.lockX, ly = bubble.lockY;
+      const c = b.k * w.s * Math.cos(w.a), n = b.k * w.s * Math.sin(w.a), ox = b.x + w.x, oy = b.y - dy + w.y;
       const at = (x, y) => [ox + c * (x - lx) - n * (y - ly), oy + n * (x - lx) + c * (y - ly)];
       return {
-        sprite(g, x, y, s, a, v) { const [X, Y] = at(x, y); into.strokeSprite(g, X, Y, s * w.s, a + w.a, v, BUBBLE_LINE); },
+        sprite(g, x, y, s, a, v) { const [X, Y] = at(x, y); into.strokeSprite(g, X, Y, s * w.s * b.k, a + w.a, v, BUBBLE_LINE); },
         line(x0, y0, x1, y1, v, thick = 1) { const [a, b] = at(x0, y0), [c, d] = at(x1, y1); into.line(a, b, c, d, v, thick); },
         fillPolygon(pts, v) { into.fillPolygon(pts.map((p) => { const [x, y] = at(p.x, p.y); return { x, y }; }), v); },
       };
@@ -1324,12 +1476,14 @@
     }
 
     // a point in world px on the screen as its world's px, wherever the page
-    // has scrolled to and the boxes have pushed the bubble's; as it is with
-    // no room
+    // has scrolled to, the boxes have pushed the bubble's and its box has it
+    // drawn (bubbleAt), so a press lands on the bubble where it is drawn; as
+    // it is with no room
     function toRoom(p) {
       const r = bubbleHome && bubbleHome.room;
       if (!r) return p;
-      return { x: p.x - r.x, y: p.y + Math.round(window.scrollY / SCALE) - bubbleHome.off - r.y };
+      const b = bubbleAt(), y = p.y + Math.round(window.scrollY / SCALE) - bubbleHome.off;
+      return { x: bubble.lockX + (p.x - b.x) / b.k, y: bubble.lockY + (y - b.y) / b.k };
     }
 
     // --- the tag's bubbles -------------------------------------------------------
@@ -1549,9 +1703,11 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, the tag's bubbles and the
-    // cursor's hand and the boxes catch up with the clock, and the words
-    // under them are pushed down; then the bits are cleared, the words and
-    // their boxes drawn scrolled, the bubble in its box, every other
+    // cursor's hand and the boxes catch up with the clock, the words
+    // under them are pushed down, and each box's skin is stepped after
+    // where its box has got to, warbled; then the bits are cleared, the words and
+    // their boxes drawn scrolled, a shut box in its word's o's place with
+    // its insides showing through it, the bubble in its box, every other
     // letter over them on its own
     // clock, the tag's bubbles, daedalus's panel if it is shown, the
     // drag's marks, and last the hand on its backing, over the end of the
@@ -1576,6 +1732,7 @@
         grow(s);
       }
       settle();
+      for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
@@ -1589,7 +1746,9 @@
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
       }
       for (const s of sections) drawBox(s, t, sy - s.off, hit && hit.s === s ? hit : null);
-      for (const L of letters) L.draw(t);
+      // the header's letters, the name's under the pointer in its colour
+      const lit = nameRow && nameRow.keys[nameOn];
+      for (const L of letters) L.draw(t, 0, fb, 0, lit && L === lit.L ? lit.v : undefined);
       for (const b of tagBubbles) drawTagBubble(b);
       if (SHOW_DAEDALUS && panel) panel.draw();
       if (bubble && bubbleHome.room) drawDrag(roomView(fb, t, sy - bubbleHome.off));
