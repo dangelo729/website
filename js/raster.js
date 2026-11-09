@@ -90,27 +90,62 @@ Framebuffer.prototype.fillCircle = function (cx, cy, r, v = 1) {
 // scanline fill of a closed ring of float points: every integer row from
 // floor(min y) to ceil(max y), each edge that crosses it half-open at the
 // top, crossings sorted and filled in pairs between their rounded x's,
-// both ends included. rows and spans off the bitmap are skipped up front,
-// which writes the same pixels as visiting them and clipping each
+// both ends included. v is what each filled pixel is written, or a
+// framebuffer of this one's size whose pixels are copied across from the
+// same places, so what it holds shows through the ring and only there.
+// rows and spans off the bitmap are skipped up front, which writes the same
+// pixels as visiting them and clipping each. each edge is filed under the
+// first row it crosses and kept in a list of the edges crossing the row
+// until past its last, so a row works out only its own crossings, never
+// every edge's. its working arrays are made once and grown for a bigger ring
 Framebuffer.prototype.fillPolygon = function (pts, v = 1) {
   const n = pts.length;
   if (n < 3) return;
   let minY = Infinity, maxY = -Infinity;
-  for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  for (let i = 0; i < n; i++) { const y = pts[i].y; minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
   const y0 = Math.max(Math.floor(minY), 0), y1 = Math.min(Math.ceil(maxY), this.h - 1);
-  const xs = [];
+  if (!(y1 >= y0)) return;
+  if (!this.poly || this.poly.n < n) this.poly = { n, next: new Int32Array(n), last: new Int32Array(n), act: new Int32Array(n), xs: new Float64Array(n) };
+  if (!this.heads) this.heads = new Int32Array(this.h);
+  const { next, last, act, xs } = this.poly, heads = this.heads;
+  heads.fill(-1, 0, y1 - y0 + 1);
+  // each edge's rows, lo <= y < hi between its ends' ys, cut to the bitmap's
+  for (let i = 0; i < n; i++) {
+    const a = pts[i].y, b = pts[i + 1 < n ? i + 1 : 0].y;
+    const first = Math.max(Math.ceil(Math.min(a, b)), y0), end = Math.min(Math.ceil(Math.max(a, b)) - 1, y1);
+    if (!(first <= end)) continue;
+    last[i] = end;
+    next[i] = heads[first - y0];
+    heads[first - y0] = i;
+  }
+  const bits = this.bits, src = typeof v === 'number' ? null : v.bits, w = this.w;
+  let active = 0;
   for (let y = y0; y <= y1; y++) {
-    xs.length = 0;
-    for (let i = 0; i < n; i++) {
-      const p1 = pts[i], p2 = pts[(i + 1) % n];
-      if ((p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y))
-        xs.push(p1.x + (y - p1.y) / (p2.y - p1.y) * (p2.x - p1.x));
+    // the edges that end above this row out, the ones that start on it in
+    let k = 0;
+    for (let j = 0; j < active; j++) if (last[act[j]] >= y) act[k++] = act[j];
+    active = k;
+    for (let i = heads[y - y0]; i >= 0; i = next[i]) act[active++] = i;
+    for (let j = 0; j < active; j++) {
+      const i = act[j], p1 = pts[i], p2 = pts[i + 1 < n ? i + 1 : 0];
+      xs[j] = p1.x + (y - p1.y) / (p2.y - p1.y) * (p2.x - p1.x);
     }
-    xs.sort((a, b) => a - b);
-    const row = y * this.w;
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const a = Math.max(Math.round(xs[i]), 0), b = Math.min(Math.round(xs[i + 1]), this.w - 1);
-      for (let x = a; x <= b; x++) this.bits[row + x] = v;
+    // a few crossings by insertion, many by the typed sort: numbers
+    // ascending either way
+    if (active <= 16) {
+      for (let j = 1; j < active; j++) {
+        const x = xs[j];
+        let m = j - 1;
+        while (m >= 0 && xs[m] > x) { xs[m + 1] = xs[m]; m--; }
+        xs[m + 1] = x;
+      }
+    } else xs.subarray(0, active).sort();
+    const row = y * w;
+    for (let j = 0; j + 1 < active; j += 2) {
+      const a = Math.max(Math.round(xs[j]), 0), b = Math.min(Math.round(xs[j + 1]), w - 1);
+      if (a > b) continue;
+      if (src) bits.set(src.subarray(row + a, row + b + 1), row + a);
+      else bits.fill(v, row + a, row + b + 1);
     }
   }
 };
@@ -451,10 +486,10 @@ Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
 // the page's colours, as the little-endian ABGR words a canvas pixel is,
 // all opaque. a pixel's byte is its index in PALETTE: 0 is PAPER, what a
 // clear leaves, and 1 is INK, what lit means to every primitive; colour()
-// adds more, for a v past 1. black on white; swap the first two for white
-// on black
+// adds more, for a v past 1. black on an off-white paper, #fbf6f0; swap
+// the first two for paper on black
 Framebuffer.INK = 0xFF000000;
-Framebuffer.PAPER = 0xFFFFFFFF;
+Framebuffer.PAPER = 0xFFF0F6FB;
 Framebuffer.PALETTE = [Framebuffer.PAPER, Framebuffer.INK];
 
 // '#rrggbb' as the v that draws in it: its index in PALETTE, added the
