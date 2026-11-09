@@ -38,6 +38,7 @@
   <script src="js/about-photo.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/piano.js"></script>
+  <script src="js/voice.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -1332,6 +1333,7 @@
     canvas.addEventListener('pointercancel', nameLift);
     canvas.addEventListener('pointerleave', () => { nameOn = -1; });
     Piano.listen(window);
+    Voice.listen(window);
 
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and daedalus's panel in the middle,
@@ -1577,6 +1579,7 @@
       pointerAt = p;
       const q = toRoom(p);
       grabbed = !!(bubbleHome && bubbleHome.box.open && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
+      if (grabbed) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
       const b = !grabbed && !hitAt(p.x, p.y) && tagBubbleAt(p.x, p.y);
       if (b) grabbed = b.world.grab(p.x, p.y);
     });

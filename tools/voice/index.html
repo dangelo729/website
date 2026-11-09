@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>voice bench</title>
+  <style>
+    :root { --bg: #111; --fg: #eee; --muted: #777; --line: #333; --accent: #e33; }
+    html, body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+    header { display: flex; gap: 14px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+    #status { color: var(--muted); margin-left: auto; }
+    #status.bad { color: var(--accent); }
+    main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px 32px; padding: 12px; }
+    h2 { font-size: 12px; font-weight: normal; color: var(--muted); margin: 14px 0 6px; }
+    section > h2:first-child { margin-top: 0; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+    .row label { width: 6.5em; color: var(--muted); }
+    .row input[type=range] { flex: 1; min-width: 0; }
+    .row output { width: 3.5em; text-align: right; font-family: ui-monospace, monospace; }
+    #phones { flex: 1; min-width: 0; background: #222; color: var(--fg); border: 1px solid #444; padding: 4px 6px;
+              font: 13px ui-monospace, monospace; }
+    button { background: #222; color: var(--fg); border: 1px solid #444; padding: 3px 9px; cursor: pointer;
+             font: 12px ui-monospace, monospace; }
+    button:hover { background: #333; }
+    button.on { border-color: var(--accent); }
+    .sounds { display: flex; flex-wrap: wrap; gap: 6px; }
+    #js { width: 100%; box-sizing: border-box; height: 13em; background: #000; color: var(--fg); border: 1px solid #444;
+          padding: 6px; font: 12px/1.5 ui-monospace, monospace; white-space: pre; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>voice</strong>
+    <span id="status"></span>
+  </header>
+  <main>
+    <section>
+      <h2>the line in the controls</h2>
+      <div class="row"><input id="phones" spellcheck="false" autocomplete="off"><button id="speak">speak</button></div>
+      <div id="speech"></div>
+      <h2>lines: play one and the controls edit it</h2>
+      <div class="sounds" id="lines"></div>
+    </section>
+    <section>
+      <h2>who is speaking</h2>
+      <div id="voice"></div>
+    </section>
+    <section style="grid-column: 1 / -1">
+      <h2>paste back into js/voice.js</h2>
+      <textarea id="js" readonly></textarea>
+    </section>
+  </main>
+
+  <script src="../../js/voice.js"></script>
+  <script>
+    // the listening bench for js/voice.js, served from the repo root
+    // (python3 -m http.server 8000, then /tools/voice/): the page's own
+    // voice, its worklet and its wasm, played by hand. the controls edit
+    // one of the lines, the one lit, and speak it; the voice's sliders land
+    // on the worklet live.
+    // what the sliders have made shows as the js to paste back over
+    // js/voice.js's VOICE and LINES. the first press wakes the audio, as on
+    // the page; the sounds come once the worklet is ready, one at a time.
+    Voice.WORKLET = '../../js/voice-worklet.js';
+    Voice.WASM = '../../monk_mouth/monk_mouth.wasm';
+    Voice.listen(window);
+
+    const $ = (id) => document.getElementById(id);
+    const num = (x) => +(+x).toFixed(3);
+    let picked = 0;   // the line the controls edit
+    let bad = false;  // the last sound was one the engine would not take
+
+    // a slider row: label, range, the value it shows; get reads the value,
+    // set writes it
+    function slider(parent, label, min, max, step, get, set) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}"><output></output>`;
+      const input = row.querySelector('input'), out = row.querySelector('output');
+      input.addEventListener('input', () => { set(+input.value); out.textContent = num(input.value); paste(); });
+      parent.appendChild(row);
+      return () => { input.value = get(); out.textContent = num(get()); };
+    }
+
+    // the line's controls: its note, its range, its speed and its breath
+    const line = () => Voice.LINES[picked];
+    const shows = [
+      ['midi', 30, 72, 0.5], ['range', 0, 12, 0.5], ['speed', 0.5, 2, 0.05], ['breath', 0.1, 1.5, 0.05],
+    ].map(([k, min, max, step]) => slider($('speech'), k, min, max, step, () => line()[k], (v) => { line()[k] = v; }));
+    $('phones').addEventListener('input', () => { line().phones = $('phones').value; paste(); });
+
+    // the voice's controls, each landing on the worklet as it moves
+    [
+      ['sections', 14, 30, 0.1], ['breathiness', 0, 1, 0.01], ['roughness', 0, 1, 0.01],
+      ['tension', 0, 1, 0.01], ['diction', 0.3, 2.5, 0.05], ['wobble', 0, 2, 0.05],
+    ].forEach(([k, min, max, step]) => slider($('voice'), k, min, max, step, () => Voice.VOICE[k], (v) => {
+      Voice.VOICE[k] = v;
+      Voice.set(Voice.VOICE);
+    })());
+
+    // the line picked into the controls
+    function pick(i) {
+      picked = i;
+      $('phones').value = line().phones;
+      shows.forEach((show) => show());
+      document.querySelectorAll('#lines button').forEach((b, j) => b.classList.toggle('on', j === i));
+    }
+    function speak() { bad = false; Voice.say(line()); }
+    $('speak').addEventListener('click', speak);
+    $('phones').addEventListener('keydown', (e) => { if (e.key === 'Enter') speak(); });
+
+    Voice.LINES.forEach((l, i) => {
+      const b = document.createElement('button');
+      b.textContent = l.phones;
+      b.addEventListener('click', () => { pick(i); speak(); });
+      $('lines').appendChild(b);
+    });
+
+    // the voice and the lines as js, refreshed as they change; each line's
+    // button label follows its phones
+    function paste() {
+      const v = Voice.VOICE;
+      const lines = Voice.LINES.map((l) =>
+        `    { phones: '${l.phones}', midi: ${num(l.midi)}, range: ${num(l.range)}, speed: ${num(l.speed)}, breath: ${num(l.breath)} },`);
+      $('js').value =
+        `  VOICE: { sections: ${num(v.sections)}, breathiness: ${num(v.breathiness)}, roughness: ${num(v.roughness)}, ` +
+        `tension: ${num(v.tension)}, diction: ${num(v.diction)}, wobble: ${num(v.wobble)} },\n` +
+        `  LINES: [\n${lines.join('\n')}\n  ],\n`;
+      document.querySelectorAll('#lines button').forEach((b, j) => { b.textContent = Voice.LINES[j].phones; });
+    }
+
+    // the status: the audio waking, loading, ready, playing, or a line
+    // the engine would not take; a bad answer is caught on the node's port
+    // beside the voice's own handler
+    let caught = false;
+    function status() {
+      if (Voice.node && !caught) {
+        const own = Voice.node.port.onmessage;
+        Voice.node.port.onmessage = (e) => { own(e); if (e.data === 'bad') bad = true; };
+        caught = true;
+      }
+      const s = !Voice.ctx ? 'press anywhere to wake the audio'
+        : !Voice.ready ? 'loading'
+        : Voice.ctx.state !== 'running' ? Voice.ctx.state
+        : Voice.busy ? 'playing'
+        : bad ? 'the engine would not take those phones' : 'ready';
+      $('status').textContent = s;
+      $('status').classList.toggle('bad', bad && !Voice.busy);
+      requestAnimationFrame(status);
+    }
+
+    pick(0);
+    paste();
+    status();
+  </script>
+</body>
+</html>
