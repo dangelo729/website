@@ -6,9 +6,10 @@
 // and every message posted to it, and its fetch and addModule answer at
 // once. checks the voice and the lines, that nothing is made
 // before a gesture, that a grab before the worklet is ready or while the
-// context sleeps sends nothing, that a grab sends one sound and nothing
-// more until the worklet says it is over, and that the voice goes with the
-// node. then loads js/voice-worklet.js with the real
+// context sleeps has its line held and sent once both are, or dropped if
+// it waited too long, that a grab sends one sound and nothing more until
+// the worklet says it is over, and that the voice goes with the node. then
+// loads js/voice-worklet.js with the real
 // monk_mouth/monk_mouth.wasm and checks it renders: silent until a sound,
 // every line sounds, says done and stays inside full scale
 // through the master gain, and a line the engine will not take says bad. the
@@ -79,13 +80,14 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
   Voice.complain();
   await settle();
   check('nothing made before a gesture', made.contexts.length === 0 && made.fetched.length === 0 && made.modules.length === 0 && made.posted.length === 0);
+  check('nor held', Voice.held === null);
 
   // --- the gesture ---------------------------------------------------------------
   listeners.pointerdown.fn();
   check('the first gesture, a press, makes one context, at 44.1 khz', made.contexts.length === 1 && made.contexts[0].sampleRate === 44100);
   check('and wakes it', Voice.ctx.state === 'running');
   Voice.complain();
-  check('a grab before the worklet is loaded is silent', made.posted.length === 0);
+  check('a grab before the worklet is loaded waits, its line held', made.posted.length === 0 && Voice.held !== null);
   await settle();
   check('the worklet is loaded and the wasm fetched', made.modules[0] === 'js/voice-worklet.js' && made.fetched[0] === 'monk_mouth/monk_mouth.wasm');
   const node = made.nodes[0];
@@ -93,28 +95,39 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
   const opts = node && node.options.processorOptions;
   check('the voice and the wasm go with it', !!opts && opts.wasm instanceof ArrayBuffer && fields.every((k) => opts.voice[k] === V[k]));
   Voice.complain();
-  check('a grab before the worklet is ready is silent', made.posted.length === 0);
+  check('a grab before the worklet is ready waits too', made.posted.length === 0 && Voice.held !== null);
   listeners.click.fn();
   await settle();
   check('a later gesture makes nothing more', made.contexts.length === 1 && made.nodes.length === 1 && made.fetched.length === 1);
 
   // --- grabs ---------------------------------------------------------------------
   node.port.onmessage({ data: 'ready' });
-  Voice.complain();
   const first = made.posted[0];
   const isLine = (m) => m.type === 'line' && Voice.LINES.some((l) => l.phones === m.phones && l.midi === m.midi && l.range === m.range && l.speed === m.speed && l.breath === m.breath);
-  check('a grab sends one line', made.posted.length === 1 && isLine(first), first && first.type + ' ' + first.phones);
+  check('once the worklet is ready, the held line is sent, one line', made.posted.length === 1 && isLine(first) && Voice.held === null, first && first.type + ' ' + first.phones);
   Voice.complain();
   Voice.complain();
-  check('and nothing more while it plays', made.posted.length === 1);
+  check('and nothing more while it plays, nor held', made.posted.length === 1 && Voice.held === null);
   node.port.onmessage({ data: 'done' });
   Voice.complain();
   check('once it is done, a grab sends one more', made.posted.length === 2);
   node.port.onmessage({ data: 'bad' });
   Voice.ctx.state = 'interrupted';
   Voice.complain();
-  check('a grab while the context sleeps is silent', made.posted.length === 2);
-  Voice.ctx.state = 'running';
+  check('a grab while the context sleeps waits', made.posted.length === 2 && Voice.held !== null);
+  listeners.pointerdown.fn();
+  await settle();
+  check('and is sent once a gesture wakes it', made.posted.length === 3 && isLine(made.posted[2]) && Voice.held === null);
+  node.port.onmessage({ data: 'done' });
+  Voice.ctx.state = 'interrupted';
+  Voice.complain();
+  const clock = vm.runInContext('Date', ctx);
+  const now = clock.now;
+  clock.now = () => now() + Voice.HOLD + 1;
+  listeners.pointerdown.fn();
+  await settle();
+  clock.now = now;
+  check('a line held longer than HOLD is dropped', made.posted.length === 3 && Voice.held === null && Voice.ctx.state === 'running');
   const picks = new Set();
   for (let i = 0; i < 200; i++) {
     Voice.complain();
