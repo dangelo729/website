@@ -375,8 +375,8 @@
 
     // --- the sections ------------------------------------------------------------
     // words down the page under the header (the name and its tag), each a
-    // section that opens (SECTIONS, below): About, Professional work and
-    // Personal work.
+    // section that opens (SECTIONS, below): About, Professional work,
+    // Personal work, Doodles and Contact.
     // they are in the name's helvetica at SIZE of the name's size, or less
     // when the widest would not fit across the screen, their ink's left
     // INDENT in from the name's (each centred, stacked), the first's top BELOW of the
@@ -442,7 +442,7 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // Personal work's box is as wide as About's and BUBBLE of its height,
+    // Doodles' box is as wide as About's and BUBBLE of its height,
     // with the bubble (below) in the middle of it and nothing else. in the others, lorem ipsum in the
     // tag's face, under the x at BODY size wide
     // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
@@ -533,7 +533,16 @@
         { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
         { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
       ] },
-      { title: 'Personal work',     bubble: true, o: 0 },
+      { title: 'Personal work',     photo: false, o: 0, items: [
+        { title: 'Cicada' },
+        { title: 'Monk Mouth' },
+        { title: 'Third Dimension' },
+        { title: 'Second Dimension' },
+        { title: 'Upright' },
+        { title: 'Website' },
+      ] },
+      { title: 'Doodles',           bubble: true, o: 0 },
+      { title: 'Contact',           body: loremTypes, photo: false, o: 0 },
     ];
     const sections = SECTIONS.map((s, n) => ({
       ...s,
@@ -1444,7 +1453,7 @@
     // in what the name leaves. the menu is off for now; true brings it
     // back.
     //
-    // the bubble's world is its room in Personal work's box (layoutBox),
+    // the bubble's world is its room in Doodles' box (layoutBox),
     // the bubble locked to its middle. the bubble is made here the first
     // time there is a room; after that a resize carries its lock, skin,
     // face and all to the new middle, so nothing flies across. with no room
@@ -1505,7 +1514,7 @@
     }
 
     // --- the bubble --------------------------------------------------------------
-    // Personal work's box holds cicada's bubble, its face at 5/3 its art's
+    // Doodles' box holds cicada's bubble, its face at 5/3 its art's
     // size and the skin drawn in tighter round it than cicada's: a ring of
     // verlet points (js/softbody.js) locked to the middle of the box, which
     // gives when pulled and wobbles home. it lives in a world the size of
@@ -1714,7 +1723,7 @@
     }
 
     // --- the shop ------------------------------------------------------------------
-    // Personal work's box sells drag strength, hands, spawn rate and max
+    // Doodles' box sells drag strength, hands, spawn rate and max
     // bubbles for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
     // shown to two places, in a menu of its own in the room's top right, as
     // far in from its top and right as the x is from its left. shut, the
@@ -1950,7 +1959,7 @@
 
     // --- the tag's bubbles -------------------------------------------------------
     // a small bubble in each of the tag's lines, in the line's colour: a
-    // ring of verlet points (js/softbody.js) as Personal work's bubble is,
+    // ring of verlet points (js/softbody.js) as Doodles' bubble is,
     // with no face, locked where the tag puts it and holding still there,
     // with no wobble. each is in a world of its own the size of the
     // viewport, so its px are the page's: the tag does not scroll. it is
