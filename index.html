@@ -14,11 +14,11 @@
     html { scrollbar-width: none; }
     ::-webkit-scrollbar { display: none; }
     #scroll { width: 1px; }
-    /* a press on the canvas is the page's own: no selecting, and a swipe
-       only scrolls up and down. no cursor either: the pointer is drawn into
-       the frame as a hand */
+    /* a press on the canvas is the page's own, and so is a swipe: a finger
+       scrolls the page itself (the swipe, in the script). no selecting. no
+       cursor either: the pointer is drawn into the frame as a hand */
     canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated; cursor: none;
-             touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+             touch-action: none; user-select: none; -webkit-user-select: none; }
   </style>
 </head>
 <body>
@@ -383,8 +383,9 @@
     // name's ems under the header's ink and each next one's SPACE of their
     // size under the one before's. they are what scrolls: the document is
     // given height past the window (#scroll) and the canvas stays fixed
-    // over it, so a wheel, a swipe or a key scrolls it natively, and each
-    // frame the words are drawn that far up, in whole world px so they move
+    // over it, so a wheel or a key scrolls it natively and a finger scrolls
+    // it on top of that (the swipe, below), and each frame the words are
+    // drawn that far up, in whole world px so they move
     // rigidly rather than shimmer through the sampler. they go down before
     // the header's letters, and a letter writes only its ink, so passing
     // under the header they are hidden by its letters and nothing else:
@@ -403,6 +404,7 @@
       FIRST: 300,  // their letters' seeds run from here, a hundred a word, clear of the tag's
     };
     const scroller = document.getElementById('scroll');
+    let scrollEnd = 0; // css px the document scrolls at most
 
     // --- the boxes -----------------------------------------------------------------
     // a press on a word opens a box round it: a slightly rounded rect, a
@@ -1077,7 +1079,8 @@
         if (s.box.shown && s.box.full) push += Math.max(0, y1 - s.ink.y1);
         end = s.ink.y1 + push;
       }
-      scroller.style.height = (window.innerHeight + Math.ceil(end) * SCALE) + 'px';
+      scrollEnd = Math.ceil(end) * SCALE;
+      scroller.style.height = (window.innerHeight + scrollEnd) + 'px';
     }
 
     // a press on a word: open its box out of the o, or send it back in
@@ -1266,7 +1269,7 @@
     // show it, a little round it, { s, it, link }; a word whose box is not
     // open, a little round it, { s }; or null
     function hitAt(x, y) {
-      const sy = Math.round(window.scrollY / SCALE);
+      const sy = scrolled();
       for (const s of sections) {
         if (!s.ink) continue;
         const py = y + sy - s.off;
@@ -1879,7 +1882,7 @@
     function toRoom(p) {
       const r = bubbleHome && bubbleHome.room;
       if (!r) return p;
-      const b = bubbleAt(), y = p.y + Math.round(window.scrollY / SCALE) - bubbleHome.off;
+      const b = bubbleAt(), y = p.y + scrolled() - bubbleHome.off;
       return { x: bubble.lockX + (p.x - b.x) / b.k, y: bubble.lockY + (y - b.y) / b.k };
     }
 
@@ -2004,6 +2007,125 @@
       for (const w of worlds()) w.pointerOff();
       cursor.hide();
     });
+
+    // --- the swipe ---------------------------------------------------------------
+    // the browser scrolls on its own and tells the page where it got to late
+    // and unevenly, so a finger scrolls the page itself. a press (not a
+    // mouse) that goes SWIPE.SLOP css px, more up or down than across, is a
+    // swipe: everything else the press was doing is called off as the
+    // browser's own scroll calls it off (a pointercancel and a
+    // pointerleave), and from there the page moves 1:1 with the finger, no
+    // further than either end. let go moving, it glides on the way it was
+    // going, as far as the finger's speed over its last FLICK ms carries
+    // it, by the house approach, GLIDE of the way left each 60 hz frame (a
+    // flick slowing as ios's scroll does, 0.998 of its speed a ms). a press
+    // that goes across first is the page's to the end. a press while it
+    // glides stops it and is the swipe's alone, its events and its click
+    // going no further: up or down, it swipes on from where it stopped it.
+    // a wheel or a key scrolls the document natively, and the finger's
+    // scroll is kept on top of the document's
+    const SWIPE = {
+      SLOP: 10,                              // css px a press goes before it is a swipe or not
+      FLICK: 100,                            // ms of the finger's last moves its speed is taken over
+      STILL: 60,                             // ms a finger held still before lifting that leaves no glide
+      GLIDE: 1 - Math.pow(0.998, 1000 / 60), // of the way left to glide, each 60 hz frame
+    };
+    let swipeY = 0, swipeTo = 0; // css px the finger has the page scrolled past the document's own, and where it glides to
+    let swipe = null;            // the press being watched, { id, x, y, on, done, stop, y0, from, samples }, or null
+    let eatClick = false;        // the click the press ends in presses nothing
+    let calling = false;         // the swipe is calling a press off, so its own listeners let that through
+
+    // how far the page is scrolled, in whole world px
+    function scrolled() {
+      return Math.round((window.scrollY + swipeY) / SCALE);
+    }
+
+    // y css px of the finger's scroll, no further than either end
+    function clampSwipe(y) {
+      return Math.min(Math.max(y, -window.scrollY), scrollEnd - window.scrollY);
+    }
+
+    // the finger's scroll kept in the page, and gliding on toward where it
+    // was flicked while no finger holds it
+    function stepSwipe(dt) {
+      swipeY = clampSwipe(swipeY);
+      swipeTo = clampSwipe(swipeTo);
+      if ((swipe && swipe.on) || swipeTo === swipeY) return;
+      swipeY += (swipeTo - swipeY) * (1 - Math.pow(1 - SWIPE.GLIDE, 60 * dt));
+      if (Math.abs(swipeTo - swipeY) < 0.5) swipeY = swipeTo;
+    }
+
+    // on the window, capturing, so a press is heard before the canvas's
+    // own listeners and can be kept from them
+    window.addEventListener('pointerdown', (e) => {
+      if (calling) return;
+      eatClick = false;
+      if (e.pointerType === 'mouse' || !e.isPrimary) return;
+      const stop = Math.abs(swipeTo - swipeY) > SWIPE.SLOP;
+      swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, done: false, stop, y0: 0, from: 0, samples: [] };
+      swipeTo = swipeY;
+      // a press while it glides stops it, and nothing else hears it
+      if (stop) {
+        e.stopPropagation();
+        eatClick = true;
+      }
+    }, true);
+    window.addEventListener('pointermove', (e) => {
+      if (calling || !swipe || e.pointerId !== swipe.id) return;
+      if (swipe.on) {
+        e.stopPropagation();
+        swipeY = swipeTo = clampSwipe(swipe.from - (e.clientY - swipe.y0));
+        swipe.samples.push({ t: e.timeStamp, y: swipeY });
+        while (swipe.samples.length > 2 && e.timeStamp - swipe.samples[0].t > SWIPE.FLICK) swipe.samples.shift();
+        return;
+      }
+      if (swipe.stop) e.stopPropagation();
+      if (swipe.done) return;
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+      if (Math.hypot(dx, dy) <= SWIPE.SLOP) return;
+      swipe.done = true;
+      // across first: the press is the page's to the end
+      if (Math.abs(dy) <= Math.abs(dx)) return;
+      // up or down: the press called off as the browser's scroll calls it
+      // off, unless it stopped a glide and the canvas never heard it
+      if (!swipe.stop) {
+        const like = { pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary, clientX: e.clientX, clientY: e.clientY };
+        calling = true;
+        canvas.dispatchEvent(new PointerEvent('pointercancel', like));
+        canvas.dispatchEvent(new PointerEvent('pointerleave', like));
+        calling = false;
+      }
+      // anchored where it takes over, so the page does not jump by the slop
+      swipe.on = true;
+      swipe.y0 = e.clientY;
+      swipe.from = swipeY;
+      swipe.samples = [{ t: e.timeStamp, y: swipeY }];
+      eatClick = true;
+      e.stopPropagation();
+    }, true);
+    // a swipe let go: the finger's speed v, css px a second, over its last
+    // FLICK ms, none if it was held still STILL ms first, and the glide's
+    // end v / k on, k the house approach's rate a second, so the glide
+    // starts at the finger's speed
+    function swipeLift(e) {
+      if (calling || !swipe || e.pointerId !== swipe.id) return;
+      if (swipe.stop || swipe.on) e.stopPropagation();
+      if (swipe.on && e.type === 'pointerup') {
+        const s = swipe.samples.filter((p) => e.timeStamp - p.t <= SWIPE.FLICK);
+        const a = s[0], b = s[s.length - 1];
+        const v = s.length < 2 || e.timeStamp - b.t > SWIPE.STILL || b.t === a.t ? 0 : (b.y - a.y) / (b.t - a.t) * 1000;
+        const k = -60 * Math.log(1 - SWIPE.GLIDE);
+        swipeTo = clampSwipe(swipeY + v / k);
+      }
+      swipe = null;
+    }
+    window.addEventListener('pointerup', swipeLift, true);
+    window.addEventListener('pointercancel', swipeLift, true);
+    window.addEventListener('click', (e) => {
+      if (!eatClick) return;
+      eatClick = false;
+      e.stopPropagation();
+    }, true);
 
     // cicada's drag line: dashed, from the grabbed point to the pointer,
     // its dashes shrinking and gaps opening over the last 30 % of the reach
@@ -2149,11 +2271,12 @@
       stepMenu(dt, t);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
+      stepSwipe(dt);
       fb.clear();
       // the words and their boxes first, scrolled and pushed down by the
       // boxes above them, each box over its word, so the header's letters
       // cover them all
-      const sy = Math.round(window.scrollY / SCALE);
+      const sy = scrolled();
       const hit = hoverAt && hitAt(hoverAt.x, hoverAt.y);
       for (const s of sections) {
         const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop ? HOVER : undefined;
