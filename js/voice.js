@@ -9,10 +9,11 @@
 // audio is made inside the handler of the visitor's first gesture, a press
 // among them, since a grab is one, and any gesture wakes the context if it
 // is not running. a grab plays one of the lines at random, and nothing
-// while one is still playing; a grab before the
-// worklet is ready, or while the context is not running, is silent, never
-// queued. who speaks and what they say are plain data below, tuned by ear
-// on tools/voice/.
+// while one is still playing. a grab that comes before the worklet is
+// ready or while the context is not running, as the first one does, since
+// it is what makes the audio, has its line held until both are, and
+// dropped if that takes longer than HOLD. who speaks and what they say are
+// plain data below, tuned by ear on tools/voice/.
 
 const Voice = {
   // who is speaking: its size in sections (22 is the engine's adult, 16 a
@@ -35,6 +36,9 @@ const Voice = {
   // order with gaps between them as grabs come (tools/test/voice.test.js
   // prints each one's peak); a voice or a sound tuned again moves them
   MASTER: 2.4,
+  // ms a grab's line is held for the worklet to be ready and the context
+  // running; past it the line is dropped, too late to answer its grab
+  HOLD: 1000,
   WORKLET: 'js/voice-worklet.js',
   WASM: 'monk_mouth/monk_mouth.wasm',
 
@@ -42,6 +46,7 @@ const Voice = {
   node: null,    // the worklet's node, once loaded
   ready: false,  // the worklet has the voice made
   busy: false,   // a sound has gone to the worklet and is not yet over
+  held: null,    // a sound waiting for the voice: { sound, at }, at in ms
 
   // makes the audio on win's first gesture and wakes it on any later one
   listen(win) {
@@ -70,14 +75,14 @@ const Voice = {
           out.connect(ctx.destination);
           // ready once; after that, done or bad: the sound is over
           node.port.onmessage = (e) => {
-            if (e.data === 'ready') this.ready = true;
+            if (e.data === 'ready') { this.ready = true; this.flush(); }
             else this.busy = false;
           };
           this.node = node;
         })
         .catch(() => {});
     }
-    if (this.ctx.state !== 'running') this.ctx.resume();
+    if (this.ctx.state !== 'running') this.ctx.resume().then(() => this.flush(), () => {});
   },
 
   // the bubble taken hold of: one of the lines, at random
@@ -90,13 +95,27 @@ const Voice = {
     this.send({ type: 'line', phones: line.phones, midi: line.midi, range: line.range, speed: line.speed, breath: line.breath });
   },
 
-  // a sound to the worklet; nothing until it is ready, while a sound is
-  // still playing, nor while the context is not running, which would hold
-  // the sound and play it when it wakes
+  // a sound to the worklet; nothing before a gesture or while a sound is
+  // still playing, and held until the worklet is ready and the context
+  // running
   send(sound) {
-    if (!this.ready || this.busy || this.ctx.state !== 'running') return;
+    if (!this.ctx || this.busy) return;
+    if (!this.ready || this.ctx.state !== 'running') {
+      this.held = { sound, at: Date.now() };
+      return;
+    }
+    this.held = null;
     this.busy = true;
     this.node.port.postMessage(sound);
+  },
+
+  // the held sound sent once the worklet is ready and the context running,
+  // unless it has waited longer than HOLD
+  flush() {
+    const held = this.held;
+    if (!held || !this.ready || this.ctx.state !== 'running') return;
+    this.held = null;
+    if (Date.now() - held.at <= this.HOLD) this.send(held.sound);
   },
 
   // who is speaking, set again: it goes with the node when it is made, and
