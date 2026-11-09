@@ -5,8 +5,9 @@
 // enclose, so it always sits slightly stretched, like a skin with air in it.
 // a locked blob is eased back to its lock every step, and back to its own
 // size after it has eaten; a dragged one has a few points pulled toward
-// the pointer. blobs that touch merge into one,
-// and a world that is spawning makes a small one now and then.
+// the pointer. blobs that touch merge into one, and colour pulses run
+// round the skin from where they met; a world that is spawning makes a
+// small one now and then.
 // everything is in world px and per 60 Hz step: the world runs whole steps
 // from wall time, so a 120 Hz screen does not run it twice as fast, and it
 // keeps its own clock in ms for anything timed (point reduction).
@@ -31,6 +32,12 @@ const SOFT = {
   // a locked blob grown by eating eases back to the area and puffiness it
   // was made with, at RATE a second
   SHRINK: { RATE: 0.2 },
+  // cicada's colour pulse at half its speed and for longer: its head
+  // moves SPEED points a step, a lap of the bubble in about a second, it
+  // lights TRAIL points behind it, its colour goes once round its cycle
+  // every CYCLE points, and it is gone LIFE steps (two and a half
+  // seconds) after it set off
+  PULSE: { SPEED: 0.5, TRAIL: 30, CYCLE: 60, LIFE: 150 },
 };
 
 // a verlet point: its velocity is where it is less where it was. the
@@ -100,6 +107,7 @@ class SoftBlob {
     this.lockX = locked ? cx : null;
     this.lockY = locked ? cy : null;
     this.lastReduceMs = 0;
+    this.pulses = [];   // { start, dir, travelled, age, offset }: colour running round the ring (pulseAt)
     this.points = [];
     for (let i = 0; i < n; i++) {
       const a = (2 * Math.PI * i / n) - Math.PI / 2;
@@ -110,6 +118,14 @@ class SoftBlob {
   // one 60 Hz step, cicada's Blob.update in its order. drag is
   // { points: [{ point, force }], x, y } or null; tMs is the world's clock.
   step(w, h, drag, tMs) {
+    // each pulse ages a step and moves on SPEED points, or, LIFE steps
+    // old, goes
+    for (let k = this.pulses.length - 1; k >= 0; k--) {
+      const p = this.pulses[k];
+      if (++p.age >= SOFT.PULSE.LIFE) this.pulses.splice(k, 1);
+      else p.travelled += SOFT.PULSE.SPEED;
+    }
+
     const pts = this.points;
     for (const p of pts) { p.integrate(); p.applyGravity(); }
 
@@ -277,6 +293,14 @@ class SoftBlob {
     for (let k = i + 1; k < n; k++) pts.push(this.points[k]);
     this.points = pts;
 
+    // a pulse already going round this ring keeps its place in it, past
+    // the other's points let in at i; from every seam two more set off,
+    // one each way, each its own way into the colours' cycle
+    for (const p of this.pulses) if (p.start > i) p.start += m - 2;
+    for (const k of seams) {
+      for (const dir of [1, -1]) this.pulses.push({ start: k, dir, travelled: 0, age: 0, offset: Math.random() });
+    }
+
     const total = this.area + other.area;
     const size = Math.sqrt(total / this.area);
     const boost = 1 + (size - 1) * SOFT.MERGE_PUFF_SHARE;
@@ -328,10 +352,37 @@ class SoftBlob {
     return selected.sort((a, b) => b - a);
   }
 
-  // area, radius and circumference stay: the same skin in fewer, longer chords
+  // area, radius and circumference stay: the same skin in fewer, longer
+  // chords. each pulse's start comes down past the points taken from
+  // under it
   removePoints(indicesDesc) {
     for (const i of indicesDesc) this.points.splice(i, 1);
     this.chord = this.circumference / this.points.length;
+    const n = this.points.length;
+    for (const p of this.pulses) {
+      let below = 0;
+      for (const i of indicesDesc) if (i < p.start) below++;
+      p.start = Math.min(Math.max(p.start - below, 0), n - 1);
+    }
+  }
+
+  // the strongest pulse at point i, or null where none reaches: how
+  // strongly it lights the point, 1 at its head as it sets off, falling
+  // to 0 along its trail and over its life, and where the point is in the
+  // colours' cycle, 0 .. 1. cicada's sums, so a pulse lights only what it
+  // has passed on its first way round
+  pulseAt(i) {
+    const P = SOFT.PULSE, n = this.points.length;
+    let best = null;
+    for (const p of this.pulses) {
+      const from = p.dir === 1 ? (i - p.start + n) % n : (p.start - i + n) % n;
+      if (from > p.travelled) continue;
+      const behind = p.travelled - from;
+      if (behind > P.TRAIL) continue;
+      const strength = (1 - behind / P.TRAIL) * (1 - p.age / P.LIFE);
+      if (!best || strength > best.strength) best = { strength, along: (from / P.CYCLE + p.offset) % 1 };
+    }
+    return best;
   }
 
   // carry the lock and the whole ring, positions and previous positions

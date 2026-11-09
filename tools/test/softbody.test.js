@@ -419,6 +419,45 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   check('shrink: no NaN', finite(centre));
 }
 
+// --- colour pulses -----------------------------------------------------------
+{
+  const P = SOFT.PULSE;
+  const a = new SoftBlob(100, 100, 32, 20, 1.2), b = new SoftBlob(142, 100, 32, 20, 1.2);
+  check('pulse: none on a fresh blob', a.pulses.length === 0 && a.points.every((_, i) => a.pulseAt(i) === null));
+  const seams = a.merge(b, 8, 24);
+  check('pulse: two set off from every seam, one each way', a.pulses.length === 2 * seams.length &&
+    seams.every((k) => a.pulses.some((q) => q.start === k && q.dir === 1) && a.pulses.some((q) => q.start === k && q.dir === -1)));
+  check('pulse: a seam lit full as they set off', seams.every((k) => a.pulseAt(k).strength === 1));
+
+  // one pulse alone, stepped until its head has gone twelve points
+  a.pulses = [{ start: 10, dir: 1, travelled: 0, age: 0, offset: 0.25 }];
+  const steps = Math.round(12 / P.SPEED);
+  for (let k = 0; k < steps; k++) a.step(1000, 1000, null, 0);
+  const head = a.pulseAt(22), tail = a.pulseAt(10);
+  check('pulse: its head moves SPEED points a step, lit as its life allows, nothing ahead of it',
+    head && near(head.strength, 1 - steps / P.LIFE, 1e-12) && a.pulseAt(23) === null, head && head.strength);
+  check('pulse: its trail fades behind it, nothing behind its start',
+    tail && near(tail.strength, (1 - 12 / P.TRAIL) * (1 - steps / P.LIFE), 1e-12) && a.pulseAt(9) === null);
+  check('pulse: the colour goes round its cycle with the distance from its start',
+    near(head.along, (12 / P.CYCLE + 0.25) % 1, 1e-12) && near(tail.along, 0.25, 1e-12));
+  a.removePoints([5, 2]);
+  check('pulse: points taken from under its start bring the start down', a.pulses[0].start === 8);
+  for (let k = steps; k < P.LIFE; k++) a.step(1000, 1000, null, 0);
+  check('pulse: gone LIFE steps after it set off', a.pulses.length === 0);
+
+  // the other way round
+  a.pulses = [{ start: 10, dir: -1, travelled: 0, age: 0, offset: 0 }];
+  for (let k = 0; k < Math.round(5 / P.SPEED); k++) a.step(1000, 1000, null, 0);
+  check('pulse: one going the other way lights the points below its start', a.pulseAt(5) && a.pulseAt(10) && a.pulseAt(4) === null && a.pulseAt(11) === null);
+
+  // a merge lets the other's points in at i: a pulse past i keeps its point
+  const c = new SoftBlob(100, 100, 32, 20, 1.2), d = new SoftBlob(142, 100, 32, 20, 1.2);
+  const p3 = c.points[3], p20 = c.points[20];
+  c.pulses = [{ start: 3, dir: 1, travelled: 4, age: 4, offset: 0 }, { start: 20, dir: -1, travelled: 4, age: 4, offset: 0 }];
+  c.merge(d, 8, 24);
+  check('pulse: one already going keeps its point through a merge', c.points[c.pulses[0].start] === p3 && c.points[c.pulses[1].start] === p20);
+}
+
 // --- a small blob towed --------------------------------------------------------
 {
   const world = new World(1260, 383);
