@@ -20,7 +20,9 @@
 // neighbours' homes are under JOIN apart is dropped, so the ring keeps the
 // same grain at any size. it runs whole fixed steps from the time it is
 // given, as the world does, so it moves alike at any frame rate.
-// everything is in world px, y down.
+// everything is in world px, y down. the loops over the points count
+// through them by index: a for-of there can leave safari stepping a skin
+// ten times slower.
 
 const SKIN = {
   STEP: 1 / 60,   // seconds, one step
@@ -225,7 +227,7 @@ class Skin {
   // one fixed step toward the outline worked out in shape
   tick() {
     const o = this.shape;
-    for (const p of this.points) Skin.place(o, p.u, p);
+    for (let i = 0, a = this.points; i < a.length; i++) Skin.place(o, a[i].u, a[i]);
     this.space();
     const pts = this.points, n = pts.length, len = o.len;
     // each point's gap to the next one's home, and its pull: LEAD within
@@ -240,7 +242,8 @@ class Skin {
       const w = d < this.spread ? 0.5 + 0.5 * Math.cos(Math.PI * d / this.spread) : 0;
       p.pull = SKIN.PULL + (SKIN.LEAD - SKIN.PULL) * w;
     }
-    for (const p of pts) {
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
       const vx = (p.x - p.px) * SKIN.DAMPING, vy = (p.y - p.py) * SKIN.DAMPING;
       p.px = p.x;
       p.py = p.y;
@@ -278,7 +281,8 @@ class Skin {
       // as an anchor's, so the skin slides round with its homes and keeps
       // its order, never bunching or looping over itself, and across it by
       // its own pull, which is where it lags and bows
-      for (const p of pts) {
+      for (let i = 0; i < n; i++) {
+        const p = pts[i];
         if (p.dw > 0) {
           p.x += p.dx / p.dw;
           p.y += p.dy / p.dw;
@@ -335,7 +339,8 @@ class Skin {
   // the points' box, { x0, y0, x1, y1 }
   bounds() {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const p of this.points) {
+    for (let i = 0, a = this.points; i < a.length; i++) {
+      const p = a[i];
       if (p.x < x0) x0 = p.x;
       if (p.x > x1) x1 = p.x;
       if (p.y < y0) y0 = p.y;

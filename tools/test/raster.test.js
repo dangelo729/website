@@ -556,6 +556,77 @@ const between = (a, b) => a + (b - a) * rand();
     check(mismatched === 0, 'sprite vs the direct sampler, ' + poses + ' poses: ' + mismatched + ' differ' + (first ? ' (first ' + first + ')' : ''));
   }
 
+  // flat, worked out directly: the most rings of pixels round each that
+  // are all as it is, off the bitmap not ink, stopped at 255
+  {
+    const flatRef = (g) => {
+      const on = (x, y) => x >= 0 && x < g.w && y >= 0 && y < g.h && g.ink[y * g.w + x] === 1;
+      const out = new Uint8Array(g.w * g.h);
+      for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+        const s = on(x, y);
+        let k = 0;
+        ring: for (; k < 255; k++) {
+          const r = k + 1;
+          for (let d = -r; d <= r; d++)
+            if (on(x + d, y - r) !== s || on(x + d, y + r) !== s || on(x - r, y + d) !== s || on(x + r, y + d) !== s) break ring;
+        }
+        out[y * g.w + x] = k;
+      }
+      return out;
+    };
+    let ok = true, bad = '';
+    for (let n = 0; n < 120 && ok; n++) {
+      // noise, thick and thin, and solid blocks with holes cut in them
+      const w = 1 + Math.floor(rand() * 30), h = 1 + Math.floor(rand() * 30);
+      const g = Framebuffer.ink(randomRows(w, h, [0.03, 0.5, 0.97][n % 3]));
+      const got = Framebuffer.flat(g), want = flatRef(g);
+      ok = got.length === want.length && got.every((f, i) => f === want[i]);
+      if (!ok) bad = w + 'x' + h + ' ' + Array.from(g.ink).join('');
+    }
+    check(ok, 'flat is the rings of its own kind round each pixel, 120 bitmaps ' + bad);
+    const solid = { ink: new Uint8Array(9 * 5).fill(1), w: 9, h: 5 };
+    check(same(Array.from(Framebuffer.flat(solid)).map(String), '000000000011111110012222210011111110000000000'.split('')), 'flat: ink is as flat as it is far from the bitmap\'s edge');
+    const blank = { ink: new Uint8Array(7 * 4), w: 7, h: 4 };
+    check(Framebuffer.flat(blank).every((f) => f === 255), 'flat: a bitmap with no ink is flat all the way');
+    // one ink pixel at the left end of a long bar: 254 rings at 255 px off, and no more than 255 past it
+    const long = { ink: new Uint8Array(600 * 3), w: 600, h: 3 };
+    long.ink[600] = 1;
+    const far = Framebuffer.flat(long);
+    check(far[600] === 0 && far[601] === 0 && far[602] === 1 && far[600 + 255] === 254 && far[600 + 256] === 255 && far[600 + 599] === 255, 'flat stops at 255');
+  }
+
+  // the name's and the titles' sizes: big bitmaps at 0.15 to 0.6 on a
+  // framebuffer that holds them, where most pixels land on flat ink or
+  // flat paper and are lit or left unasked. as the direct sampler has them
+  {
+    const blob = (w, h) => {
+      // a few thick strokes and discs
+      const ink = new Uint8Array(w * h);
+      for (let k = 0; k < 5; k++) {
+        const cx = between(0, w), cy = between(0, h), r = between(8, 40), bar = rand() < 0.5, t = between(6, 30);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+          if (bar ? Math.abs(x - cx) < t && Math.abs(y - cy) < r * 2 : Math.hypot(x - cx, y - cy) < r) ink[y * w + x] = 1;
+      }
+      return { ink, w, h };
+    };
+    const W = 150, H = 110;
+    let mismatched = 0, first = '';
+    for (let n = 0; n < 240; n++) {
+      const g = blob(60 + Math.floor(rand() * 140), 60 + Math.floor(rand() * 140));
+      const s = between(0.15, 0.6), a = n % 3 ? between(-0.01, 0.01) : between(-Math.PI, Math.PI);
+      const cx = between(10, W - 10), cy = between(10, H - 10), minHits = n % 4 ? 6 : 1 + Math.floor(rand() * 16);
+      const got = new Framebuffer(W, H), want = new Framebuffer(W, H);
+      got.bits.fill(3); want.bits.fill(3);
+      got.sprite(g, cx, cy, s, a, 1, minHits);
+      spriteRef.call(want, g, cx, cy, s, a, 1, minHits);
+      if (!got.bits.every((b, i) => b === want.bits[i])) {
+        mismatched++;
+        first = first || [g.w, g.h, cx, cy, s, a, minHits].join(' ');
+      }
+    }
+    check(mismatched === 0, 'sprite vs the direct sampler, big bitmaps at the name\'s sizes, 240 poses: ' + mismatched + ' differ' + (first ? ' (first ' + first + ')' : ''));
+  }
+
   // v is what is written; minHits is how much ink it takes
   {
     const g = Framebuffer.ink(randomRows(9, 7, 0.5));
