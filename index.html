@@ -59,7 +59,7 @@
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
-    let pfb = null;   // the upgrades menu's insides, drawn apart and copied through its skin (drawShop)
+    let pfb = null;   // the upgrades menu's insides and each item's, drawn apart and copied through its skin (drawShop, drawInsides)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -490,6 +490,11 @@
       CARET: 0.45,   // the items' ems from the caret's ink to the name's
       DROP: 0.6,     // the items' ems from under a name to its text's top
       FLIP: 2.76,    // how many times as fast an item's caret turns as its text opens
+      ITEM_PAD_X: 0.5, // the items' ems from an item's bubble's left to its caret's ink, from its furthest ink right to its right, and from its text's bottom to its bottom open
+      ITEM_PAD_Y: 0.25, // the items' ems from a name's caps and descenders to its bubble's top and bottom, shut
+      ITEM_CAP: 0.75, ITEM_DESC: 0.2, // the items' ems, the face's caps over its baseline and descenders under
+      ITEM_RADIUS: 0.4, // the items' ems, an item's bubble's corners
+      ITEM_SPREAD: 50, // world px, how far along an item's skin an anchor's pull reaches: less bows deeper as it opens, and under about 50 its top dips through its name
       LOGO_W: 12,    // the text's ems an item's logo may span, at most
       LOGO_H: 4,     // and stand, at most
       LOGO_LEAST: 20, // the text's ems its text keeps beside the logo, else the logo goes above it
@@ -553,17 +558,21 @@
       // from > to v (turn); laid out, its caret and its
       // name's letters, its text's, its shut baseline, where its text is
       // cut from (clip) and how tall the text stands under that (span),
-      // how far it pushes the items under it open (ext: as far, so the
-      // next name keeps the gap under the text it kept under this one's
-      // name), the box round its
+      // its bubble shut, round its caret and name (shut), and full, round
+      // its text open too (full), and its corners' radius (round), how far
+      // it pushes the items under it open (ext: as far as its bubble grows
+      // down, so the next bubble keeps the gap under this one open that it
+      // kept under it shut), the box from its bubble's left round its
       // caret and name (hit) and how far the texts above push it now
       // (shift), its furthest ink right and how much further than the
-      // rows' it takes the box's right open (wide). rest and restX1 are
+      // rows' it takes the box's right open (wide), and its skin, a ring of
+      // points chasing its bubble (js/skin.js), each of the bubble's edges
+      // warbling on its own sine as the box's do (warble). rest and restX1 are
       // the box's bottom and right with every item shut. its links go on a
       // line of their own under its text, LINK_SEP between: linkType is
       // the line, and each link { label, url } is laid out with its letters
       // and the box round them (hit)
-      items: (s.items || []).map((x) => ({
+      items: (s.items || []).map((x, i) => ({
         title: x.title, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -576,6 +585,11 @@
         logos: x.logos || [], logosAt: [],
         linkType: new Type((x.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
         open: false, p: 0, turn: 0, caret: null, letters: [], text: [], base: 0, clip: 0, span: 0, ext: 0, hit: null, shift: 0, right: 0, wide: 0,
+        shut: null, full: null, round: 0, skin: null,
+        warble: [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
+          hz: hz * (0.8 + 0.4 * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e)),
+          ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e + 4),
+        })),
       })),
       rest: 0,
       restX1: 0,
@@ -928,26 +942,31 @@
     }
 
     // a box's items down it from top, under the x: each its caret, its ink
-    // at ix0, and its name CARET ems on, at ITEM of the text's size bs and
-    // ROW ems apart, and its text (lorem, as the other boxes') under its
-    // name and indented to it, there all along but cut off where the
-    // accordion has got to. with every item shut the box is only as big as
-    // its rows, SLACK past the widest, or its word if that is wider, so it
-    // covers the word; it grows down by each item's text
-    // as it opens, and across to the widest text opening (grow)
+    // ITEM_PAD_X ems in from ix0, and its name CARET ems on, at ITEM of the
+    // text's size bs and ROW ems apart, and its text (lorem, as the other
+    // boxes') under its name and indented to it, there all along but cut
+    // off where the accordion has got to, and its bubble, from ix0, round
+    // its caret and name shut and round its text too open, its ink kept
+    // ITEM_PAD_X in from ix1 so the bubble fits. with every item shut the
+    // box is only as big as its rows, SLACK past the widest, or its word if
+    // that is wider, so it covers the word; it grows down by each item's
+    // bubble as it opens, and across to the widest text opening (grow)
     function layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1) {
       const seed = BOX.FIRST + 10000 * s.n, is = BOX.ITEM * bs, ik = is / TYPE.EM, bk = bs / TYPE.EM;
-      let base = top + 0.72 * is, last = base;
+      // a bubble's padding across, and how far right its ink may reach
+      const bx = BOX.ITEM_PAD_X * is, rx = ix1 - bx;
+      // the first name's baseline, its bubble's top at top
+      let base = top + (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is;
       s.items.forEach((it, i) => {
         const t = it.type;
         it.letters = [];
         it.text = [];
         it.caret = null;
-        let nx = ix0; // the name's ink's left
+        let nx = ix0 + bx; // the name's ink's left
         if (caretType.glyphs.length) {
           const gl = caretType.glyphs[0];
-          it.caret = makeLetter(gl.g, ix0 + ik * gl.g.w / 2, base + ik * gl.dy, seed + 3000 + 100 * i + 99, ik, WOBBLE);
-          nx = ix0 + ik * gl.g.w + BOX.CARET * is;
+          it.caret = makeLetter(gl.g, ix0 + bx + ik * gl.g.w / 2, base + ik * gl.dy, seed + 3000 + 100 * i + 99, ik, WOBBLE);
+          nx = ix0 + bx + ik * gl.g.w + BOX.CARET * is;
         }
         const ox = nx + ik * t.left;
         for (const gl of t.glyphs)
@@ -969,9 +988,9 @@
           if (a.h > BOX.LOGO_H * k * bs) { a.h = BOX.LOGO_H * k * bs; a.w = a.h * aspect; }
           colW = Math.max(colW, a.w);
         }
-        const beside = arts.length > 0 && !stacked && ix1 - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        const beside = arts.length > 0 && !stacked && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
-        const fit = beside || across + gaps <= ix1 - nx ? 1 : Math.max(0, ix1 - nx - gaps) / across;
+        const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
         for (const a of arts) {
           a.w = Math.max(1, Math.round(a.w * fit));
@@ -979,7 +998,7 @@
           rowH = Math.max(rowH, a.h);
         }
         // its text, from DROP under its name
-        const room = beside ? ix1 - nx - BOX.GUTTER * bs - colW : ix1 - nx;
+        const room = beside ? rx - nx - BOX.GUTTER * bs - colW : rx - nx;
         const tw = stacked ? room : Math.min(room, BOX.MEASURE * bs);
         const top = base + BOX.DROP * is;
         let tb = top + 0.75 * bs, tl = tb, logoBottom = top, ly = top, lx = nx;
@@ -1027,18 +1046,26 @@
         it.base = base;
         it.clip = base + 0.3 * is;
         it.span = bottom - it.clip;
-        it.ext = it.span;
-        last = base;
+        // its bubble shut, ITEM_PAD_Y over the name's caps and under its
+        // descenders and ITEM_PAD_X right of its ink, and full, as far right
+        // of its furthest ink and under its text's bottom
+        it.shut = { x0: ix0, y0: base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is };
+        it.full = { x0: ix0, y0: it.shut.y0, x1: Math.max(it.shut.x1, it.right + bx), y1: Math.max(it.shut.y1, bottom + bx) };
+        it.round = BOX.ITEM_RADIUS * is;
+        it.ext = it.full.y1 - it.shut.y1;
         base += BOX.ROW * is;
       });
       // the box's right with every item shut, and how much further each
       // item's text takes it
       const edge = (r) => Math.min(x1, r + BOX.SLACK * bs + pad);
-      s.rest = last + 0.3 * is + pad;
+      s.rest = s.items[s.items.length - 1].shut.y1 + pad;
       s.restX1 = edge(Math.max(s.ink.x1, ...s.items.map((it) => it.hit.x1)));
       for (const it of s.items) it.wide = Math.max(0, edge(it.right) - s.restX1);
       s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       grow(s);
+      // each item's skin settled where its bubble is now: laid out again,
+      // it is put straight there, as a box's is
+      for (const it of s.items) it.skin = new Skin(itemAt(it), BOX.ITEM_SPREAD);
     }
 
     // a box's accordions where they have got to: each item pushed down by
@@ -1160,8 +1187,8 @@
     // a section's insides sy up into cfb, as much of them as shows through
     // the window (x0, y0) to (x1, y1), world px on the screen: the window's
     // rows cleared, the letters near enough it to show, the photo and the
-    // bubble if they reach it, the x and the items, the ones hover is on
-    // in their colours (hover null, none)
+    // bubble if they reach it, the x and the items, each in its bubble,
+    // the ones hover is on in their colours (hover null, none)
     function drawInsides(s, t, sy, x0, y0, x1, y1, hover) {
       const box = s.box;
       cfb.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
@@ -1202,22 +1229,37 @@
       if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
-      // where it has opened to and cut off there
+      // where it has opened to and cut off there, all into pfb over its
+      // skin's box; then pfb copied into cfb through its skin and the skin
+      // outlined over it, LINE px from point to point, in the items' hover
+      // colour while the item is hovered, as drawShop does the menu. an
+      // item whose skin's box, LINE + 1 px more all round, misses the
+      // window's rows is left out
       for (const it of s.items) {
+        if (!it.skin) continue;
+        const b = it.skin.bounds(), m = BOX.LINE + 1;
+        if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
         const v = hover && hover.it === it && !hover.link ? HOVER_ITEM : undefined;
-        if (it.caret) it.caret.draw(t, d, cfb, it.turn * Math.PI / 2, v);
-        for (const L of it.letters) L.draw(t, d, cfb, 0, v);
+        pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
+        if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
+        for (const L of it.letters) L.draw(t, d, pfb, 0, v);
         if (it.p > 0) {
           const end = it.clip + it.p * it.span + d;
           const see = (L) => L.cy + d > lo && L.cy + d < Math.min(hi, end + BOX.MOST);
-          for (const L of it.text) if (see(L)) L.draw(t, d, cfb);
+          for (const L of it.text) if (see(L)) L.draw(t, d, pfb);
           for (const k of it.links) {
             const lv = hover && hover.link === k ? HOVER_LINK : undefined;
-            for (const L of k.letters) if (see(L)) L.draw(t, d, cfb, 0, lv);
+            for (const L of k.letters) if (see(L)) L.draw(t, d, pfb, 0, lv);
           }
-          for (const l of it.logosAt) l.letter.draw(t, Math.round(d), cfb);
-          cfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
+          for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
+          pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
+        }
+        const pts = it.skin.screen(-sy), n = pts.length;
+        cfb.fillPolygon(pts, pfb);
+        for (let i = 0; i < n; i++) {
+          const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+          cfb.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
         }
       }
     }
@@ -1231,6 +1273,26 @@
       for (const k of ['x0', 'y0', 'x1', 'y1', 'r']) c[k] = a[k] + (b[k] - a[k]) * p;
       if (t !== undefined) {
         const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * s.warble[e].hz + s.warble[e].ph);
+        c.x0 += w(0);
+        c.y0 += w(1);
+        c.x1 += w(2);
+        c.y1 += w(3);
+      }
+      return c;
+    }
+
+    // where an item's bubble is at its p, from shut (0) to full (1), as
+    // { x0, y0, x1, y1, r }: every edge that much of the way from one to
+    // the other, pushed down by the texts above it (shift), and, given a
+    // time t, each edge warbled WARBLE px either way on its own sine, as
+    // boxAt has the boxes
+    function itemAt(it, t) {
+      const a = it.shut, b = it.full, c = { r: it.round };
+      for (const k of ['x0', 'y0', 'x1', 'y1']) c[k] = a[k] + (b[k] - a[k]) * it.p;
+      c.y0 += it.shift;
+      c.y1 += it.shift;
+      if (t !== undefined) {
+        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * it.warble[e].hz + it.warble[e].ph);
         c.x0 += w(0);
         c.y0 += w(1);
         c.x1 += w(2);
@@ -1674,9 +1736,9 @@
     // does, with the menu's insides, drawn apart (pfb), copied through the
     // skin, so it wipes the list in as it grows. its caret turns from > to v as it opens, as an
     // item's does, and a press on the header shuts it. under the pointer
-    // the menu's outline and its caret are in the items' hover colour, and a
-    // button's outline in the links' (the musician's); the words keep to
-    // ink. a press on a button buys a level: drag strength pulls every
+    // the menu's outline, its caret and its words are in the items' hover
+    // colour, and a button's outline and words in the links' (the
+    // musician's). a press on a button buys a level: drag strength pulls every
     // held skin in the bubble's world harder, spawn rate spawns small
     // bubbles there more often, max bubbles lets it hold more at once, and
     // a hand comes out of its button and goes after the small bubbles
@@ -1831,17 +1893,17 @@
       if (!ui || !menu.skin) return;
       const v = hover && hover.menu ? HOVER_ITEM : 1, box = menu.skin.bounds();
       pfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
-      for (const L of ui.header.count) L.draw(t, -sy, pfb);
-      for (const L of ui.header.bar) L.draw(t, -sy, pfb);
+      for (const L of ui.header.count) L.draw(t, -sy, pfb, 0, v);
+      for (const L of ui.header.bar) L.draw(t, -sy, pfb, 0, v);
       if (ui.header.caret) ui.header.caret.draw(t, -sy, pfb, menu.turn * Math.PI / 2, v);
-      for (const L of ui.header.title) L.draw(t, -sy, pfb);
+      for (const L of ui.header.title) L.draw(t, -sy, pfb, 0, v);
       if (menu.p > 0) for (const b of ui.buttons) {
         const bv = hover && hover.buy === b.key ? HOVER_LINK : 1, n = b.ring.length;
         for (let i = 0; i < n; i++) {
           const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
           pfb.line(p.x, p.y - sy, q.x, q.y - sy, bv, BOX.LINE);
         }
-        for (const L of b.letters) L.draw(t, -sy, pfb);
+        for (const L of b.letters) L.draw(t, -sy, pfb, 0, bv);
       }
       const pts = menu.skin.screen(-sy), n = pts.length;
       cfb.fillPolygon(pts, pfb);
@@ -2268,6 +2330,8 @@
       }
       settle();
       for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
+      // each item's skin after its bubble while its box is out of the o
+      for (const s of sections) if (s.box.shown) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
       stepMenu(dt, t);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
