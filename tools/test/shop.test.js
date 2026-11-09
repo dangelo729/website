@@ -5,7 +5,7 @@
 // by its size, 1 for the smallest the world spawns to 3 for the largest
 // and on past it; the prices, drag strength's 1 rising 15 % a level,
 // hands' 5 doubling, spawn rate's 2 rising 15 % and max bubbles' 3 rising
-// 50 %, not whole numbers; that a level is bought only with
+// 50 %, not whole numbers, and randomize voice a flat 20; that a level is bought only with
 // bubbles enough, a hair short through float sums included, and costs its
 // price; that drag strength pulls a tenth more a level and spawn rate
 // spawns a tenth more often, both compounding, and max bubbles holds one
@@ -52,6 +52,8 @@ check('hands: 5, doubling', hands.join() === '5,10,20,40,80,160', hands.join());
 const spawn = prices('spawn', 6), max = prices('max', 6);
 check('spawn rate: 2, then up 15 % a level', spawn.every((p, n) => near(p, 2 * Math.pow(1.15, n))), spawn.map((p) => p.toFixed(2)).join(' '));
 check('max bubbles: 3, then up 50 % a level', max.every((p, n) => near(p, 3 * Math.pow(1.5, n))), max.map((p) => p.toFixed(2)).join(' '));
+const voice = prices('voice', 6);
+check('randomize voice: a flat 20, every time', voice.join() === '20,20,20,20,20,20', voice.join());
 
 {
   const s = new Shop();

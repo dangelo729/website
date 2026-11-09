@@ -12,13 +12,16 @@
 // plays (the line, its syllables begun and its mouth, each taken up once
 // the context's time at the speaker reaches it, and when it ended), that a
 // meal sends
-// one of the thanks THANK_MS later, and that the voice goes with the node.
+// one of the thanks THANK_MS later, that the voice goes with the node, and
+// that a voice drawn at random has every setting inside its RANDOM and goes
+// to the worklet.
 // then loads js/voice-worklet.js with the real
 // monk_mouth/monk_mouth.wasm and checks it renders: silent until a sound,
 // every line and every thanks sounds, says each of its syllables as it
 // begins, in turn, and the mouth every three blocks, each at its block's
 // time, says done and stays inside full scale
-// through the master gain, and a line the engine will not take says bad. the
+// through the master gain, as every line does at every corner of RANDOM,
+// and a line the engine will not take says bad. the
 // peaks it prints, through the master gain, are what js/voice.js's master
 // is set by. exits 1 on failure.
 
@@ -193,6 +196,18 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
   Voice.set(Object.assign({}, V, { sections: 19 }));
   const last = made.posted[made.posted.length - 1];
   check('the voice set again goes to the worklet', last.type === 'voice' && last.voice.sections === 19);
+  check('the random ranges cover the six settings, each lo under hi, at sizes the engine is tested at',
+    fields.every((k) => Voice.RANDOM[k] && Voice.RANDOM[k][0] < Voice.RANDOM[k][1]) && Voice.RANDOM.sections[0] >= 14 && Voice.RANDOM.sections[1] <= 48);
+  const drawn = [];
+  for (let i = 0; i < 200; i++) { Voice.randomize(); drawn.push(made.posted[made.posted.length - 1]); }
+  const within = (v) => fields.every((k) => v[k] >= Voice.RANDOM[k][0] && v[k] <= Voice.RANDOM[k][1]);
+  check('a voice drawn at random goes to the worklet, every setting inside its range, and is the voice',
+    drawn.every((m) => m.type === 'voice' && within(m.voice)) && Voice.VOICE === drawn[drawn.length - 1].voice);
+  const spread = fields.every((k) => {
+    const [lo, hi] = Voice.RANDOM[k], xs = drawn.map((m) => m.voice[k]);
+    return Math.min(...xs) < lo + 0.2 * (hi - lo) && Math.max(...xs) > hi - 0.2 * (hi - lo);
+  });
+  check('and over many draws each setting reaches near both ends of its range', spread);
 
   // --- the worklet, with the real wasm -------------------------------------------
   let Processor = null;
@@ -247,6 +262,26 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
       r.mouths.some((m) => m.mouth.voicing > 0.5), r.mouths.length + ' over ' + r.blocks + ' blocks');
   }
   console.log('     the loudest peaks at ' + loudest.toFixed(3) + ', ' + (loudest * Voice.MASTER).toFixed(3) + ' through the master');
+
+  // every line at each of RANDOM's 64 corners, its tension let land first
+  const keys = Object.keys(Voice.RANDOM);
+  let cornerLo = Infinity, cornerHi = 0, cornerDone = true;
+  for (let c = 0; c < 1 << keys.length; c++) {
+    const voice = {};
+    keys.forEach((k, i) => { voice[k] = Voice.RANDOM[k][(c >> i) & 1]; });
+    p.port.onmessage({ data: { type: 'voice', voice } });
+    for (let b = 0; b < 400; b++) p.process([], [[out]]);
+    for (const l of [...Voice.LINES, ...Voice.THANKS]) {
+      const r = play(line(l));
+      cornerDone = cornerDone && r.said === 'done' && r.peak > 0.01;
+      cornerLo = Math.min(cornerLo, r.peak);
+      cornerHi = Math.max(cornerHi, r.peak);
+    }
+  }
+  check('every line at every corner of the random voices sounds and is done, inside full scale through the master',
+    cornerDone && cornerHi * Voice.MASTER < 1, 'peaks ' + (cornerLo * Voice.MASTER).toFixed(3) + ' to ' + (cornerHi * Voice.MASTER).toFixed(3) + ' through the master');
+  p.port.onmessage({ data: { type: 'voice', voice: V } });
+  for (let b = 0; b < 400; b++) p.process([], [[out]]);
 
   const after = play({ type: 'line', phones: 'S T AA1 P / Q X', midi: 50, range: 5, speed: 1, breath: 0.8 });
   check('phones the engine will not take say bad, at once, and nothing begun', after.said === 'bad' && after.secs <= BLOCK && after.heard.length === 0 && after.mouths.length === 0, after.said);
