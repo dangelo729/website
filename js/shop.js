@@ -9,8 +9,9 @@
 // more pull. hands buys one of cicada's hands (js/hands.js) a level, for
 // PRICE doubling a hand. spawn rate makes the world spawn STEP times as
 // often a level, compounding, and max bubbles lets it hold STEP more at
-// once, each for its PRICE times its GROWTH to the level. none of it is
-// whole numbers, and nothing has a ceiling.
+// once, each for its PRICE times its GROWTH to the level. randomize voice
+// draws the bubble a new voice (js/voice.js), for a flat PRICE every time,
+// its GROWTH 1. none of it is whole numbers, and nothing has a ceiling.
 
 const SHOP = {
   REWARD: { LEAST: 1, MOST: 3 },
@@ -18,16 +19,17 @@ const SHOP = {
   HANDS: { PRICE: 5, GROWTH: 2 },
   SPAWN: { PRICE: 2, GROWTH: 1.15, STEP: 1.1 },
   MAX: { PRICE: 3, GROWTH: 1.5, STEP: 1 },
+  VOICE: { PRICE: 20, GROWTH: 1 },
   SLACK: 1e-9, // what the float sums may fall short of a price by and still buy it
 };
 
 class Shop {
   constructor() {
     this.bubbles = 0;                    // to spend
-    this.levels = { drag: 0, hands: 0, spawn: 0, max: 0 }; // bought of each
+    this.levels = { drag: 0, hands: 0, spawn: 0, max: 0, voice: 0 }; // bought of each
   }
 
-  // the next level of key: 'drag', 'hands', 'spawn' or 'max'
+  // the next level of key: 'drag', 'hands', 'spawn', 'max' or 'voice'
   price(key) {
     const S = SHOP[key.toUpperCase()];
     return S.PRICE * Math.pow(S.GROWTH, this.levels[key]);

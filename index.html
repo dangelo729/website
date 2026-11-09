@@ -1723,8 +1723,8 @@
     }
 
     // --- the shop ------------------------------------------------------------------
-    // Doodles' box sells drag strength, hands, spawn rate and max
-    // bubbles for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
+    // Doodles' box sells drag strength, hands, spawn rate, max bubbles
+    // and a random voice for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
     // shown to two places, in a menu of its own in the room's top right, as
     // far in from its top and right as the x is from its left. shut, the
     // menu is a button: a rounded rect drawn as the box is, filled with
@@ -1749,15 +1749,16 @@
     // colour, and a button's outline and words in the links' (the
     // musician's). a press on a button buys a level: drag strength pulls every
     // held skin in the bubble's world harder, spawn rate spawns small
-    // bubbles there more often, max bubbles lets it hold more at once, and
+    // bubbles there more often, max bubbles lets it hold more at once,
+    // randomize voice gives the bubble a new voice (js/voice.js), and
     // a hand comes out of its button and goes after the small bubbles
     // (js/hands.js), drawn as the pointer is (js/cursor.js), a fist while
     // it holds one, its hold's line dashed as the pointer's is, over the
     // small bubbles and under the bubble, as cicada layered them
     // (drawBubble). HAND_REACH is how far its art reaches from its palm.
     const SHOP_UI = {
-      KEYS: ['drag', 'hands', 'spawn', 'max'], TITLE: 'upgrades', BAR: '|',
-      LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles' },
+      KEYS: ['drag', 'hands', 'spawn', 'max', 'voice'], TITLE: 'upgrades', BAR: '|',
+      LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', voice: 'randomize voice' },
       PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
       APART: 0.4,                           // of the text's size, between the header's caret, count, bar and title
       ROW: 0.4, MARGIN: 0.4,                // of the text's size, between the list's buttons, and round them in the open menu
@@ -1928,6 +1929,7 @@
       if (key === 'drag') world.dragForce = SOFT.DRAG.FORCE * shop.drag();
       if (key === 'spawn') world.spawnMs = SOFT.SPAWN.EVERY_MS / shop.spawn();
       if (key === 'max') world.maxBlobs = SOFT.SPAWN.MAX_BLOBS + shop.more();
+      if (key === 'voice') Voice.randomize();
       if (key !== 'hands') return;
       const room = bubbleHome.room, r = shopNow().buttons.find((b) => b.key === 'hands').rect;
       const hand = new Hand((r.x0 + r.x1) / 2 - room.x, (r.y0 + r.y1) / 2 - room.y, world.hands.length);

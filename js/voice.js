@@ -23,7 +23,8 @@
 // running, as the first one does, since it is what makes the audio, has
 // its line held until both are, and dropped if that takes longer than
 // HOLD. who speaks and what they say are plain data below,
-// tuned by ear on tools/voice/.
+// tuned by ear on tools/voice/; the shop (index.html) sells a new voice
+// drawn at random.
 
 const Voice = {
   // who is speaking: its size in sections (22 is the engine's adult, 16 a
@@ -32,6 +33,10 @@ const Voice = {
   // (breathy 0 .. pressed 1), diction (consonants crisp above 1, lazy
   // under) and wobble (the drift that keeps a held note alive)
   VOICE: { sections: 33, breathiness: 0.05, roughness: 0.75, tension: 0.75, diction: 1, wobble: 1.2 },
+  // where randomize() draws each of them, lo .. hi: moon_man's own draws
+  // on its size, breath and rasp knobs, and wider; every line stays inside
+  // full scale through the master anywhere in them
+  RANDOM: { sections: [14, 44], breathiness: [0, 0.4], roughness: [0, 1], tension: [0.3, 0.9], diction: [0.6, 1.6], wobble: [0, 2] },
   // what it says when taken hold of: arpabet phones, stress digits on the
   // vowels and a / at each word's end, spoken on a baseline midi note, an
   // accented syllable lifted range semitones over it, at a speed (1
@@ -194,5 +199,15 @@ const Voice = {
   set(voice) {
     this.VOICE = voice;
     if (this.node) this.node.port.postMessage({ type: 'voice', voice });
+  },
+
+  // a new voice, each setting drawn evenly inside its RANDOM, and set
+  randomize() {
+    const voice = {};
+    for (const k in this.RANDOM) {
+      const [lo, hi] = this.RANDOM[k];
+      voice[k] = lo + Math.random() * (hi - lo);
+    }
+    this.set(voice);
   },
 };
