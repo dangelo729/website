@@ -17,6 +17,8 @@ function Framebuffer(w, h) {
   // framebuffer, and for each row of points down one pixel
   this.across = new Float64Array(2 * SAMPLE.GRID * w);
   this.down = new Float64Array(2 * SAMPLE.GRID);
+  // and where each column of pixels' middles lands in the bitmap, less the row's share
+  this.mid = new Float64Array(2 * w);
 }
 
 Framebuffer.prototype.clear = function () {
@@ -200,6 +202,34 @@ Framebuffer.ink = function (rows) {
   return { ink, w, h };
 };
 
+// how flat a bitmap { ink, w, h } is round each of its pixels: how many
+// pixels out from it, straight and cornerwise, every pixel is as it is,
+// ink or not, all that is off the bitmap being not; 255 is that many or
+// more. a pixel of 3 has only its own kind in the 7 x 7 round it. it is
+// worked out in two sweeps, down from the top left and back up from the
+// bottom right, each pixel taking the least the four neighbours already
+// swept leave it: nothing from one not as it is, one more than its own
+// from one that is
+Framebuffer.flat = function (g) {
+  const w = g.w, h = g.h, pw = w + 2, n = pw * (h + 2);
+  // each with a pixel more all round, the paper off the bitmap, flat as far as can be
+  const on = new Uint8Array(n), far = new Uint8Array(n).fill(255);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) on[(y + 1) * pw + x + 1] = g.ink[y * w + x] === 1 ? 1 : 0;
+  // left and the three above
+  for (let y = 1; y <= h; y++) for (let x = 1, i = y * pw + 1; x <= w; x++, i++) {
+    const s = on[i], a = i - 1, b = i - pw - 1, c = i - pw, d = i - pw + 1;
+    far[i] = on[a] !== s || on[b] !== s || on[c] !== s || on[d] !== s ? 0 : Math.min(255, 1 + Math.min(far[a], far[b], far[c], far[d]));
+  }
+  // right and the three below
+  for (let y = h; y >= 1; y--) for (let x = w, i = y * pw + w; x >= 1; x--, i--) {
+    const s = on[i], a = i + 1, b = i + pw + 1, c = i + pw, d = i + pw - 1;
+    far[i] = on[a] !== s || on[b] !== s || on[c] !== s || on[d] !== s ? 0 : Math.min(far[i], 1 + Math.min(far[a], far[b], far[c], far[d]));
+  }
+  const flat = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) flat.set(far.subarray((y + 1) * pw + 1, (y + 1) * pw + 1 + w), y * w);
+  return flat;
+};
+
 // g, a bitmap { ink, w, h }, with its centre at (cx, cy), scaled by s and
 // turned by a radians (clockwise on screen). a pixel with minHits of its
 // points on ink is written v; the rest are left alone, so a sprite lays
@@ -211,7 +241,12 @@ Framebuffer.ink = function (rows) {
 // worked out alone. only the pixels with a point in the turned box are
 // asked, the box grown a sixteenth of a pixel all round (far more than
 // rounding can move a point) and cut to the framebuffer, and a pixel
-// stops asking once it has minHits or has missed too many to get them
+// stops asking once it has minHits or has missed too many to get them.
+// a pixel's points all land within reach bitmap pixels of the one its
+// middle lands in, so where the bitmap is flat that far round it
+// (Framebuffer.flat, worked out the first time a bitmap is drawn and kept
+// with it) they all land on ink or none does, and the pixel is lit or
+// left without asking at any
 Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPLE.MIN_HITS) {
   const cos = Math.cos(a), sin = Math.sin(a), inv = 1 / s, n = SAMPLE.GRID;
   const hw = g.w * s / 2, hh = g.h * s / 2;
@@ -222,21 +257,42 @@ Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPL
   const y0 = Math.max(0, Math.ceil(cy - ey - hi)), y1 = Math.min(this.h, Math.floor(cy + ey - lo) + 1);
   if (x1 <= x0 || y1 <= y0) return;
   // each column's cos tx and -sin tx, and the row's sin ty and cos ty
-  const across = this.across, down = this.down;
-  for (let px = x0, k = 0; px < x1; px++) for (let i = 0; i < n; i++, k += 2) {
-    const tx = px + 0.5 + SUB_AT[i] - cx;
-    across[k] = cos * tx;
-    across[k + 1] = -sin * tx;
-  }
+  const across = this.across, down = this.down, mid = this.mid;
   const gw = g.w, gh = g.h, ink = g.ink, bits = this.bits, w = this.w, mx = gw / 2, my = gh / 2;
+  for (let px = x0, k = 0, m = 0; px < x1; px++, m += 2) {
+    for (let i = 0; i < n; i++, k += 2) {
+      const tx = px + 0.5 + SUB_AT[i] - cx;
+      across[k] = cos * tx;
+      across[k + 1] = -sin * tx;
+    }
+    // the pixel's middle
+    const tx = px + 0.5 - cx;
+    mid[m] = cos * tx * inv + mx;
+    mid[m + 1] = -sin * tx * inv + my;
+  }
+  const flat = g.flat || (g.flat = Framebuffer.flat(g));
+  // a pixel's points are within its outermost's offset of its middle each
+  // way, so in the bitmap within this much of where its middle lands, and
+  // a hair for rounding
+  const reach = Math.ceil(SUB_AT[n - 1] * (Math.abs(cos) + Math.abs(sin)) * inv + 1e-6);
   const most = n * n - minHits; // misses a pixel can take and still light
+  const all = n * n >= minHits, none = 0 >= minHits; // whether every point on ink lights a pixel, and none
   for (let py = y0; py < y1; py++) {
     for (let j = 0, k = 0; j < n; j++, k += 2) {
       const ty = py + 0.5 + SUB_AT[j] - cy;
       down[k] = sin * ty;
       down[k + 1] = cos * ty;
     }
-    for (let px = x0, c = 0; px < x1; px++, c += 2 * n) {
+    const ty = py + 0.5 - cy, rx = sin * ty * inv, ry = cos * ty * inv;
+    for (let px = x0, c = 0, m = 0; px < x1; px++, c += 2 * n, m += 2) {
+      const fx = mid[m] + rx, fy = mid[m + 1] + ry;
+      if (fx >= 0 && fx < gw && fy >= 0 && fy < gh) {
+        const at = Math.floor(fy) * gw + Math.floor(fx);
+        if (flat[at] >= reach) {
+          if (ink[at] === 1 ? all : none) bits[py * w + px] = v;
+          continue;
+        }
+      }
       let hits = 0, misses = 0;
       points: for (let i = c; i < c + 2 * n; i += 2) {
         const ax = across[i], ay = across[i + 1];
