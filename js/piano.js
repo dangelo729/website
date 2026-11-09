@@ -6,8 +6,10 @@
 // runs live in an audio worklet (js/piano-worklet.js) at upright's 44.1
 // khz, mono, through one master gain. a browser holds sound back until the
 // visitor's first gesture, so nothing is made before one: the first
-// pointerup, touchend, click or keydown makes the audio context inside its
-// handler, as ios wants, loads the worklet and fetches the wasm, whose
+// pointerdown, pointerup, touchend, click or keydown makes the audio context
+// inside its handler, a press among them so that a drag that feeds the
+// bubble (index.html) is heard, and a touch's end wakes it, as ios wants;
+// it loads the worklet and fetches the wasm, whose
 // bytes go to the worklet to be compiled there; any gesture wakes the
 // context if it is not running. a key is only ever struck: it rings its
 // plink out and the wasm lets it go once it has rung. a strike before the
@@ -37,7 +39,7 @@ const Piano = {
   // makes the audio on win's first gesture and wakes it on any later one
   listen(win) {
     const wake = () => this.wake(win);
-    for (const type of ['pointerup', 'touchend', 'click', 'keydown']) win.addEventListener(type, wake, true);
+    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) win.addEventListener(type, wake, true);
   },
 
   // the audio context made at upright's rate, the worklet loaded and the
