@@ -3,8 +3,10 @@
 // neighbours is held to a fixed chord, and the ring as a whole is pushed
 // out toward a target area a little larger than its circumference can
 // enclose, so it always sits slightly stretched, like a skin with air in it.
-// a locked blob is eased back to its lock every step; a dragged one has a
-// few points pulled toward the pointer. blobs that touch merge into one.
+// a locked blob is eased back to its lock every step, and back to its own
+// size after it has eaten; a dragged one has a few points pulled toward
+// the pointer. blobs that touch merge into one,
+// and a world that is spawning makes a small one now and then.
 // everything is in world px and per 60 Hz step: the world runs whole steps
 // from wall time, so a 120 Hz screen does not run it twice as fast, and it
 // keeps its own clock in ms for anything timed (point reduction).
@@ -17,11 +19,18 @@ const SOFT = {
   COLLISION_THRESHOLD: 1.86, MERGE_PUFF_SHARE: 0.3, MAX_PUFFINESS: 2.5,
   REDUCE: { ENABLED: true, TARGET: 32, RATE: 1, INTERVAL_MS: 20, MIN_SPACING: 2, MIN_VIABLE: 8 },
   // the pull on a held point, a fraction of its distance to the pointer
-  // each iteration. cicada's config carried 0.0001 (the skin barely moves)
-  // and called 0.04 the slider's default (the skin spikes out after the
-  // pointer). 0.002 dimples: a 24 px pull takes the skin about 5 px
-  DRAG: { GRAB: 40, BREAKAWAY: 80, FORCE: 0.002, WEIGHTS: [1.0, 0.6, 0.3] },  // centre, first, second neighbours
-  SPAWN: { MIN_RADIUS: 2, MAX_RADIUS: 10, EXCLUSION: 110, MAX_BLOBS: 15, POINTS: 32, PUFFINESS: 1.2 },
+  // each iteration, cicada's as it runs: a pull barely moves the locked
+  // bubble's skin, and a small blob comes after the pointer slowly,
+  // gathering speed, towed across a room in several seconds
+  DRAG: { GRAB: 40, BREAKAWAY: 80, FORCE: 0.0001, WEIGHTS: [1.0, 0.6, 0.3] },  // centre, first, second neighbours
+  // three times cicada's sizes, fewer and slower: one every EVERY_MS
+  // while the world is spawning, at most MAX_BLOBS with the centre one,
+  // none within EXCLUSION of the middle, each set drifting at DRIFT px a
+  // step, which the damping bleeds off over a few seconds
+  SPAWN: { MIN_RADIUS: 6, MAX_RADIUS: 30, EXCLUSION: 110, MAX_BLOBS: 7, POINTS: 32, PUFFINESS: 1.2, EVERY_MS: 2000, DRIFT: [0.1, 0.3] },
+  // a locked blob grown by eating eases back to the area and puffiness it
+  // was made with, at RATE a second
+  SHRINK: { RATE: 0.2 },
 };
 
 // a verlet point: its velocity is where it is less where it was. the
@@ -85,6 +94,8 @@ class SoftBlob {
     this.area = Math.PI * radius * radius * puffiness;
     this.circumference = 2 * Math.PI * radius;
     this.chord = this.circumference / n;
+    this.homeArea = this.area;      // its own size, which a locked blob shrinks back to
+    this.homePuffiness = puffiness;
     this.locked = locked;
     this.lockX = locked ? cx : null;
     this.lockY = locked ? cy : null;
@@ -166,6 +177,25 @@ class SoftBlob {
       if (this.points.length > R.TARGET) this.reduce(R.TARGET, R.RATE);
       this.lastReduceMs = tMs;
     }
+
+    // and it eases back to its own size, the skin's chords shortening as
+    // its area and air come down
+    if (this.locked && this.area !== this.homeArea) this.shrink();
+  }
+
+  // one step of the area and the puffiness toward home, the exponential
+  // approach at SHRINK.RATE; within a hair of it, home exactly
+  shrink() {
+    const k = 1 - Math.exp(-SOFT.SHRINK.RATE * SOFT.STEP_MS / 1000);
+    this.area += (this.homeArea - this.area) * k;
+    this.puffiness += (this.homePuffiness - this.puffiness) * k;
+    if (Math.abs(this.area - this.homeArea) < 1e-6 * this.homeArea) {
+      this.area = this.homeArea;
+      this.puffiness = this.homePuffiness;
+    }
+    this.radius = Math.sqrt(this.area / (Math.PI * this.puffiness));
+    this.circumference = 2 * Math.PI * this.radius;
+    this.chord = this.circumference / this.points.length;
   }
 
   // shoelace
@@ -263,6 +293,8 @@ class SoftBlob {
       this.locked = true;
       this.lockX = other.lockX;
       this.lockY = other.lockY;
+      this.homeArea = other.homeArea;
+      this.homePuffiness = other.homePuffiness;
     }
     return seams;
   }
@@ -324,6 +356,8 @@ class World {
     this.pointerY = null;
     this.nowMs = 0;        // virtual clock: STEP_MS a step
     this.merges = [];      // [{ blob, seams }] since the last step() call
+    this.spawning = false; // a small blob every SPAWN.EVERY_MS while true
+    this.lastSpawnMs = 0;
     this.acc = 0;
     this.lastWallMs = null;
   }
@@ -359,6 +393,11 @@ class World {
   // one fixed step, cicada's MainScene.update minus the scenery
   tick() {
     this.nowMs += SOFT.STEP_MS;
+
+    if (this.spawning && this.nowMs - this.lastSpawnMs >= SOFT.SPAWN.EVERY_MS) {
+      this.lastSpawnMs = this.nowMs;
+      this.spawnRandom();
+    }
 
     // pulled too far, the skin lets go
     if (this.drag) {
@@ -432,7 +471,8 @@ class World {
   // a random size anywhere inside the world but not within EXCLUSION of
   // (cx, cy), so nothing is born already touching the centre blob. cicada
   // tried until it found a spot; a small world may have none, so this
-  // gives up after a while and returns null, as it does when full.
+  // gives up after a while and returns null, as it does when full. it
+  // comes in drifting, DRIFT px a step in any direction.
   spawnRandom(cx = this.w / 2, cy = this.h / 2) {
     const S = SOFT.SPAWN;
     if (this.blobs.length >= S.MAX_BLOBS) return null;
@@ -441,7 +481,12 @@ class World {
       const x = r + Math.random() * (this.w - r * 2);
       const y = r + Math.random() * (this.h - r * 2);
       const dx = x - cx, dy = y - cy;
-      if (Math.sqrt(dx * dx + dy * dy) > S.EXCLUSION) return this.spawn(r, x, y);
+      if (Math.sqrt(dx * dx + dy * dy) > S.EXCLUSION) {
+        const b = this.spawn(r, x, y);
+        const a = 2 * Math.PI * Math.random(), v = S.DRIFT[0] + Math.random() * (S.DRIFT[1] - S.DRIFT[0]);
+        for (const p of b.points) { p.px = p.x - v * Math.cos(a); p.py = p.y - v * Math.sin(a); }
+        return b;
+      }
     }
     return null;
   }

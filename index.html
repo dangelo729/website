@@ -1160,13 +1160,13 @@
       for (const L of s.bodyLetters)
         if (L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST) L.draw(t, -sy, cfb);
       // the photo when its box, 2 px more all round, reaches the window,
-      // and the bubble when its skin's does where it is drawn (bubbleAt), a
-      // stroke and 4 px more for its wobble
+      // and the bubble when any skin in its world does where it is drawn
+      // (bubbleAt), a stroke and 4 px more for its wobble
       const ph = s.photoAt;
       if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, cfb);
       if (s.room && bubble) {
         let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
-        for (const p of bubble.points) {
+        for (const o of world.blobs) for (const p of o.points) {
           bx0 = Math.min(bx0, p.x);
           by0 = Math.min(by0, p.y);
           bx1 = Math.max(bx1, p.x);
@@ -1384,7 +1384,9 @@
         face = new Face(bubble);
         // beard = new Beard(ww, wh);
       } else if (bubble) {
-        face.moveBy(ww / 2 - bubble.lockX, wh / 2 - bubble.lockY);
+        const dx = ww / 2 - bubble.lockX, dy = wh / 2 - bubble.lockY;
+        face.moveBy(dx, dy);
+        for (const b of world.blobs) if (b !== bubble) { const c = b.getCenter(); b.moveLockTo(c.x + dx, c.y + dy); }
         bubble.moveLockTo(ww / 2, wh / 2);
         // the face is carried in one jump: the strands pose afresh on the
         // mouth rather than whip across after it
@@ -1422,7 +1424,12 @@
     // skin's are. shut, it is drawn shrunk into the o, its skin under the
     // o's ring, so its face shows through the o; as the box opens it is
     // drawn growing out of the o to its room's middle (bubbleAt), its world
-    // and its physics as they are.
+    // and its physics as they are. while the box is open its world spawns
+    // smaller bubbles, skins like its own with no face, one every
+    // couple of seconds, a few at most, each drifting a little as it comes;
+    // dragged onto the bubble, one is eaten, and the bubble keeps its 32
+    // points and eases back to its own size over a few seconds
+    // (js/softbody.js).
     const BUBBLE_SCALE = 5 / 3;
     const BUBBLE_LINE = 2; // world px, every stroke of the skin and the face
     // its radius in world px (about 38), its points, and its
@@ -1464,15 +1471,21 @@
       };
     }
 
-    // the bubble through view: filled with paper and outlined BUBBLE_LINE
-    // px thick, its face over it
-    function drawBubble(view) {
-      const pts = bubble.points;
+    // a skin through view: filled with paper and outlined BUBBLE_LINE px
+    // thick
+    function drawSkin(view, pts) {
       view.fillPolygon(pts, 0);
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i], q = pts[(i + 1) % pts.length];
         view.line(p.x, p.y, q.x, q.y, 1, BUBBLE_LINE);
       }
+    }
+
+    // the bubble's world through view: the small bubbles, then the bubble
+    // with its face over it
+    function drawBubble(view) {
+      for (const b of world.blobs) if (b !== bubble) drawSkin(view, b.points);
+      drawSkin(view, bubble.points);
       face.draw(view);
       // beard.draw(view);
     }
@@ -1579,7 +1592,7 @@
       pointerAt = p;
       const q = toRoom(p);
       grabbed = !!(bubbleHome && bubbleHome.box.open && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
-      if (grabbed) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
+      if (grabbed && world.drag.blob === bubble) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
       const b = !grabbed && !hitAt(p.x, p.y) && tagBubbleAt(p.x, p.y);
       if (b) grabbed = b.world.grab(p.x, p.y);
     });
@@ -1722,6 +1735,7 @@
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
+      if (bubble) world.spawning = bubbleHome.box.open;
       world.step(now);
       if (bubble) face.update(bubble, world, dt);
       for (const b of tagBubbles) {
