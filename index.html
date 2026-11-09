@@ -38,7 +38,7 @@
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
-  <script src="js/about-photo.js"></script>
+  <script src="js/about-photos.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
@@ -446,17 +446,25 @@
     // with the bubble (below) in the middle of it and nothing else. in the others, lorem ipsum in the
     // tag's face, under the x at BODY size wide
     // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
-    // the photo (js/about-photo.js)
-    // dithered at its size in its own few colours, each a place in the
-    // framebuffer's palette, captioned (CAPTION) under it. wide, the photo
-    // stands in the top right corner, as tall as the box at rest leaves over
-    // its caption, and the text under the word left of it,
-    // at BODY size. stacked (a phone) everything goes down the box: the
-    // word, the photo across it, the text at PHONE size, and the box is a
-    // portrait that fits the screen under the header, the photo taking the
-    // height the text leaves it, cut about FOCUS to fill it, no shorter
-    // than CROP of its width (the box grows past the screen only when the
-    // text leaves less than that). they are laid out to
+    // a slideshow: the photos (SLIDES, js/about-photos.js) one at a time
+    // in a frame, the same for every one so nothing moves when it changes,
+    // the one shown dithered at the frame's size in its own few colours,
+    // each a place in the framebuffer's palette, cut to fill the frame
+    // about its own focus, and captioned under it, a line each. on the
+    // caption's first line, right of it, a <, which slide it is of how
+    // many (2 / 4) and a >, SLIDE_GAP apart, the >'s ink ending at the
+    // frame's right. a press on the < shows the slide before, on the > or
+    // anywhere on the frame the slide after, round from the last to the
+    // first and back, there and then, with nothing between. wide, the
+    // frame stands in the top right corner, ASPECT as wide as it is tall
+    // and as tall as the box at rest leaves over the longest caption, and
+    // the text under the word left of it, at BODY size. stacked (a phone)
+    // everything goes down the box: the word, the frame across it, the
+    // text at PHONE size, and the box is a portrait that fits the screen
+    // under the header, the frame taking the height the text leaves it,
+    // no taller than ASPECT has it and no shorter than CROP of its width
+    // (the box grows past the screen only when the text leaves less than
+    // that). they are laid out to
     // the open box and there all along, drawn each frame into a framebuffer
     // of their own (cfb) and copied into the page's only inside the skin
     // (Framebuffer.fillPolygon), so what lies behind the o is seen through
@@ -473,13 +481,13 @@
       BOUNCE: 0.35,  // how far it swings past open and back: its damping is 1 - BOUNCE, so over 0 and under 1 (0.35 swings about 7 % past open)
       WARBLE: 0.24,  // world px each edge drifts either way, on its own slow sine at the letters' rates
       GAP: 0.45,     // of the word's size: from under its ink to the insides
-      PHOTO: 0.45,   // of the insides' width the photo may take, wide
+      PHOTO: 0.45,   // of the insides' width the photo's frame may take, wide
+      ASPECT: 0.8,   // the photo's frame's width over its height, wide, and the least, stacked
       BODY: 0.18,    // of the name's size: the text's world px to the em, wide,
       LEAST: 12,     // but no less than this
       MOST: 16,      // and no more than this
       PHONE: 11,     // the text's world px to the em, stacked
-      CROP: 0.45,    // the least the photo is tall, of its width, stacked
-      FOCUS: [0.4, 0.3], // where in the photo a crop is centred, as far as it can be: the face
+      CROP: 0.45,    // the least the photo's frame is tall, of its width, stacked
       LEAD: 1.45,    // ems, baseline to baseline
       PARA: 0.7,     // ems more between paragraphs
       GUTTER: 1.5,   // ems between the text and the photo
@@ -504,18 +512,41 @@
       PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
       BUBBLE: 0.45,  // of the photo's box's height, the bubble's box's
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
-      CAPTION: ['Portland, Maine', 'Aug 2026'], // under the photo, a line each
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
       CAP_LEAST: 10, // world px to the em
-      CAP_GAP: 0.6,  // the caption's ems between the photo and its first line's top
+      CAP_GAP: 0.6,  // the caption's ems between the photo's frame and its first line's top
       CAP_LEAD: 1.3, // the caption's ems, baseline to baseline
+      SLIDE_GAP: 0.6, // the caption's ems between the slideshow's <, its count and its >
     };
+    // the slideshow's photos in the order it shows them, each a key of
+    // js/about-photos.js, its caption, a line each, and its focus: where in
+    // the photo (of its width, of its height) its crop is centred, as far
+    // as the photo goes, the face
+    const SLIDES = [
+      { key: 'maine', caption: ['Portland, Maine', 'Aug 2026'], focus: [0.4, 0.3] },
+      { key: 'portland', caption: ['Portland, Oregon', '2026'], focus: [0.4, 0.2] },
+      { key: 'dc', caption: ['Washington, DC', '2026'], focus: [0.49, 0.29] },
+      { key: 'oscar', caption: ['Oscar', 'Washington, DC', '2026'], focus: [0.32, 0.4] },
+    ];
     const LOREM = [
       'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
       'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
     ];
     const loremTypes = LOREM.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
-    const captionTypes = BOX.CAPTION.map((line) => new Type(line, () => document.createElement('canvas'), TAG.FACE));
+    // the slides as the page keeps them: each its caption's lines and its
+    // count (2 / 4) as type, made once, and its photo, an image, with its
+    // own colours once it has loaded (photoPalette) and its dithers by
+    // size (ditherPhoto); and the < and > either side of the count
+    const slides = SLIDES.map((d, i) => ({
+      ...d,
+      types: d.caption.map((line) => new Type(line, () => document.createElement('canvas'), TAG.FACE)),
+      count: new Type((i + 1) + ' / ' + SLIDES.length, () => document.createElement('canvas'), TAG.FACE),
+      img: new Image(),
+      colours: null,
+      dithers: new Map(),
+    }));
+    const backType = new Type('<', () => document.createElement('canvas'), TAG.FACE);
+    const onType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
     const caretType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
     const LINK_SEP = ' | '; // between an item's links
 
@@ -561,7 +592,7 @@
         close: null,  // the x in its corner, { x, y, w, h, letter }: its ink's top left and size
       },
       skin: null,       // its box's shape, laid out: a ring of points chasing it (js/skin.js)
-      bodyLetters: [],  // its text's and its caption's
+      bodyLetters: [],  // its text's
       // its items, each { title, open, p, ... }: where it is going and how
       // far open its text is, as a box's, and how far its caret has turned
       // from > to v (turn); laid out, its caret and its
@@ -602,7 +633,15 @@
       })),
       rest: 0,
       restX1: 0,
-      photoAt: null,    // the dithered photo, its top left and it as a letter that wobbles, { g, x, y, letter }
+      // with the photo, the slideshow: which slide it shows, from 0, and,
+      // laid out, the photo's frame, its top left and size, whole px, with
+      // every slide's caption's letters (captions) and count (counts) and
+      // the < and > (back, on), each of those three its ink's top left and
+      // size and its letters, { x, y, w, h, letters }: { x, y, w, h,
+      // captions, counts, back, on }
+      slide: 0,
+      show: null,
+      photoAt: null,    // the shown slide's photo dithered, its top left and it as a letter that wobbles, { g, x, y, letter }, once it has loaded
       // with the bubble, its world's place in the box, whole px, and its
       // wobble, a letter's with nothing to draw: { x, y, w, h, letter }
       room: null,
@@ -616,7 +655,7 @@
     }));
 
     // the logos, each once it has loaded with its own few colours worked
-    // out once, as the photo's are, by key: { img, colours, dithers }, the
+    // out once, as the photos' are, by key: { img, colours, dithers }, the
     // last its dithers by size (ditherLogo). the page is laid out again
     // with each
     const logoArt = {};
@@ -632,28 +671,30 @@
       img.src = LOGOS[key];
     }
 
-    // the photo, once it has loaded; it lays the page out again when it has
-    const photo = new Image();
-    let photoReady = false;
-    photo.onload = () => { photoReady = true; photoColours = photoPalette(); photoDithers.clear(); if (fb) layout(); };
-    if (typeof ABOUT_PHOTO !== 'undefined') photo.src = ABOUT_PHOTO;
+    // each slide's photo, loaded on its own: once it has, its colours are
+    // worked out, any dithers it had are let go, and the page is laid out
+    // again
+    for (const sl of slides) {
+      sl.img.onload = () => { sl.colours = photoPalette(sl.img); sl.dithers.clear(); if (fb) layout(); };
+      if (typeof ABOUT_PHOTOS !== 'undefined' && ABOUT_PHOTOS[sl.key]) sl.img.src = ABOUT_PHOTOS[sl.key];
+    }
 
-    // the photo, or the part of it crop gives ({ sx, sy, sw, sh } in its
+    // a photo, img, or the part of it crop gives ({ sx, sy, sw, sh } in its
     // own px), drawn at w x h into a canvas and read back as r, g, b, its
     // levels stretched so its darkest and lightest LEVELS (by brightness)
     // go to black and white, and, sharp, each channel sharpened by SHARPEN
     // of its difference from a 3 x 3 blur so edges survive the dither;
     // null if the canvas cannot be read
     const PHOTO = { LEVELS: 0.02, SHARPEN: 1, COLOURS: 32, SAMPLE: 128, WARBLE: false }; // WARBLE: whether it wobbles as the text does
-    function readPhoto(w, h, sharp, crop) {
+    function readPhoto(img, w, h, sharp, crop) {
       try {
         const c = document.createElement('canvas');
         c.width = w;
         c.height = h;
         const x = c.getContext('2d', { willReadFrequently: true });
         x.imageSmoothingQuality = 'high';
-        if (crop) x.drawImage(photo, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
-        else x.drawImage(photo, 0, 0, w, h);
+        if (crop) x.drawImage(img, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, w, h);
+        else x.drawImage(img, 0, 0, w, h);
         const d = x.getImageData(0, 0, w, h).data, n = w * h, rgb = new Float32Array(3 * n), bright = new Float32Array(n);
         for (let i = 0; i < n; i++) {
           for (let k = 0; k < 3; k++) rgb[3 * i + k] = d[4 * i + k];
@@ -707,7 +748,7 @@
       }
     }
 
-    // a logo's own colours, as the photo's: n less two by median cut over
+    // a logo's own colours, as a photo's: n less two by median cut over
     // it at PHOTO.SAMPLE px wide, and black and the paper, each a place in
     // the framebuffer's palette. { rgb, v }, or null
     function imagePalette(img, n) {
@@ -732,7 +773,7 @@
       return g;
     }
 
-    // a logo at w x h in its colours, dithered as the photo is: a bitmap
+    // a logo at w x h in its colours, dithered as a photo is: a bitmap
     // { px, w, h } of the framebuffer's v's, or null. each size made is
     // kept with the logo (art.dithers)
     function ditherLogo(art, w, h) {
@@ -745,43 +786,42 @@
       });
     }
 
-    // the photo's own colours, worked out once it has loaded: COLOURS less
+    // a photo's own colours, worked out once it has loaded: COLOURS less
     // two by median cut over it at SAMPLE px wide, and black and the paper,
     // each given a place in the framebuffer's palette. { rgb, v }, or null
-    let photoColours = null;
-    function photoPalette() {
-      const w = PHOTO.SAMPLE, h = Math.round(w * photo.naturalHeight / photo.naturalWidth), rgb = readPhoto(w, h, false);
+    function photoPalette(img) {
+      const w = PHOTO.SAMPLE, h = Math.round(w * img.naturalHeight / img.naturalWidth), rgb = readPhoto(img, w, h, false);
       if (!rgb) return null;
       const colours = [[0, 0, 0], paperRGB(), ...Framebuffer.medianCut(rgb, PHOTO.COLOURS - 2)];
       const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
       return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
     }
 
-    // the most of the photo that fills w x h, centred on FOCUS as far as
-    // the photo goes: { sx, sy, sw, sh } in its own px
-    function photoCrop(w, h) {
-      const nw = photo.naturalWidth, nh = photo.naturalHeight, want = w / h;
+    // the most of a slide's photo that fills w x h, centred on its focus
+    // as far as the photo goes: { sx, sy, sw, sh } in its own px
+    function photoCrop(sl, w, h) {
+      const nw = sl.img.naturalWidth, nh = sl.img.naturalHeight, want = w / h;
       let sw = nw, sh = nh;
       if (want > nw / nh) sh = nw / want;
       else sw = nh * want;
       return {
-        sx: Math.min(nw - sw, Math.max(0, BOX.FOCUS[0] * nw - sw / 2)),
-        sy: Math.min(nh - sh, Math.max(0, BOX.FOCUS[1] * nh - sh / 2)),
+        sx: Math.min(nw - sw, Math.max(0, sl.focus[0] * nw - sw / 2)),
+        sy: Math.min(nh - sh, Math.max(0, sl.focus[1] * nh - sh / 2)),
         sw, sh,
       };
     }
 
-    // the photo at w x h in its colours, cut to fill it, dithered: a bitmap
-    // { px, w, h } of the framebuffer's v's, or null. each size made is
-    // kept (photoDithers), until the photo's colours are worked out again
-    const photoDithers = new Map();
-    function ditherPhoto(w, h) {
-      if (!photoColours) return null;
-      return remember(photoDithers, w + 'x' + h, () => {
-        const rgb = readPhoto(w, h, true, photoCrop(w, h));
+    // a slide's photo at w x h in its colours, cut to fill it, dithered: a
+    // bitmap { px, w, h } of the framebuffer's v's, or null until it has
+    // loaded. each size made is kept with the slide (sl.dithers), until its
+    // colours are worked out again
+    function ditherPhoto(sl, w, h) {
+      if (!sl.colours) return null;
+      return remember(sl.dithers, w + 'x' + h, () => {
+        const rgb = readPhoto(sl.img, w, h, true, photoCrop(sl, w, h));
         if (!rgb) return null;
-        const g = Framebuffer.ditherColour(rgb, w, h, photoColours.rgb);
-        for (let i = 0; i < g.px.length; i++) g.px[i] = photoColours.v[g.px[i]];
+        const g = Framebuffer.ditherColour(rgb, w, h, sl.colours.rgb);
+        for (let i = 0; i < g.px.length; i++) g.px[i] = sl.colours.v[g.px[i]];
         return g;
       });
     }
@@ -819,7 +859,7 @@
       for (const s of sections) {
         s.letters = [];
         s.bodyLetters = [];
-        s.photoAt = s.room = null;
+        s.show = s.photoAt = s.room = null;
         s.ink = s.box.shut = s.box.full = s.box.close = null;
         s.skin = null;
       }
@@ -864,7 +904,6 @@
       const x0 = edge, x1 = W - edge, y0 = s.ink.y0 - pad, rest = H - edge;
       const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = s.ink.y1 + BOX.GAP * size;
       const bs = stacked ? BOX.PHONE : Math.min(BOX.MOST, Math.max(BOX.LEAST, BOX.BODY * name.size)), bk = bs / TYPE.EM;
-      const aspect = photoReady ? photo.naturalWidth / photo.naturalHeight : 609 / 700;
       // the x in the top left corner, at CLOSE; what
       // goes under the word starts a line's space under the x instead
       box.close = null;
@@ -887,22 +926,35 @@
         s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, size: bs, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
         return;
       }
-      // the caption under the photo, and how tall it stands with its gap
-      const cs = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), ck = cs / TYPE.EM;
-      const capH = (BOX.CAP_GAP + 0.75 + (captionTypes.length - 1) * BOX.CAP_LEAD + 0.3) * cs;
+      // the caption under the photo's frame, and how tall it stands with
+      // its gap (capTall): as tall as the slide with the most lines has it,
+      // so the frame is the same for every slide, and drop lines more. the
+      // slideshow's <, count and > go on its first line, right of it, and
+      // need the frame across to stand two SLIDE_GAPs clear of the widest
+      // first line; in a frame narrower than that they keep the first line
+      // to themselves and the captions go down one (drop)
+      const cs = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), ck = cs / TYPE.EM, gap = BOX.SLIDE_GAP * cs;
+      const wide = (t) => ck * (t.left + t.right), most = (f) => Math.max(...slides.map(f));
+      const across = most((sl) => sl.types.length && wide(sl.types[0])) + 3 * gap + wide(backType) + most((sl) => wide(sl.count)) + gap + wide(onType);
+      const capTall = (drop) => (BOX.CAP_GAP + 0.75 + (most((sl) => sl.types.length) - 1 + drop) * BOX.CAP_LEAD + 0.3) * cs;
+      let drop = 0, capH = capTall(drop);
       // with no photo the text goes under the x, across the box stacked
       // and no wider than MEASURE wide
       let px = ix0, py = top, pw = iw, ph = 0, tw = stacked ? iw : Math.min(iw, BOX.MEASURE * bs), ty = top - 0.03 * bs;
       if (s.photo && !stacked) {
-        // the photo in the top right corner, its caption under it, the text
-        // under the x left of it
+        // the photo's frame in the top right corner, its caption under it,
+        // the text under the x left of it
         py = s.ink.y0;
-        ph = Math.max(rest - pad - py - capH, 8 * bs);
-        pw = ph * aspect;
-        if (pw > BOX.PHOTO * iw) { pw = BOX.PHOTO * iw; ph = pw / aspect; }
+        const fit = () => {
+          ph = Math.max(rest - pad - py - capH, 8 * bs);
+          pw = ph * BOX.ASPECT;
+          if (pw > BOX.PHOTO * iw) { pw = BOX.PHOTO * iw; ph = pw / BOX.ASPECT; }
+        };
+        fit();
+        if (pw < across) { capH = capTall(drop = 1); fit(); }
         px = ix1 - pw;
         tw = px - BOX.GUTTER * bs - ix0;
-      }
+      } else if (s.photo && pw < across) capH = capTall(drop = 1);
       // the text in lines, and how tall they stand
       const paras = s.body.map((t) => wrapType(t, tw / bk));
       const lines = paras.reduce((n, p) => n + p.length, 0);
@@ -910,25 +962,39 @@
       let inside = top; // the insides' bottom
       if (s.photo) {
         if (stacked) {
-          // the photo across the box under the x, as tall as the screen
-          // leaves over its caption and the text; they go under it
-          ph = Math.min(pw / aspect, Math.max(BOX.CROP * pw, rest - pad - py - capH - BOX.GUTTER * bs - textH));
+          // the photo's frame across the box under the x, as tall as the
+          // screen leaves over its caption and the text; they go under it
+          ph = Math.min(pw / BOX.ASPECT, Math.max(BOX.CROP * pw, rest - pad - py - capH - BOX.GUTTER * bs - textH));
         }
         pw = Math.round(pw);
         ph = Math.round(ph);
         px = Math.round(px);
         py = Math.round(py);
         if (stacked) ty = py + ph + capH + BOX.GUTTER * bs;
-        let cb = py + ph + (BOX.CAP_GAP + 0.75) * cs;
-        captionTypes.forEach((t, i) => {
-          for (const gl of t.glyphs)
-            s.bodyLetters.push(makeLetter(gl.g, px + ck * (gl.x + gl.dx + t.left), cb + ck * gl.dy, seed + 5000 + 100 * i + gl.at, ck, WOBBLE));
-          cb += BOX.CAP_LEAD * cs;
-        });
-        if (photoReady) {
-          const g = ditherPhoto(pw, ph);
-          if (g) s.photoAt = { g, x: px, y: py, letter: makeLetter(g, px + pw / 2, py + ph / 2, seed + 9000, 1, PHOTO.WARBLE ? WOBBLE : STILL) };
-        }
+        // a line of type at the caption's size, its ink's left at left and
+        // its baseline at base, seeded from sd: its ink's top left and
+        // size and its letters, { x, y, w, h, letters }
+        const put = (t, left, base, sd) => {
+          const ox = left + ck * t.left;
+          return {
+            x: left, y: base - ck * t.ascent, w: wide(t), h: ck * (t.ascent + t.descent),
+            letters: t.glyphs.map((gl) => makeLetter(gl.g, ox + ck * (gl.x + gl.dx), base + ck * gl.dy, sd + gl.at, ck, WOBBLE)),
+          };
+        };
+        // the first line's baseline cb: on it the >, its ink ending at the
+        // frame's right, each slide's count SLIDE_GAP left of it and the <
+        // as far left of the widest count, so only the count's figures
+        // change from slide to slide; and every slide's caption from the
+        // frame's left, from that line or drop lines under it, each line a
+        // hundred seeds of its own
+        const cb = py + ph + (BOX.CAP_GAP + 0.75) * cs;
+        let n = 0;
+        const captions = slides.map((sl) => sl.types.flatMap((t, i) => put(t, px, cb + (drop + i) * BOX.CAP_LEAD * cs, seed + 5000 + 100 * n++).letters));
+        const on = put(onType, px + pw - wide(onType), cb, seed + 6100);
+        const counts = slides.map((sl, i) => put(sl.count, on.x - gap - wide(sl.count), cb, seed + 7000 + 100 * i));
+        const back = put(backType, Math.min(...counts.map((c) => c.x)) - gap - wide(backType), cb, seed + 6000);
+        s.show = { x: px, y: py, w: pw, h: ph, captions, counts, back, on };
+        showSlide(s);
         inside = py + ph + capH;
       }
       let base = ty + 0.75 * bs, last = base, right = ix0;
@@ -1138,6 +1204,22 @@
       setScroll();
     }
 
+    // the slide a section's slideshow shows, its photo dithered to fill the
+    // frame it was laid out to (and kept, so coming back to it is free), as
+    // a letter that wobbles only if the photos do; none until the photo
+    // has loaded or the frame is laid out
+    function showSlide(s) {
+      const f = s.show, g = f && ditherPhoto(slides[s.slide], f.w, f.h);
+      s.photoAt = g ? { g, x: f.x, y: f.y, letter: makeLetter(g, f.x + f.w / 2, f.y + f.h / 2, BOX.FIRST + 10000 * s.n + 9000, 1, PHOTO.WARBLE ? WOBBLE : STILL) } : null;
+    }
+
+    // a press on the slideshow: by slides on (1) or back (-1), round from
+    // the last to the first and back, shown at once
+    function stepSlide(s, by) {
+      s.slide = (s.slide + by + slides.length) % slides.length;
+      showSlide(s);
+    }
+
     // p, how far an item's text is open (or its caret turned), dt on
     // toward open or back to shut, travel px the most anything moves on
     // the way, speed times as fast. in the way left to open, q = 1 - p:
@@ -1195,15 +1277,26 @@
 
     // a section's insides sy up into cfb, as much of them as shows through
     // the window (x0, y0) to (x1, y1), world px on the screen: the window's
-    // rows cleared, the letters near enough it to show, the photo and the
-    // bubble if they reach it, the x and the items, each in its bubble,
-    // the ones hover is on in their colours (hover null, none)
+    // rows cleared, the letters near enough it to show, the shown slide's
+    // caption and count and the slideshow's < and > among them, the photo
+    // and the bubble if they reach it, the x and the items, each in its
+    // bubble, the ones hover is on in their colours (hover null, none)
     function drawInsides(s, t, sy, x0, y0, x1, y1, hover) {
       const box = s.box;
       cfb.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
       const lo = Math.max(y0, 0) - BOX.MOST, hi = Math.min(y1, H) + BOX.MOST;
-      for (const L of s.bodyLetters)
-        if (L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST) L.draw(t, -sy, cfb);
+      const near = (L) => L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST;
+      for (const L of s.bodyLetters) if (near(L)) L.draw(t, -sy, cfb);
+      // the slideshow's: the < in the items' hover colour while hover is
+      // on it, the > while hover is on it or on the photo
+      const f = s.show;
+      if (f) {
+        const v = (by) => hover && hover.slide === by ? HOVER_ITEM : undefined;
+        for (const L of f.captions[s.slide]) if (near(L)) L.draw(t, -sy, cfb);
+        for (const L of f.counts[s.slide].letters) if (near(L)) L.draw(t, -sy, cfb);
+        for (const L of f.back.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(-1));
+        for (const L of f.on.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(1));
+      }
       // the photo when its box, 2 px more all round, reaches the window,
       // and the bubble when any skin in its world does where it is drawn
       // (bubbleAt), a stroke and 4 px more for its wobble
@@ -1322,7 +1415,7 @@
       const b = skin.bounds(), m = BOX.LINE + 1, top = b.y0 - m - sy, bottom = b.y1 + m - sy;
       if (bottom < 0 || top >= H) return;
       drawInsides(s, t, sy, b.x0 - m, top, b.x1 + m, bottom, hover);
-      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close && !hover.shop ? HOVER : 1;
+      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close && !hover.shop && !hover.slide ? HOVER : 1;
       fb.fillPolygon(pts, cfb);
       for (let i = 0; i < n; i++) {
         const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
@@ -1333,8 +1426,10 @@
     // what a press at world (x, y) on the screen would press, wherever the
     // page has scrolled to and the boxes have pushed each section: an open
     // box's x, a little round it (at least 20 world px across, for a
-    // finger) or anywhere in the strip across the box's top (short of a
-    // photo up there), { s, close }; one of its items, its caret, its name
+    // finger) or anywhere in the strip across the box's top (short of the
+    // photo's frame up there), { s, close }; the slideshow's < or >, a
+    // little round it as the x is, or the photo's frame, { s, slide }, -1
+    // for the < and 1 for the rest; one of its items, its caret, its name
     // or right of them to the box's edge, a little above and below,
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; a word whose box is not
@@ -1358,8 +1453,16 @@
               if (inside(ui.full, 0)) return { s, shop: true };
             }
           }
-          const b = s.box.full, stop = s.photoAt && s.photoAt.y < c.strip[1] ? s.photoAt.x : b.x1;
+          const b = s.box.full, f = s.show, stop = f && f.y < c.strip[1] ? f.x : b.x1;
           if (x >= b.x0 && x <= stop && py >= c.strip[0] && py <= c.strip[1]) return { s, close: true };
+          if (f) {
+            const near = (k) => {
+              const mx = Math.max(4, (20 - k.w) / 2), my = Math.max(4, (20 - k.h) / 2);
+              return x >= k.x - mx && x <= k.x + k.w + mx && py >= k.y - my && py <= k.y + k.h + my;
+            };
+            if (near(f.back)) return { s, slide: -1 };
+            if (near(f.on) || (x >= f.x && x <= f.x + f.w && py >= f.y && py <= f.y + f.h)) return { s, slide: 1 };
+          }
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
             if (x >= h.x0 - 4 && x <= b.x1 && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
@@ -1378,8 +1481,9 @@
       return null;
     }
 
-    // a click: the x shuts its box, a link opens its site in a new tab, an
-    // item opens or shuts its text, a word opens its box
+    // a click: the x shuts its box, a link opens its site in a new tab, the
+    // slideshow's < shows the slide before and its > or its photo the one
+    // after, an item opens or shuts its text, a word opens its box
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e), h = hitAt(p.x, p.y);
@@ -1391,6 +1495,7 @@
         if (menu.open) menu.v += SHOP_UI.KICK;
       }
       else if (h.shop) return;
+      else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
     });
@@ -1398,7 +1503,8 @@
     // hover: a mouse's pointer over anything a press would press turns it
     // a colour of the tag's while it is there: a word, and its box's
     // outline while the box is not open, the first (Inventor's), anything
-    // in a box, its x and its items, the second
+    // in a box, its x, its items and the slideshow's < and > (the > for the
+    // photo too), the second
     // (Software Engineer's), and a link the third (Musician's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
@@ -2354,7 +2460,7 @@
       const sy = scrolled();
       const hit = hoverAt && hitAt(hoverAt.x, hoverAt.y);
       for (const s of sections) {
-        const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop ? HOVER : undefined;
+        const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
       }
       for (const s of sections) drawBox(s, t, sy - s.off, hit && hit.s === s ? hit : null);
