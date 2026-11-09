@@ -5,8 +5,9 @@
 // enclose, so it always sits slightly stretched, like a skin with air in it.
 // a locked blob is eased back to its lock every step, and back to its own
 // size after it has eaten; a dragged one has a few points pulled toward
-// the pointer. blobs that touch merge into one, and colour pulses run
-// round the skin from where they met; a world that is spawning makes a
+// whatever holds it, the pointer or a hand (js/hands.js), as hard as its
+// world's drag force. blobs that touch merge into one, and colour pulses
+// run round the skin from where they met; a world that is spawning makes a
 // small one now and then.
 // everything is in world px and per 60 Hz step: the world runs whole steps
 // from wall time, so a 120 Hz screen does not run it twice as fast, and it
@@ -25,7 +26,8 @@ const SOFT = {
   // gathering speed, towed across a room in several seconds
   DRAG: { GRAB: 40, BREAKAWAY: 80, FORCE: 0.0001, WEIGHTS: [1.0, 0.6, 0.3] },  // centre, first, second neighbours
   // three times cicada's sizes, fewer and slower: one every EVERY_MS
-  // while the world is spawning, at most MAX_BLOBS with the centre one,
+  // while the world is spawning, at most MAX_BLOBS with the centre one
+  // (a world's own spawnMs and maxBlobs, these unless set),
   // none within EXCLUSION of the middle, each set drifting at DRIFT px a
   // step, which the damping bleeds off over a few seconds
   SPAWN: { MIN_RADIUS: 6, MAX_RADIUS: 30, EXCLUSION: 110, MAX_BLOBS: 7, POINTS: 32, PUFFINESS: 1.2, EVERY_MS: 2000, DRIFT: [0.1, 0.3] },
@@ -115,9 +117,11 @@ class SoftBlob {
     }
   }
 
-  // one 60 Hz step, cicada's Blob.update in its order. drag is
-  // { points: [{ point, force }], x, y } or null; tMs is the world's clock.
-  step(w, h, drag, tMs) {
+  // one 60 Hz step, cicada's Blob.update in its order. drags are what hold
+  // it, each { points: [{ point, force }], x, y }, or null for none; each
+  // held point is pulled force times its own weight of the way to its
+  // drag's x, y each iteration. tMs is the world's clock.
+  step(w, h, drags, tMs, force = SOFT.DRAG.FORCE) {
     // each pulse ages a step and moves on SPEED points, or, LIFE steps
     // old, goes
     for (let k = this.pulses.length - 1; k >= 0; k--) {
@@ -164,8 +168,8 @@ class SoftBlob {
 
       for (const p of pts) p.applyDisplacement();
 
-      if (drag) {
-        for (const d of drag.points) d.point.attract(drag.x, drag.y, SOFT.DRAG.FORCE * d.force);
+      if (drags) {
+        for (const drag of drags) for (const d of drag.points) d.point.attract(drag.x, drag.y, force * d.force);
       }
 
       for (const p of pts) p.keepIn(w, h);
@@ -402,12 +406,17 @@ class World {
   constructor(w, h) {
     this.w = w; this.h = h;
     this.blobs = [];
-    this.drag = null;      // { blob, points: [{ point, force }], x, y }
+    this.drag = null;      // the pointer's: { blob, points: [{ point, force }], x, y }
+    this.held = [];        // the hands' drags, each as the pointer's
+    this.hands = [];       // what holds them (js/hands.js), each stepped every tick before the blobs
+    this.dragForce = SOFT.DRAG.FORCE; // the pull on a held point, of its way to its drag each iteration
+    this.spawnMs = SOFT.SPAWN.EVERY_MS;   // ms between small blobs while spawning
+    this.maxBlobs = SOFT.SPAWN.MAX_BLOBS; // the most blobs it spawns up to, the centre one among them
     this.pointerX = null;  // null while the pointer is off the page
     this.pointerY = null;
     this.nowMs = 0;        // virtual clock: STEP_MS a step
-    this.merges = [];      // [{ blob, seams }] since the last step() call
-    this.spawning = false; // a small blob every SPAWN.EVERY_MS while true
+    this.merges = [];      // [{ blob, seams, eaten }] since the last step() call: what ate, its seams and what it ate, as it was
+    this.spawning = false; // a small blob every spawnMs while true
     this.lastSpawnMs = 0;
     this.acc = 0;
     this.lastWallMs = null;
@@ -445,25 +454,33 @@ class World {
   tick() {
     this.nowMs += SOFT.STEP_MS;
 
-    if (this.spawning && this.nowMs - this.lastSpawnMs >= SOFT.SPAWN.EVERY_MS) {
+    if (this.spawning && this.nowMs - this.lastSpawnMs >= this.spawnMs) {
       this.lastSpawnMs = this.nowMs;
       this.spawnRandom();
     }
 
-    // pulled too far, the skin lets go
-    if (this.drag) {
-      const p = this.drag.points[0].point;
-      const dx = p.x - this.drag.x, dy = p.y - this.drag.y;
-      if (Math.sqrt(dx * dx + dy * dy) > SOFT.DRAG.BREAKAWAY) this.drag = null;
-    }
+    // the hands go where they are going, and their drags with them
+    for (const hand of this.hands) hand.step(this);
 
+    // pulled too far, the skin lets go
+    const broken = (drag) => {
+      const p = drag.points[0].point;
+      const dx = p.x - drag.x, dy = p.y - drag.y;
+      return Math.sqrt(dx * dx + dy * dy) > SOFT.DRAG.BREAKAWAY;
+    };
+    if (this.drag && broken(this.drag)) this.drag = null;
+    this.held = this.held.filter((d) => !broken(d));
+
+    const drags = this.drag ? [this.drag, ...this.held] : this.held;
     for (const b of this.blobs) {
-      b.step(this.w, this.h, this.drag && this.drag.blob === b ? this.drag : null, this.nowMs);
+      const on = drags.filter((d) => d.blob === b);
+      b.step(this.w, this.h, on.length ? on : null, this.nowMs, this.dragForce);
     }
 
     // reduction may have taken a dragged point out of its ring
-    const drag = this.drag;
-    if (drag && !drag.points.every((d) => drag.blob.points.includes(d.point))) this.drag = null;
+    const whole = (drag) => drag.points.every((d) => drag.blob.points.includes(d.point));
+    if (this.drag && !whole(this.drag)) this.drag = null;
+    this.held = this.held.filter(whole);
 
     // blobs[i] eats blobs[j]; a blob already eaten this step takes no part
     const gone = [];
@@ -473,9 +490,10 @@ class World {
         const a = this.blobs[i], b = this.blobs[j];
         const hit = a.collides(b);
         if (!hit) continue;
-        this.merges.push({ blob: a, seams: a.merge(b, hit.i, hit.j) });
+        this.merges.push({ blob: a, seams: a.merge(b, hit.i, hit.j), eaten: b });
         gone.push(j);
         if (this.drag && this.drag.blob === b) this.drag = null;
+        this.held = this.held.filter((d) => d.blob !== b);
       }
     }
     // highest index first, so each splice leaves the others where they were
@@ -512,6 +530,26 @@ class World {
     this.drag = null;
   }
 
+  // a hand takes hold of blob's point index and its neighbours, as the
+  // pointer does, pulling them toward the drag's x, y, which start on the
+  // point; the drag is the hand's to move, and lasts until the skin lets
+  // go, the blob is eaten or letGo
+  hold(blob, index) {
+    const p = blob.points[index];
+    const drag = { blob, points: blob.neighbors(index, 2), x: p.x, y: p.y };
+    this.held.push(drag);
+    return drag;
+  }
+
+  letGo(drag) {
+    this.held = this.held.filter((d) => d !== drag);
+  }
+
+  // whether a hand's drag still holds
+  holds(drag) {
+    return this.held.includes(drag);
+  }
+
   spawn(radius, x, y) {
     const S = SOFT.SPAWN;
     const b = new SoftBlob(x, y, S.POINTS, radius, S.PUFFINESS, false);
@@ -526,7 +564,7 @@ class World {
   // comes in drifting, DRIFT px a step in any direction.
   spawnRandom(cx = this.w / 2, cy = this.h / 2) {
     const S = SOFT.SPAWN;
-    if (this.blobs.length >= S.MAX_BLOBS) return null;
+    if (this.blobs.length >= this.maxBlobs) return null;
     const r = S.MIN_RADIUS + Math.random() * (S.MAX_RADIUS - S.MIN_RADIUS);
     for (let tries = 0; tries < 100; tries++) {
       const x = r + Math.random() * (this.w - r * 2);

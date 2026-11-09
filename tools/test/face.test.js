@@ -1,6 +1,7 @@
 // node tools/test/face.test.js
 //
-// loads js/raster.js, js/face-art.js and js/face.js the way the page does,
+// loads js/raster.js, js/face-art.js, js/mouth.js and js/face.js the way
+// the page does,
 // classic scripts sharing one global scope, in a vm context with no dom, no
 // performance and a Date that throws, so the face cannot quietly lean on
 // any of them. Math.random is counted and pinned to 0.5, which puts the
@@ -36,10 +37,16 @@ for (const name of ['Date', 'performance', 'window', 'document', 'requestAnimati
   Object.defineProperty(sandbox, name, { get() { throw new Error('the face read ' + name); } });
 }
 const ctx = vm.createContext(sandbox);
-for (const file of ['js/raster.js', 'js/face-art.js', 'js/face.js']) {
+for (const file of ['js/raster.js', 'js/face-art.js', 'js/mouth.js', 'js/face.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), ctx, { filename: file });
 }
-const { FACE_ART, FACE, Face, Framebuffer } = vm.runInContext('({ FACE_ART, FACE, Face, Framebuffer })', ctx);
+const { FACE_ART, FACE, Face, Framebuffer, Mouth } = vm.runInContext('({ FACE_ART, FACE, Face, Framebuffer, Mouth })', ctx);
+// his mouth as drawn is cicada's shut frame, pixel for pixel
+const shut = (f) => Mouth.art(f.mouth.shape()).join('\n') === FACE_ART.mouf.frames[0].join('\n');
+// a full open vowel as the voice has it (js/mouth.js), its round to spread
+// at rest, and a lip closure in the middle of one
+const AA = { voicing: 0.74, hiss: 0, lips: 1.394, front: 2.2, lipMin: 1.5, l: 0 };
+const B = { voicing: 0.74, hiss: 0, lips: 1.394, front: 2.2, lipMin: 0, l: 0 };
 
 // --- fakes -------------------------------------------------------------------
 function fakeBlob(x, y, radius) {
@@ -80,9 +87,9 @@ function dump(fb, x0, y0, w, h) {
   }
   return out.join('\n');
 }
-function run(face, blob, world, n, dt = STEP, each) {
+function run(face, blob, world, n, dt = STEP, each, said = null) {
   for (let i = 0; i < n; i++) {
-    face.update(blob, world, dt);
+    face.update(blob, world, dt, said);
     if (each) each(face, i);
   }
 }
@@ -122,8 +129,8 @@ check('rest: nose at (100, 100)', near(rest.nose.x, 100, 0.01) && near(rest.nose
 check('rest: mouth at (100, 122)', near(rest.mouf.x, 100, 0.01) && near(rest.mouf.y, 122, 0.01), fmt(rest.mouf));
 check('rest: pupils at (0, -3)', [rest.leftPupil, rest.rightPupil].every((p) => near(p.x, 0, 0.01) && near(p.y, -3, 0.01)),
   fmt(rest.leftPupil) + ' ' + fmt(rest.rightPupil));
-check('rest: frames eyes 6, nose 0, mouth 0', rest.eyeFrame === 6 && rest.noseFrame === 0 && rest.moufFrame === 0,
-  rest.eyeFrame + ' ' + rest.noseFrame + ' ' + rest.moufFrame);
+check("rest: frames eyes 6, nose 0, and the mouth shut, cicada's frame 0", rest.eyeFrame === 6 && rest.noseFrame === 0 && shut(rest),
+  rest.eyeFrame + ' ' + rest.noseFrame + ' ' + JSON.stringify(rest.mouth.shape()));
 check('rest: no Math.random with the blink off', randoms === randomsBefore, (randoms - randomsBefore) + ' calls');
 
 // --- one step, cicada's rates --------------------------------------------------
@@ -181,7 +188,7 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   const prefer = new Face(blob);
   run(prefer, blob, fakeWorld(far, 400, 100), 200);
   check('blob-then-pointer: a blob wins over the pointer', near(prefer.leftPupil.x, -5, 0.05), fmt(prefer.leftPupil));
-  check('far blob: no sniff, mouth shut', prefer.noseFrame === 0 && prefer.moufFrame === 0, prefer.noseFrame + ' ' + prefer.moufFrame);
+  check('far blob: no sniff, mouth shut', prefer.noseFrame === 0 && shut(prefer), prefer.noseFrame + ' ' + JSON.stringify(prefer.mouth.shape()));
 
   FACE.PUPILS.TRACK = 'blob';
   const blobOnly = new Face(blob);
@@ -195,17 +202,18 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   FACE.PUPILS.TRACK = 'blob-then-pointer';
 }
 
-// --- something close: sniff and gape -------------------------------------------
+// --- something close: sniff, the mouth shut ------------------------------------
+// he opens his mouth only to speak
 {
   const close = new Face(blob);
-  let top = -1, bottomAfterTop = -1, mouthAt = -1;
+  let top = -1, bottomAfterTop = -1, opened = -1;
   run(close, blob, fakeWorld({ edgeDist: 0 }), 200, STEP, (f, i) => {
     if (top < 0 && f.noseFrame >= 2.9) top = i;
     if (top >= 0 && bottomAfterTop < 0 && f.noseFrame <= 0.1) bottomAfterTop = i;
-    if (mouthAt < 0 && f.moufFrame === 9) mouthAt = i;
+    if (opened < 0 && !shut(f)) opened = i;
   });
   check('close: nose sniffs up to >= 2.9 and back to <= 0.1', top >= 0 && bottomAfterTop > top, 'up at ' + top + ', down at ' + bottomAfterTop);
-  check('close: mouth opens to frame 9', mouthAt >= 0, 'at update ' + mouthAt);
+  check('close: the mouth stays shut, silent', opened < 0, 'opened at update ' + opened);
 
   const edge = 36 * 2.5;
   const just = new Face(blob);
@@ -213,29 +221,29 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   const past = new Face(blob);
   run(past, blob, fakeWorld({ edgeDist: edge + 0.01 }), 20);
   check('close: 2.5 radii edge to edge is close, a hair more is not',
-    just.sniffing && just.mouthOpen && !past.sniffing && !past.mouthOpen && past.noseFrame === 0 && past.moufFrame === 0);
+    just.sniffing && !past.sniffing && past.noseFrame === 0);
 
-  // and when it goes the nose and mouth settle back
+  // and when it goes the nose settles back
   run(close, blob, empty, 200);
-  check('close, then gone: nose and mouth back to 0', close.noseFrame === 0 && close.moufFrame === 0, close.noseFrame + ' ' + close.moufFrame);
+  check('close, then gone: nose back to 0, the mouth shut', close.noseFrame === 0 && shut(close), close.noseFrame + ' ' + JSON.stringify(close.mouth.shape()));
 }
 
-// --- held: sniff, gape and stare -----------------------------------------------
-// the pointer's drag on this bubble's skin: the nose sniffs and the mouth
-// opens as for something close, the eyes stay their size; a drag on some
-// other bubble is nothing to him
+// --- held: sniff and stare -------------------------------------------------------
+// the pointer's drag on this bubble's skin: the nose sniffs as for
+// something close, the eyes stay their size, the mouth shut while he is
+// silent; a drag on some other bubble is nothing to him
 {
   const other = fakeBlob(300, 300, 36);
   const heldWorld = fakeWorld(null, 130, 100, { blob, points: [], x: 130, y: 100 });
   const f = new Face(blob);
-  let mouthAt = -1, top = -1, bottomAfterTop = -1;
+  let opened = -1, top = -1, bottomAfterTop = -1;
   run(f, blob, heldWorld, 200, STEP, (f, i) => {
-    if (mouthAt < 0 && f.moufFrame === 9) mouthAt = i;
+    if (opened < 0 && !shut(f)) opened = i;
     if (top < 0 && f.noseFrame >= 2.9) top = i;
     if (top >= 0 && bottomAfterTop < 0 && f.noseFrame <= 0.1) bottomAfterTop = i;
   });
-  check('held: he knows he is held, sniffs and gapes', f.held && f.sniffing && f.mouthOpen && mouthAt >= 0 && top >= 0 && bottomAfterTop > top,
-    'mouth open at update ' + mouthAt + ', sniff up at ' + top + ', down at ' + bottomAfterTop);
+  check('held: he knows he is held and sniffs, the mouth shut while he is silent', f.held && f.sniffing && opened < 0 && top >= 0 && bottomAfterTop > top,
+    'mouth opened at update ' + opened + ', sniff up at ' + top + ', down at ' + bottomAfterTop);
   // drawn: the eyes' box as at rest
   const eyeBox = (face) => {
     const fb = makeFb();
@@ -255,14 +263,14 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   };
   const lp = pupilAt(f, f.leftEye, f.leftPupil), drawnHeld = litSet(h.fb);
   check('held: the pupils are drawn at the face\'s scale, looking right at the pointer', f.leftPupil.x > 1 && [...lp].every((k) => drawnHeld.has(k)), 'left pupil at ' + fmt(f.leftPupil));
-  console.log('held, the staring eyes and the open mouth, x 60..140 y 70..130:\n' + dump(h.fb, 60, 70, 80, 60));
+  console.log('held, the staring eyes and the shut mouth, x 60..140 y 70..130:\n' + dump(h.fb, 60, 70, 80, 60));
   // a drag on another bubble: nothing
   const g = new Face(blob);
   run(g, blob, fakeWorld(null, 130, 100, { blob: other, points: [], x: 300, y: 300 }), 60);
-  check('held: a drag on another bubble leaves him be', !g.held && !g.sniffing && !g.mouthOpen && g.moufFrame === 0);
+  check('held: a drag on another bubble leaves him be', !g.held && !g.sniffing && shut(g));
   // let go: back to rest
   run(f, blob, empty, 200);
-  check('let go: nose and mouth back to rest', !f.held && f.noseFrame === 0 && f.moufFrame === 0, f.noseFrame + ' ' + f.moufFrame);
+  check('let go: nose back to rest, the mouth shut', !f.held && f.noseFrame === 0 && shut(f), f.noseFrame + ' ' + JSON.stringify(f.mouth.shape()));
   // held, the eyes do not blink: 8 s held with the blink on and a 5 s wait,
   // never off frame 6, the wait not counted down; let go, it runs and the
   // blink comes 5 s on
@@ -283,6 +291,40 @@ check('rest: no Math.random with the blink off', randoms === randomsBefore, (ran
   mid.update(blob, empty, STEP);
   check('let go mid-blink: the blink that was under way comes at once', mid.eyeTarget === 0);
   FACE.EYES.BLINK = false;
+}
+
+// --- speaking: the mouth his voice has -------------------------------------------
+// handed the voice's mouth, the face moves its own: a full open vowel opens
+// it all the way, a lip closure shuts it within a few steps, faster than it
+// opened, and silence brings back cicada's shut frame
+{
+  const f = new Face(blob);
+  let full = -1;
+  run(f, blob, empty, 60, STEP, (f, i) => { if (full < 0 && f.mouth.shape().rows >= 9) full = i; }, AA);
+  check('speaking: a full open vowel opens the mouth to nine rows', full >= 0, 'at update ' + full + ', ' + JSON.stringify(f.mouth.shape()));
+  check('speaking: two buck teeth hang under the upper lip', (() => {
+    const sh = f.mouth.shape(), art = Mouth.art(sh), top = 11 - sh.up;
+    return art[top + 1][17] === '#' && art[top + 1][19] === '#' && art[top + 1][18] === '.';
+  })());
+  let closed = -1;
+  run(f, blob, empty, 30, STEP, (f, i) => { if (closed < 0 && f.mouth.shape().rows === 1) closed = i; }, B);
+  check('speaking: a lip closure shuts it within 4 steps, faster than it opened', closed >= 0 && closed < 4 && closed < full, 'shut at update ' + closed + ', opened at ' + full);
+  run(f, blob, empty, 60, STEP, null, AA);
+  run(f, blob, empty, 120);
+  check('speaking, then silent: the mouth shut, cicada\'s frame 0', shut(f), JSON.stringify(f.mouth.shape()));
+
+  // drawn: the mouth is its shape's art at its place, 1:1 at radius 36
+  const g = new Face(blob);
+  run(g, blob, empty, 200, STEP, null, AA);
+  const fb = makeFb();
+  g.draw(fb);
+  const want = new Set();
+  Mouth.art(g.mouth.shape()).forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '#') want.add((80 + i) + ',' + (110 + j)); });
+  // under the nose's bitmap, which reaches down to y 111
+  const below = (k) => Number(k.split(',')[1]) >= 112;
+  const d = same(new Set([...litSet(fb)].filter(below)), new Set([...want].filter(below)));
+  check('speaking: drawn, the mouth is its shape at (80, 110)', d.ok && [...want].some(below), d.detail);
+  console.log('speaking a wide open vowel, x 60..140 y 70..135:\n' + dump(fb, 60, 70, 80, 65));
 }
 
 // --- size --------------------------------------------------------------------
@@ -344,7 +386,7 @@ function same(a, b) {
   console.log('\nat rest, blob centre (100, 100) r 36, window x 60..139 y 78..127:\n' + dump(fb, 60, 78, 80, 50) + '\n');
 }
 {
-  // a blob just off to the right and touching: pupils right, sniffing, mouth open
+  // a blob just off to the right and touching: pupils right, sniffing, mouth shut
   const other = fakeBlob(160, 100, 12);
   const touching = { blob: other, dist: 60, edgeDist: 60 - 36 - 12 };
   const keen = new Face(blob);
@@ -359,9 +401,9 @@ function same(a, b) {
   const s = same(litSet(fb), expected([
     [eye, 71, 81], [eye, 101, 81],
     [FACE_ART.nose.frames[nf], 88, 88],
-    [FACE_ART.mouf.frames[9], 80, 110],
+    [FACE_ART.mouf.frames[0], 80, 110],
   ], [lp, rp]));
-  check('draw, blob close on the right: mouth frame 9, pupils looking right', s.ok && keen.moufFrame === 9 && midX(lp) > 86 && midX(rp) > 116,
+  check('draw, blob close on the right: mouth shut, pupils looking right', s.ok && shut(keen) && midX(lp) > 86 && midX(rp) > 116,
     s.detail + '; pupils ' + [...lp].join(' ') + ' / ' + [...rp].join(' ') + '; nose frame ' + nf);
   console.log('\na blob touching on the right (nose frame ' + nf + ', mouth 9), same window:\n' + dump(fb, 60, 78, 80, 50) + '\n');
 }
@@ -386,7 +428,7 @@ function same(a, b) {
     ['left pupil', I.pupil, { x: f.leftEye.x + f.leftPupil.x * s, y: f.leftEye.y + f.leftPupil.y * s }],
     ['right pupil', I.pupil, { x: f.rightEye.x + f.rightPupil.x * s, y: f.rightEye.y + f.rightPupil.y * s }],
     ['nose', I.nose[0], f.nose],
-    ['mouth', I.mouf[0], f.mouf],
+    ['mouth', f.mouth.ink(), f.mouf],
   ];
   const union = new Set();
   for (const [name, g, at] of parts) {
@@ -474,7 +516,7 @@ function same(a, b) {
     [I.eyes[6], f.leftEye.x, f.leftEye.y, es], [I.eyes[6], f.rightEye.x, f.rightEye.y, es],
     [I.pupil, f.leftEye.x + (f.leftPupil.x + 0.5) * es, f.leftEye.y + (f.leftPupil.y + 0.5) * es, es],
     [I.pupil, f.rightEye.x + (f.rightPupil.x + 0.5) * es, f.rightEye.y + (f.rightPupil.y + 0.5) * es, es],
-    [I.nose[0], f.nose.x, f.nose.y, s * PAGE.nose], [I.mouf[0], f.mouf.x, f.mouf.y, s * PAGE.mouf],
+    [I.nose[0], f.nose.x, f.nose.y, s * PAGE.nose], [f.mouth.ink(), f.mouf.x, f.mouf.y, s * PAGE.mouf],
   ]) {
     const one = makeFb();
     one.sprite(g, x, y, k, 0, 1, FACE.MIN_HITS);

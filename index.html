@@ -28,8 +28,11 @@
   <script src="daedalus/daedalus.js"></script>
   <script src="js/raster.js"></script>
   <script src="js/softbody.js"></script>
+  <script src="js/hands.js"></script>
+  <script src="js/shop.js"></script>
   <script src="js/skin.js"></script>
   <script src="js/face-art.js"></script>
+  <script src="js/mouth.js"></script>
   <script src="js/face.js"></script>
   <!-- <script src="js/beard.js"></script> -->
   <script src="js/hand-art.js"></script>
@@ -39,6 +42,7 @@
   <script src="js/logos.js"></script>
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
+  <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -55,6 +59,7 @@
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
+    let pfb = null;   // the upgrades menu's insides, drawn apart and copied through its skin (drawShop)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -63,6 +68,7 @@
       canvas.height = H;
       fb = new Framebuffer(W, H);
       cfb = new Framebuffer(W, H);
+      pfb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
       layout();
@@ -853,7 +859,7 @@
         const like = sections.find((o) => o.photo && o.box.full), tall = BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * edge);
         box.full = { x0, y0, x1, y1: y0 + tall, r: BOX.RADIUS * size };
         const rx = Math.ceil(x0 + BOX.LINE), ry = Math.ceil(y0 + BOX.LINE);
-        s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
+        s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, size: bs, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
         return;
       }
       // the caption under the photo, and how tall it stands with its gap
@@ -1165,6 +1171,7 @@
       const ph = s.photoAt;
       if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, cfb);
       if (s.room && bubble) {
+        // its skins and its hands, HAND_REACH round a hand's palm
         let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
         for (const o of world.blobs) for (const p of o.points) {
           bx0 = Math.min(bx0, p.x);
@@ -1172,8 +1179,22 @@
           bx1 = Math.max(bx1, p.x);
           by1 = Math.max(by1, p.y);
         }
+        for (const h of world.hands) {
+          bx0 = Math.min(bx0, h.x - HAND_REACH);
+          by0 = Math.min(by0, h.y - HAND_REACH);
+          bx1 = Math.max(bx1, h.x + HAND_REACH);
+          by1 = Math.max(by1, h.y + HAND_REACH);
+        }
         const b = bubbleAt(), lx = bubble.lockX, ly = bubble.lockY, m = BUBBLE_LINE + 4;
-        if (b.x + b.k * (bx0 - lx) - m < x1 && b.x + b.k * (bx1 - lx) + m > x0 && b.y + b.k * (by0 - ly) - sy - m < y1 && b.y + b.k * (by1 - ly) - sy + m > y0) drawBubble(roomView(cfb, t, sy));
+        if (b.x + b.k * (bx0 - lx) - m < x1 && b.x + b.k * (bx1 - lx) + m > x0 && b.y + b.k * (by0 - ly) - sy - m < y1 && b.y + b.k * (by1 - ly) - sy + m > y0) {
+          const view = roomView(cfb, t, sy);
+          drawBubble(view, () => {
+            for (const d of world.held) drawDrag(view, d);
+            drawHands(sy);
+          });
+        }
+        if (sub) drawSubtitle(t, sy);
+        drawShop(t, sy, hover);
       }
       if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
       // the items, each pushed down by the texts above it, its caret
@@ -1227,7 +1248,7 @@
       const b = skin.bounds(), m = BOX.LINE + 1, top = b.y0 - m - sy, bottom = b.y1 + m - sy;
       if (bottom < 0 || top >= H) return;
       drawInsides(s, t, sy, b.x0 - m, top, b.x1 + m, bottom, hover);
-      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close ? HOVER : 1;
+      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close && !hover.shop ? HOVER : 1;
       fb.fillPolygon(pts, cfb);
       for (let i = 0; i < n; i++) {
         const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
@@ -1254,6 +1275,15 @@
           if (!c) continue;
           const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
           if (x >= c.x - mx && x <= c.x + c.w + mx && py >= c.y - my && py <= c.y + c.h + my) return { s, close: true };
+          const ui = s === bubbleHome && shopNow();
+          if (ui) {
+            const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && py >= r.y0 - m && py <= r.y1 + m;
+            if (inside(ui.shut, 2)) return { s, shop: true, menu: true };
+            if (menu.open && menu.p > 0.5) {
+              for (const k of ui.buttons) if (inside(k.rect, 2)) return { s, shop: true, buy: k.key };
+              if (inside(ui.full, 0)) return { s, shop: true };
+            }
+          }
           const b = s.box.full, stop = s.photoAt && s.photoAt.y < c.strip[1] ? s.photoAt.x : b.x1;
           if (x >= b.x0 && x <= stop && py >= c.strip[0] && py <= c.strip[1]) return { s, close: true };
           for (const it of s.items) {
@@ -1281,6 +1311,12 @@
       const p = worldPointer(e), h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) window.open(h.link.url, '_blank', 'noopener');
+      else if (h.buy) buy(h.buy);
+      else if (h.menu) {
+        menu.open = !menu.open;
+        if (menu.open) menu.v += SHOP_UI.KICK;
+      }
+      else if (h.shop) return;
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
     });
@@ -1387,6 +1423,7 @@
         const dx = ww / 2 - bubble.lockX, dy = wh / 2 - bubble.lockY;
         face.moveBy(dx, dy);
         for (const b of world.blobs) if (b !== bubble) { const c = b.getCenter(); b.moveLockTo(c.x + dx, c.y + dy); }
+        for (const h of world.hands) { h.x += dx; h.y += dy; }
         bubble.moveLockTo(ww / 2, wh / 2);
         // the face is carried in one jump: the strands pose afresh on the
         // mouth rather than whip across after it
@@ -1478,11 +1515,11 @@
     // this one fades round the tag's three colours, teal to khaki to rose
     // and back to teal, in STEPS shades from each to the next, and from the
     // skin's ink up to the colour in LEVELS shades by how strongly the
-    // pulse lights it, times INTENSITY: at 2.5 anything it lights at 0.4 or
-    // more is the colour itself, and only its trail's last stretch and its
+    // pulse lights it, times INTENSITY: at 1.75 anything it lights at about
+    // half or more is the colour itself, and the rest of its trail and its
     // last moments fade back into the ink. every shade is a colour of the
     // framebuffer's palette, made once here
-    const PULSE = { STEPS: 6, LEVELS: 5, INTENSITY: 2.5 };
+    const PULSE = { STEPS: 6, LEVELS: 5, INTENSITY: 1.75 };
     const pulseInks = (() => {
       const rgb = (hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
       const hex = (c) => '#' + c.map((x) => Math.round(x).toString(16).padStart(2, '0')).join('');
@@ -1527,13 +1564,312 @@
       }
     }
 
-    // the bubble's world through view: the small bubbles, then the bubble
-    // with its face over it
-    function drawBubble(view) {
+    // the bubble's world through view in cicada's layers: the small bubbles,
+    // then whatever under draws (the hands and their holds' lines), then the
+    // bubble, filled with paper over them, with its face over it
+    function drawBubble(view, under) {
       for (const b of world.blobs) if (b !== bubble) drawSkin(view, b);
+      if (under) under();
       drawSkin(view, bubble);
       face.draw(view);
       // beard.draw(view);
+    }
+
+    // --- the subtitles -----------------------------------------------------------
+    // what the bubble says (js/voice.js), in the box text's face at its
+    // size, as words beside him: one syllable more each time he begins one,
+    // the whole line once he is done, and gone LINGER seconds after, or as
+    // soon as he says another or his box shuts. a line goes somewhere round
+    // him at random (js/subtitle.js), GAP of its size clear of his skin as
+    // it is when he starts, inside his room EDGE of its size in from the
+    // box and off the box's x, and stays there; with nowhere it fits, it
+    // does not show. its letters warble more than the box text's, each its
+    // own way: WOBBLE's sway, bob, breathe and tilt, depth and rate, each
+    // times its own 1 ± SPREAD at random
+    const SUBS = {
+      GAP: 0.6,     // of its size, from his skin to the line's ink
+      EDGE: 0.6,    // of its size, from the room's edge to the line's ink, and round the x
+      LINGER: 0.75, // seconds it stays once he is done
+      SPREAD: 0.5,
+      WOBBLE: { SWAY_PX: 0.5, SWAY_HZ: 1.2, BOB_PX: 0.5, BOB_HZ: 0.7, BREATHE: 0.03, BREATHE_HZ: 0.9, TILT_RAD: 0.03, TILT_HZ: 0.5 },
+    };
+    const subTypes = new Map(); // a line's text as shown, to its Type, made the first time it is said
+    let subSaid = 0; // the voice's lines said, as of the last frame
+    let sub = null;  // the line shown, { room, ends, letters: [{ L, at }] }, or null
+
+    // a line's subtitle, placed round him in his room as laid out, or null
+    function makeSubtitle(line) {
+      const { whole, ends } = Subtitle.split(line.text || '');
+      if (!ends.length) return null;
+      let type = subTypes.get(whole);
+      if (!type) subTypes.set(whole, type = new Type(whole, () => document.createElement('canvas'), TAG.FACE));
+      if (!type.glyphs.length) return null;
+      const room = bubbleHome.room, size = room.size, k = size / TYPE.EM, edge = SUBS.EDGE * size;
+      let reach = 0; // his skin's furthest from his lock
+      for (const p of bubble.points) reach = Math.max(reach, Math.hypot(p.x - bubble.lockX, p.y - bubble.lockY));
+      const x = bubbleHome.box.close, keep = x ? [{ x0: x.x - edge, y0: x.y - edge, x1: x.x + x.w + edge, y1: x.y + x.h + edge }] : [];
+      const ui = shopNow();
+      if (ui) {
+        const r = menu.p > 0 || menu.open ? ui.full : ui.shut;
+        keep.push({ x0: r.x0 - edge, y0: r.y0 - edge, x1: r.x1 + edge, y1: r.y1 + edge });
+      }
+      const area = { x0: room.x + edge, y0: room.y + edge, x1: room.x + room.w - edge, y1: room.y + room.h - edge };
+      const at = Subtitle.place(k * (type.left + type.right), k * (type.ascent + type.descent),
+        room.x + bubble.lockX, room.y + bubble.lockY, reach + BUBBLE_LINE + SUBS.GAP * size, area, keep);
+      if (!at) return null;
+      const ox = at.x + k * type.left, base = at.y + k * type.ascent; // the line's origin, on its baseline
+      const vary = () => 1 + SUBS.SPREAD * (2 * Math.random() - 1);
+      const letters = type.glyphs.map((gl) => {
+        const wob = {};
+        for (const key in SUBS.WOBBLE) wob[key] = SUBS.WOBBLE[key] * vary();
+        return { at: gl.at, L: makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, Math.floor(Math.random() * 1e6), k, wob) };
+      });
+      return { room, ends, letters };
+    }
+
+    // each frame: a new line's subtitle made as he starts it, and the one
+    // shown dropped once it has lingered, or the engine would not take it,
+    // or his box shuts or is laid out again
+    function stepSubtitle() {
+      if (Voice.said !== subSaid) {
+        subSaid = Voice.said;
+        sub = bubble && bubbleHome.room && bubbleHome.box.open && Voice.line ? makeSubtitle(Voice.line) : null;
+      }
+      if (sub && (!Voice.line || !bubbleHome.box.open || bubbleHome.room !== sub.room ||
+          (Voice.endedAt !== null && Date.now() - Voice.endedAt > SUBS.LINGER * 1000))) sub = null;
+    }
+
+    // the subtitle sy up into cfb: as many syllables as he has begun, every
+    // one once he is done
+    function drawSubtitle(t, sy) {
+      const n = Voice.endedAt !== null ? sub.ends.length : Math.min(Voice.heard, sub.ends.length);
+      if (!n) return;
+      const end = sub.ends[n - 1];
+      for (const s of sub.letters) if (s.at < end) s.L.draw(t, -sy, cfb);
+    }
+
+    // --- the shop ------------------------------------------------------------------
+    // Personal work's box sells drag strength, hands, spawn rate and max
+    // bubbles for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
+    // shown to two places, in a menu of its own in the room's top right, as
+    // far in from its top and right as the x is from its left. shut, the
+    // menu is a button: a rounded rect drawn as the box is, filled with
+    // paper over whatever drifts under it and outlined LINE px from point to
+    // point, RADIUS of its text's size round its corners, saying with a
+    // caret on its left how many bubbles there are, a BAR and TITLE, APART
+    // from each other, in the box text's face at the photo caption's size, PAD
+    // round them. a press
+    // on it opens the menu as a box opens: the button is its shut shape, and
+    // its open one reaches down and left round a list of the upgrades under
+    // the header, a button each, ROW apart, every one as wide as the
+    // widest, MARGIN round them, each with its label and price. it swings
+    // there and back on the boxes' spring, but bouncier (BOUNCE) and set off
+    // with a KICK when it opens, so it bursts open and swings further past
+    // it before it settles, its edges warbling as the boxes' do, and a skin
+    // (js/skin.js) chases it as a box's does, its anchors' pull reaching
+    // only SPREAD along it, so it bows between them as a big box's skin
+    // does, with the menu's insides, drawn apart (pfb), copied through the
+    // skin, so it wipes the list in as it grows. its caret turns from > to v as it opens, as an
+    // item's does, and a press on the header shuts it. under the pointer
+    // the menu's outline and its caret are in the items' hover colour, and a
+    // button's outline in the links' (the musician's); the words keep to
+    // ink. a press on a button buys a level: drag strength pulls every
+    // held skin in the bubble's world harder, spawn rate spawns small
+    // bubbles there more often, max bubbles lets it hold more at once, and
+    // a hand comes out of its button and goes after the small bubbles
+    // (js/hands.js), drawn as the pointer is (js/cursor.js), a fist while
+    // it holds one, its hold's line dashed as the pointer's is, over the
+    // small bubbles and under the bubble, as cicada layered them
+    // (drawBubble). HAND_REACH is how far its art reaches from its palm.
+    const SHOP_UI = {
+      KEYS: ['drag', 'hands', 'spawn', 'max'], TITLE: 'upgrades', BAR: '|',
+      LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles' },
+      PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
+      APART: 0.4,                           // of the text's size, between the header's caret, count, bar and title
+      ROW: 0.4, MARGIN: 0.4,                // of the text's size, between the list's buttons, and round them in the open menu
+      BOUNCE: 0.45,                         // the spring's: damped 1 - BOUNCE (the boxes' 0.35, 7 % past open)
+      KICK: 12,                             // a second, added to its speed toward open as it opens: with BOUNCE, about 19 % past open
+      SPREAD: 14,                           // px, how far along the skin an anchor's pull reaches (a box's 80)
+      CAP: 0.75, DESC: 0.2,                 // of the text's size, the face's caps over its baseline and descenders under
+      STEP: 2,                              // px between a button's outline's points, as the box's skin stands
+    };
+    const shop = new Shop();
+    const helpers = [];          // each hand bought, { hand, cursor }
+    const HAND_REACH = 20;       // world px
+    const shopTypes = new Map(); // a label's text, to its Type
+    let shopUI = null;           // as laid out: { room, key, size, shut, full, header: { caret, count, bar, title }, buttons: [{ key, rect, ring, letters }] }
+    // the menu: whether it is open, how far (p, 0 shut, 1 open and past as
+    // it swings) and how fast, its caret's turn, its skin and the room it
+    // was made in, and each edge's warble
+    const menu = {
+      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    };
+
+    // the menu laid out, again whenever the room or what it says changes;
+    // null with no room or no x
+    function shopNow() {
+      const room = bubbleHome && bubbleHome.room, c = bubbleHome && bubbleHome.box.close;
+      if (!room || !c) return null;
+      const U = SHOP_UI, labels = U.KEYS.map((k) => U.LABELS[k] + ' · ' + shop.price(k).toFixed(2));
+      const count = shop.bubbles.toFixed(2) + ' bubbles', key = labels.join('|') + '|' + count;
+      if (shopUI && shopUI.room === room && shopUI.key === key) return shopUI;
+      const size = Math.max(BOX.CAP_LEAST, BOX.CAP * room.size), k = size / TYPE.EM, inset = c.x - room.x;
+      const type = (text) => {
+        let t = shopTypes.get(text);
+        if (!t) shopTypes.set(text, t = new Type(text, () => document.createElement('canvas'), TAG.FACE));
+        return t;
+      };
+      const wide = (t) => k * (t.left + t.right), h = Math.round(size * (2 * U.PAD_Y + U.CAP + U.DESC));
+      // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
+      const letters = (t, x0, y0, seed) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, seed + gl.at, k, WOBBLE));
+      // the header, the shut menu: the caret, the count, the bar and the title
+      const ct = type(count), bt = type(U.BAR), tt = type(U.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = U.APART * size;
+      const right = room.x + room.w - inset, top = room.y + inset;
+      const hw = Math.round(cw + wide(ct) + wide(bt) + wide(tt) + 3 * apart + 2 * U.PAD_X * size);
+      const shut = { x0: right - hw, y0: top, x1: right, y1: top + h };
+      const x = shut.x0 + U.PAD_X * size, xc = x + cw + apart, xb = xc + wide(ct) + apart, xt = xb + wide(bt) + apart;
+      const header = {
+        caret: cg ? makeLetter(cg.g, x + cw / 2, top + size * (U.PAD_Y + U.CAP) + k * cg.dy, 78999, k, WOBBLE) : null,
+        count: letters(ct, xc, top, 79000),
+        bar: letters(bt, xb, top, 77000),
+        title: letters(tt, xt, top, 78000),
+      };
+      // the list under it, every button as wide as the widest, or as the
+      // header less the margins if that is wider, and the open menu round it
+      const margin = Math.round(U.MARGIN * size), row = Math.round(U.ROW * size), types = labels.map(type);
+      const bw = Math.max(Math.round(Math.max(...types.map(wide)) + 2 * U.PAD_X * size), hw - 2 * margin);
+      const buttons = [];
+      let y = shut.y1;
+      U.KEYS.forEach((key, i) => {
+        const rect = { x0: right - margin - bw, y0: y, x1: right - margin, y1: y + h };
+        buttons.push({ key, rect, ring: ringRound(rect, U.RADIUS * size, U.STEP), letters: letters(types[i], rect.x0 + U.PAD_X * size, y, 70000 + 1000 * i) });
+        y += h + row;
+      });
+      const full = { x0: right - Math.max(hw, bw + 2 * margin), y0: top, x1: right, y1: y - row + margin };
+      shopUI = { room, key, size, shut, full, header, buttons };
+      return shopUI;
+    }
+
+    // the menu's shape at p, from shut (0) to open (1), and, given a time t,
+    // each edge warbled WARBLE px either way on its own sine, as boxAt has
+    // the boxes
+    function menuAt(ui, p, t) {
+      const a = ui.shut, b = ui.full, c = { r: SHOP_UI.RADIUS * ui.size };
+      for (const k of ['x0', 'y0', 'x1', 'y1']) c[k] = a[k] + (b[k] - a[k]) * p;
+      if (t !== undefined) {
+        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * menu.warble[e].hz + menu.warble[e].ph);
+        c.x0 += w(0);
+        c.y0 += w(1);
+        c.x1 += w(2);
+        c.y1 += w(3);
+      }
+      return c;
+    }
+
+    // the menu dt on toward open or back to its button on the boxes' spring
+    // made bouncier (stepBox's closed form, stopping dead at shut), its
+    // caret turning as an item's does, and its skin after it; a room laid
+    // out again settles a new skin where the menu now is
+    function stepMenu(dt, t) {
+      const ui = shopNow();
+      if (!ui) return;
+      const a = ui.shut, b = ui.full;
+      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y1 - a.y1));
+      const target = menu.open ? 1 : 0, w = 2 * Math.PI / BOX.RESPONSE, z = 1 - SHOP_UI.BOUNCE;
+      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = menu.p - target, v0 = menu.v;
+      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      menu.p = target + e * (x0 * c + (v0 + sg * x0) / wd * sn);
+      menu.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+      if (menu.p <= 0) { menu.p = 0; menu.v = Math.max(0, menu.v); }
+      if (menu.open && Math.abs(menu.p - 1) < px && Math.abs(menu.v) / 60 < px) { menu.p = 1; menu.v = 0; }
+      menu.turn = ease(menu.turn, menu.open, dt, 4 * ui.size, BOX.FLIP);
+      const shape = menuAt(ui, menu.p, t);
+      if (!menu.skin || menu.room !== ui.room) {
+        menu.skin = new Skin(shape, SHOP_UI.SPREAD);
+        menu.room = ui.room;
+      } else menu.skin.step(dt, shape);
+    }
+
+    // a rounded rect's outline as a ring of points about step px apart,
+    // clockwise from the top right corner, its corners quarter circles of
+    // radius round
+    function ringRound(r, round, step) {
+      const pts = [];
+      const corner = (cx, cy, from) => {
+        const n = Math.max(2, Math.ceil(round * Math.PI / 2 / step));
+        for (let i = 0; i <= n; i++) {
+          const a = from + i / n * Math.PI / 2;
+          pts.push({ x: cx + round * Math.cos(a), y: cy + round * Math.sin(a) });
+        }
+      };
+      const edge = (ax, ay, bx, by) => {
+        const n = Math.max(1, Math.round(Math.hypot(bx - ax, by - ay) / step));
+        for (let i = 1; i < n; i++) pts.push({ x: ax + (bx - ax) * i / n, y: ay + (by - ay) * i / n });
+      };
+      corner(r.x1 - round, r.y0 + round, -Math.PI / 2);
+      edge(r.x1, r.y0 + round, r.x1, r.y1 - round);
+      corner(r.x1 - round, r.y1 - round, 0);
+      edge(r.x1 - round, r.y1, r.x0 + round, r.y1);
+      corner(r.x0 + round, r.y1 - round, Math.PI / 2);
+      edge(r.x0, r.y1 - round, r.x0, r.y0 + round);
+      corner(r.x0 + round, r.y0 + round, Math.PI);
+      edge(r.x0 + round, r.y0, r.x1 - round, r.y0);
+      return pts;
+    }
+
+    // the menu sy up into cfb, hover what the pointer is on: its header and,
+    // while it is open at all, its buttons, each ring outlined LINE px from
+    // point to point, drawn into pfb over the skin's box; then pfb copied
+    // into cfb through the skin and the skin outlined over it, as drawBox
+    // does a box
+    function drawShop(t, sy, hover) {
+      const ui = shopNow();
+      if (!ui || !menu.skin) return;
+      const v = hover && hover.menu ? HOVER_ITEM : 1, box = menu.skin.bounds();
+      pfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
+      for (const L of ui.header.count) L.draw(t, -sy, pfb);
+      for (const L of ui.header.bar) L.draw(t, -sy, pfb);
+      if (ui.header.caret) ui.header.caret.draw(t, -sy, pfb, menu.turn * Math.PI / 2, v);
+      for (const L of ui.header.title) L.draw(t, -sy, pfb);
+      if (menu.p > 0) for (const b of ui.buttons) {
+        const bv = hover && hover.buy === b.key ? HOVER_LINK : 1, n = b.ring.length;
+        for (let i = 0; i < n; i++) {
+          const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
+          pfb.line(p.x, p.y - sy, q.x, q.y - sy, bv, BOX.LINE);
+        }
+        for (const L of b.letters) L.draw(t, -sy, pfb);
+      }
+      const pts = menu.skin.screen(-sy), n = pts.length;
+      cfb.fillPolygon(pts, pfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        cfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
+      }
+    }
+
+    // a level of key bought, if there are bubbles enough, and what it buys
+    function buy(key) {
+      if (!world || !shop.buy(key)) return;
+      if (key === 'drag') world.dragForce = SOFT.DRAG.FORCE * shop.drag();
+      if (key === 'spawn') world.spawnMs = SOFT.SPAWN.EVERY_MS / shop.spawn();
+      if (key === 'max') world.maxBlobs = SOFT.SPAWN.MAX_BLOBS + shop.more();
+      if (key !== 'hands') return;
+      const room = bubbleHome.room, r = shopNow().buttons.find((b) => b.key === 'hands').rect;
+      const hand = new Hand((r.x0 + r.x1) / 2 - room.x, (r.y0 + r.y1) / 2 - room.y, world.hands.length);
+      world.hands.push(hand);
+      helpers.push({ hand, cursor: new Cursor() });
+    }
+
+    // the hands sy up into cfb, each where its world has it as the bubble
+    // is drawn (bubbleAt)
+    function drawHands(sy) {
+      if (!helpers.length) return;
+      const b = bubbleAt();
+      for (const { hand, cursor } of helpers) {
+        cursor.moveTo(b.x + (hand.x - bubble.lockX) * b.k, b.y + (hand.y - bubble.lockY) * b.k - sy);
+        cursor.draw(cfb);
+      }
     }
 
     // a point in world px on the screen as its world's px, wherever the page
@@ -1674,8 +2010,7 @@
     // before the skin lets go, in world w through view as its bubble is
     // drawn. cicada also put a plus on every held point; those are left
     // off, the skin is not to be marked
-    function drawDrag(view, w = world) {
-      const d = w.drag;
+    function drawDrag(view, d) {
       if (!d) return;
       const c = d.points[0].point;
       const dx = c.x - d.x, dy = c.y - d.y;
@@ -1783,7 +2118,22 @@
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
       if (bubble) world.spawning = bubbleHome.box.open;
       world.step(now);
-      if (bubble) face.update(bubble, world, dt);
+      // the bubble, having eaten, strikes one of the name's notes at random
+      // at once (js/piano.js) and a moment later thanks whoever fed him
+      // (js/voice.js)
+      const fed = bubble ? world.merges.filter((m) => m.blob === bubble) : [];
+      if (fed.length) {
+        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius));
+        Piano.strike(Math.floor(Math.random() * Piano.NOTES.length));
+        Voice.thank();
+      }
+      for (const h of helpers) {
+        if (h.hand.drag) h.cursor.press(); else h.cursor.release();
+        h.cursor.update(dt);
+      }
+      Voice.update();
+      stepSubtitle();
+      if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
         if (pointerAt) b.world.pointer(pointerAt.x, pointerAt.y);
         b.world.step(now);
@@ -1796,6 +2146,7 @@
       }
       settle();
       for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
+      stepMenu(dt, t);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       fb.clear();
@@ -1805,7 +2156,7 @@
       const sy = Math.round(window.scrollY / SCALE);
       const hit = hoverAt && hitAt(hoverAt.x, hoverAt.y);
       for (const s of sections) {
-        const v = hit && hit.s === s && !hit.it && !hit.close ? HOVER : undefined;
+        const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
       }
       for (const s of sections) drawBox(s, t, sy - s.off, hit && hit.s === s ? hit : null);
@@ -1814,8 +2165,8 @@
       for (const L of letters) L.draw(t, 0, fb, 0, lit && L === lit.L ? lit.v : undefined);
       for (const b of tagBubbles) drawTagBubble(b);
       if (SHOW_DAEDALUS && panel) panel.draw();
-      if (bubble && bubbleHome.room) drawDrag(roomView(fb, t, sy - bubbleHome.off));
-      for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world);
+      if (bubble && bubbleHome.room) drawDrag(roomView(fb, t, sy - bubbleHome.off), world.drag);
+      for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
       cursor.draw(fb);
       fb.present(ctx);
       requestAnimationFrame(frame);

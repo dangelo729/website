@@ -69,7 +69,7 @@ const settle = () => new Promise((ok) => setImmediate(ok));
 
   // --- before a gesture ----------------------------------------------------------
   Piano.listen(win);
-  const types = ['pointerup', 'touchend', 'click', 'keydown'];
+  const types = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
   check('listens for every gesture, in capture', types.every((t) => listeners[t] && listeners[t].capture === true), Object.keys(listeners).join(' '));
   Piano.strike(0);
   await settle();

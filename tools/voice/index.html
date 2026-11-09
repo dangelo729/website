@@ -38,7 +38,7 @@
       <h2>the line in the controls</h2>
       <div class="row"><input id="phones" spellcheck="false" autocomplete="off"><button id="speak">speak</button></div>
       <div id="speech"></div>
-      <h2>lines: play one and the controls edit it</h2>
+      <h2>lines, then thanks: play one and the controls edit it</h2>
       <div class="sounds" id="lines"></div>
     </section>
     <section>
@@ -56,18 +56,19 @@
     // the listening bench for js/voice.js, served from the repo root
     // (python3 -m http.server 8000, then /tools/voice/): the page's own
     // voice, its worklet and its wasm, played by hand. the controls edit
-    // one of the lines, the one lit, and speak it; the voice's sliders land
-    // on the worklet live.
+    // one of the lines or the thanks, the one lit, and speak it; the
+    // voice's sliders land on the worklet live.
     // what the sliders have made shows as the js to paste back over
-    // js/voice.js's VOICE and LINES. the first press wakes the audio, as on
-    // the page; the sounds come once the worklet is ready, one at a time.
+    // js/voice.js's VOICE, LINES and THANKS. the first press wakes the
+    // audio, as on the page; the sounds come once the worklet is ready, one
+    // at a time.
     Voice.WORKLET = '../../js/voice-worklet.js';
     Voice.WASM = '../../monk_mouth/monk_mouth.wasm';
     Voice.listen(window);
 
     const $ = (id) => document.getElementById(id);
     const num = (x) => +(+x).toFixed(3);
-    let picked = 0;   // the line the controls edit
+    let picked = 0;   // the one the controls edit, of the lines then the thanks
     let bad = false;  // the last sound was one the engine would not take
 
     // a slider row: label, range, the value it shows; get reads the value,
@@ -83,7 +84,8 @@
     }
 
     // the line's controls: its note, its range, its speed and its breath
-    const line = () => Voice.LINES[picked];
+    const all = () => Voice.LINES.concat(Voice.THANKS);
+    const line = () => all()[picked];
     const shows = [
       ['midi', 30, 72, 0.5], ['range', 0, 12, 0.5], ['speed', 0.5, 2, 0.05], ['breath', 0.1, 1.5, 0.05],
     ].map(([k, min, max, step]) => slider($('speech'), k, min, max, step, () => line()[k], (v) => { line()[k] = v; }));
@@ -109,24 +111,26 @@
     $('speak').addEventListener('click', speak);
     $('phones').addEventListener('keydown', (e) => { if (e.key === 'Enter') speak(); });
 
-    Voice.LINES.forEach((l, i) => {
+    all().forEach((l, i) => {
       const b = document.createElement('button');
       b.textContent = l.phones;
       b.addEventListener('click', () => { pick(i); speak(); });
       $('lines').appendChild(b);
     });
 
-    // the voice and the lines as js, refreshed as they change; each line's
-    // button label follows its phones
+    // the voice, the lines and the thanks as js, refreshed as they change;
+    // each button's label follows its phones
     function paste() {
       const v = Voice.VOICE;
-      const lines = Voice.LINES.map((l) =>
-        `    { phones: '${l.phones}', midi: ${num(l.midi)}, range: ${num(l.range)}, speed: ${num(l.speed)}, breath: ${num(l.breath)} },`);
+      const q = (t) => t.includes("'") ? `"${t}"` : `'${t}'`;
+      const js = (list) => list.map((l) =>
+        `    { phones: '${l.phones}', midi: ${num(l.midi)}, range: ${num(l.range)}, speed: ${num(l.speed)}, breath: ${num(l.breath)}, text: ${q(l.text)} },`).join('\n');
       $('js').value =
         `  VOICE: { sections: ${num(v.sections)}, breathiness: ${num(v.breathiness)}, roughness: ${num(v.roughness)}, ` +
         `tension: ${num(v.tension)}, diction: ${num(v.diction)}, wobble: ${num(v.wobble)} },\n` +
-        `  LINES: [\n${lines.join('\n')}\n  ],\n`;
-      document.querySelectorAll('#lines button').forEach((b, j) => { b.textContent = Voice.LINES[j].phones; });
+        `  LINES: [\n${js(Voice.LINES)}\n  ],\n` +
+        `  THANKS: [\n${js(Voice.THANKS)}\n  ],\n`;
+      document.querySelectorAll('#lines button').forEach((b, j) => { b.textContent = all()[j].phones; });
     }
 
     // the status: the audio waking, loading, ready, playing, or a line

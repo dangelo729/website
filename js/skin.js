@@ -59,8 +59,12 @@ const SKIN = {
 };
 
 class Skin {
-  // a ring settled on target, { x0, y0, x1, y1, r }
-  constructor(target) {
+  // a ring settled on target, { x0, y0, x1, y1, r }; spread is SPREAD for
+  // this skin, less for a small one, whose every point would otherwise sit
+  // within SPREAD of an anchor and be held as hard as one, so it would
+  // never bow
+  constructor(target, spread = SKIN.SPREAD) {
+    this.spread = spread;
     // each { x, y, px, py, u, dx, dy, dw }, its home's { hx, hy, s } and the
     // outline's heading there { tx, ty }, the gap to the next one's home and
     // its pull
@@ -233,7 +237,7 @@ class Skin {
       p.gap = gap;
       const k = Math.min(7, Math.floor(8 * p.u));
       const d = Math.max(0, Math.min(p.s - o.at[k], o.at[k + 1] - p.s));
-      const w = d < SKIN.SPREAD ? 0.5 + 0.5 * Math.cos(Math.PI * d / SKIN.SPREAD) : 0;
+      const w = d < this.spread ? 0.5 + 0.5 * Math.cos(Math.PI * d / this.spread) : 0;
       p.pull = SKIN.PULL + (SKIN.LEAD - SKIN.PULL) * w;
     }
     for (const p of pts) {

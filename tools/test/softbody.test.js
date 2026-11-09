@@ -308,6 +308,7 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   check('eat: drag on the small blob', world.drag && world.drag.blob === near1);
   for (let i = 0; i < 10 && world.blobs.includes(near1); i++) world.tick();
   check('eat: the centre ate it and is still blobs[0]', world.blobs.length === 2 && world.blobs[0] === centre && world.blobs[1] === far);
+  check('eat: the merge says what ate and what it ate, at its size', world.merges.length === 1 && world.merges[0].blob === centre && world.merges[0].eaten === near1 && near1.radius === 5);
   check('eat: still locked where it was', centre.locked && centre.lockX === 250 && centre.lockY === 150);
   check('eat: the drag on the eaten blob ended', world.drag === null);
 }
@@ -655,7 +656,7 @@ function settledWorld(x = 100, y = 100, steps = 600) {
     for (let s = 0; s < 400 && same; s++) {
       const on = s >= 30 && s < 300;  // rest, then a drag that wanders, then let go
       drag.x = to[0] + 20 * Math.sin(s / 17); drag.y = to[1] + 20 * Math.cos(s / 23);
-      mine.step(500, 300, on ? drag : null, 0);
+      mine.step(500, 300, on ? [drag] : null, 0);
       ref.update(500, 300, 10, on ? refDrag : null, on ? new V(drag.x, drag.y) : null);
       if (mine.points.some((p) => p.x === 0 || p.y === 300)) walls++;
       for (let i = 0; i < n; i++) {
@@ -687,6 +688,55 @@ function settledWorld(x = 100, y = 100, steps = 600) {
 // the sandbox's Math.random is the one the script saw, so forbidding it
 // above meant something
 check('Math.random came through the sandbox', randoms > 0, randoms + ' calls');
+
+// --- the world's drag force ------------------------------------------------------
+// the pointer's pull is as hard as its world's drag force, cicada's unless
+// set: four times it, a blob held the same way for the same second comes
+// further
+{
+  const moved = (scale) => {
+    const w = new World(600, 300), b = w.spawn(12, 150, 150);
+    w.dragForce = SOFT.DRAG.FORCE * scale;
+    w.grab(150 + 12, 150);
+    w.pointer(200, 150);
+    for (let k = 0; k < 60; k++) w.tick();
+    return b.getCenter().x - 150;
+  };
+  const w = new World(600, 300);
+  check('drag force: cicada\'s unless set', w.dragForce === SOFT.DRAG.FORCE);
+  const one = moved(1), four = moved(4);
+  check('drag force: four times as hard tows a held blob further in a second', four > one * 1.5 && one > 0, one.toFixed(2) + ' px, then ' + four.toFixed(2) + ' px');
+}
+
+// --- the world's own spawning ------------------------------------------------------
+// a world spawns every spawnMs up to maxBlobs, SPAWN's unless set: a
+// quarter the wait spawns about four times as many, and a higher limit
+// holds more
+{
+  const count = (ms, most, secs) => {
+    const w = new World(1200, 300);
+    w.blobs.push(new SoftBlob(600, 150, 32, 38, 1.2, true));
+    w.spawnMs = ms;
+    w.maxBlobs = most;
+    w.spawning = true;
+    // spawns counted as they are made: blobs that touch merge, so the
+    // count on screen would miss some
+    let made = 0, peak = 0;
+    const spawn = w.spawnRandom.bind(w);
+    w.spawnRandom = (...a) => { const b = spawn(...a); if (b) made++; return b; };
+    for (let k = 0; k < secs * 60; k++) {
+      w.tick();
+      peak = Math.max(peak, w.blobs.length);
+    }
+    return { made, peak };
+  };
+  const S = SOFT.SPAWN, w = new World(100, 100);
+  check('spawning: SPAWN\'s wait and limit unless set', w.spawnMs === S.EVERY_MS && w.maxBlobs === S.MAX_BLOBS);
+  const slow = count(S.EVERY_MS, 1000, 30), fast = count(S.EVERY_MS / 4, 1000, 30);
+  check('spawning: a quarter the wait spawns about four times as many', fast.made >= 3.5 * slow.made && fast.made <= 4.5 * slow.made, slow.made + ' then ' + fast.made + ' in 30 s');
+  const more = count(100, S.MAX_BLOBS + 5, 10);
+  check('spawning: a higher limit holds more, and no more', more.peak === S.MAX_BLOBS + 5, more.peak);
+}
 
 console.log(failures ? failures + ' failed' : 'all passed');
 process.exit(failures ? 1 : 0);
