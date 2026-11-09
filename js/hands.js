@@ -1,12 +1,17 @@
 // --- the hands ---------------------------------------------------------------
 // cicada's autonomous hands (its MainScene), bought in Personal work's box
 // (index.html) and stepped by the bubble's world (js/softbody.js) every
-// tick, before its blobs. a hand goes after the nearest small blob that no
-// other hand is after and the pointer is not holding, and while it has
-// none in hand switches to a free one RETARGET of the way as far off. it
+// tick, before its blobs. a hand goes after the nearest small blob the
+// pointer is not holding that still wants hands: a blob takes a crew of a
+// hand for every spawn that went into it (Hand.crew), since every merge
+// adds a spawn's worth of skin for a hand to drag, so a blob grown heavy
+// by eating others is towed by as many hands as it has bubbles in it, and
+// one short of hands struggles and breaks its holds. while it has none in
+// hand a hand switches to a free one RETARGET of the way as far off. it
 // comes up to APPROACH px off that blob's skin on its own side and, within
-// REACH more, takes hold of the nearest point and its neighbours as the
-// pointer does (World.hold); then it heads for the centre blob with the
+// REACH more, takes hold of the nearest point no other hold shares a
+// point with, and its neighbours, as the pointer does (World.hold), so a
+// crew holds side by side; then it heads for the centre blob with the
 // blob in tow, easing off as the hold stretches past SLOWDOWN of the
 // breakaway so the skin can keep up. if the skin lets go anyway the hand
 // comes back for it; once the blob is eaten it looks for the next. with
@@ -73,8 +78,8 @@ class Hand {
       tx = t.x + ux * reach;
       ty = t.y + uy * reach;
       if (d <= reach + H.REACH) {
-        const near = this.target.closest(this.x, this.y);
-        if (near.index !== -1) this.drag = world.hold(this.target, near.index);
+        const i = this.grip(world, this.target);
+        if (i !== -1) this.drag = world.hold(this.target, i);
       }
     } else {
       const r = centre.radius + H.REST;
@@ -90,17 +95,40 @@ class Hand {
   }
 
   // the nearest blob worth fetching: not the centre one or any locked, not
-  // one the pointer holds, not one another hand is after; null if none
+  // one the pointer holds, not one with its crew of other hands after it
+  // already; null if none
   choose(world) {
     let best = null, most = Infinity;
     for (let i = 1; i < world.blobs.length; i++) {
       const b = world.blobs[i];
       if (b.locked || (world.drag && world.drag.blob === b)) continue;
-      if (world.hands.some((h) => h !== this && h.target === b)) continue;
+      if (world.hands.filter((h) => h !== this && h.target === b).length >= Hand.crew(b)) continue;
       const d = this.away(b);
       if (d < most) { most = d; best = b; }
     }
     return best;
+  }
+
+  // the nearest point of blob whose hold, it and its neighbours as
+  // World.hold takes them, shares no point with a hold already on blob;
+  // -1 if every point's would
+  grip(world, blob) {
+    const taken = new Set();
+    for (const d of [world.drag, ...world.held]) if (d && d.blob === blob) for (const p of d.points) taken.add(p.point);
+    let index = -1, most = Infinity;
+    blob.points.forEach((p, i) => {
+      const d = Math.hypot(p.x - this.x, p.y - this.y);
+      if (d < most && !blob.neighbors(i, 2).some((n) => taken.has(n.point))) { most = d; index = i; }
+    });
+    return index;
+  }
+
+  // how many hands blob takes: one for every spawn that went into it. a
+  // merge joins two rings less a point of each at the seam, so a blob of
+  // k spawns has k times two fewer than a spawn's points, and two
+  static crew(blob) {
+    const P = SOFT.SPAWN.POINTS;
+    return Math.max(1, Math.round((blob.points.length - 2) / (P - 2)));
   }
 
   // how far a blob's centre is from the hand

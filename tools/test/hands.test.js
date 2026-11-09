@@ -6,9 +6,11 @@
 // checks a hand fetches a small blob: comes up beside it, takes hold as
 // the pointer does, tows it in and has it eaten; a hold that breaks lets
 // go and the hand comes back; two hands go after two blobs, not the same
-// one; a blob the pointer holds is left alone; an idle hand waits beside
-// the bubble; a hand never leaves the world; and a stronger drag force
-// tows faster. exits 1 on failure.
+// one; a blob takes a hand for every spawn in it, so a crew tows a heavy
+// one together, holding side by side, faster than one hand that keeps
+// losing its hold; a blob the pointer holds is left alone; an idle hand
+// waits beside the bubble; a hand never leaves the world; and a stronger
+// drag force tows faster. exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -96,6 +98,45 @@ const secs = (k) => (k / 60).toFixed(1) + ' s';
   v.grab(300 + 10, 150);
   v.tick();
   check('a blob the pointer holds is left alone, though nearer', v.drag && v.drag.blob === held && h.target === free);
+}
+
+// --- a crew for a heavy blob ---------------------------------------------------------
+{
+  // k spawns in a row, touching, merged into one out at x
+  const heavy = (w, k, x) => {
+    for (let i = 0; i < k; i++) w.spawn(20, x + (i - (k - 1) / 2) * 40.5 * 0.98, 150);
+    for (let s = 0; s < 120 && w.blobs.length > 2; s++) w.tick();
+    return w.blobs[1];
+  };
+  const crews = [1, 2, 3, 4].map((k) => Hand.crew(heavy(room(), k, 1000)));
+  check('a blob takes a hand for every spawn that went into it', crews.join() === '1,2,3,4', crews.join());
+
+  const light = room(), one = light.spawn(10, 1000, 150), h1 = new Hand(600, 40, 0), h2 = new Hand(620, 40, 1);
+  light.hands.push(h1, h2);
+  light.tick();
+  check('a lone spawn takes one hand, the other stays free', [h1.target, h2.target].filter((t) => t === one).length === 1);
+
+  // three hands on a blob of three, against one on its own
+  const tow = (n) => {
+    const w = room(), blob = heavy(w, 3, 1000);
+    for (let i = 0; i < n; i++) w.hands.push(new Hand(1100, 30 + i * 60, i));
+    let breaks = 0, most = 0, shared = false, had = w.hands.map(() => false);
+    for (let k = 0; k < 60 * 90; k++) {
+      w.tick();
+      if (!w.blobs.includes(blob)) return { k, breaks, most, shared };
+      w.hands.forEach((h, i) => { if (had[i] && !h.drag) breaks++; had[i] = !!h.drag; });
+      const holds = w.held.filter((d) => d.blob === blob);
+      most = Math.max(most, holds.length);
+      const pts = holds.flatMap((d) => d.points.map((p) => p.point));
+      if (new Set(pts).size < pts.length) shared = true;
+    }
+    return { k: Infinity, breaks, most, shared };
+  };
+  const alone = tow(1), crew = tow(3);
+  check('one hand alone keeps losing its hold on it', alone.breaks >= 5, alone.breaks + ' breaks, ' + secs(alone.k));
+  check('three hands all take hold of it at once', crew.most === 3, crew.most + ' at most');
+  check('side by side: no two holds share a point', !crew.shared);
+  check('and tow it in well ahead of one alone', crew.k < alone.k / 2, secs(crew.k) + ' against ' + secs(alone.k) + ', ' + crew.breaks + ' breaks');
 }
 
 // --- idle --------------------------------------------------------------------------
