@@ -59,7 +59,8 @@
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
-    let pfb = null;   // the upgrades menu's insides and each item's, drawn apart and copied through its skin (drawShop, drawInsides)
+    let pfb = null;   // each item's insides, drawn apart and copied through its skin (drawInsides)
+    let qfb = null;   // the upgrades menu's insides, drawn apart and copied through its skin (drawShop)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -69,6 +70,7 @@
       fb = new Framebuffer(W, H);
       cfb = new Framebuffer(W, H);
       pfb = new Framebuffer(W, H);
+      qfb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
       layout();
@@ -442,8 +444,13 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // Doodles' box is as wide as About's and BUBBLE of its height,
-    // with the bubble (below) in the middle of it and nothing else. in the others, lorem ipsum in the
+    // Doodles' box holds items as the work boxes do, one of them so far:
+    // bubble bob, whose o is the bubble's (below), a ring BOB of
+    // Doodles' o across and up, sitting on the baseline and bigger than
+    // the name round it. it is his item's bubble shut, so his item has no
+    // bubble round its caret and name; open, it grows out of the o into a
+    // box round them and the game under them, as wide as the box's
+    // insides and BUBBLE of About's box's height. in the others, lorem ipsum in the
     // tag's face, under the x at BODY size wide
     // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
     // a slideshow: the photos (SLIDES, js/about-photos.js) one at a time
@@ -510,7 +517,8 @@
       LOGO_WARBLE: true, // whether the logos wobble as the text does; a logo's own warble says otherwise
       LOGO_COLOURS: 8, // its own colours, black and the paper among them,
       PRODUCT_COLOURS: 16, // or this many for a photo of a thing rather than a flat logo
-      BUBBLE: 0.45,  // of the photo's box's height, the bubble's box's
+      BUBBLE: 0.45,  // of the photo's box's height, bubble bob's open box's
+      BOB: 0.5,      // of Doodles' o, across and up, bubble bob's o's
       FIRST: 1000,   // the text's seeds run from here, a thousand a paragraph, ten thousand a box
       CAP: 0.85,     // of the text's size, the caption's, no less than CAP_LEAST
       CAP_LEAST: 10, // world px to the em
@@ -551,7 +559,7 @@
     const LINK_SEP = ' | '; // between an item's links
 
     // each section: its word, what goes in its box (paragraphs of type,
-    // and the photo or not, or items, or the bubble) and, laid out, its
+    // and the photo or not, or items) and, laid out, its
     // letters and its box. every
     // place below is world px from the page's top as laid out, with every
     // box above it shut; off is how far down the boxes above have it now.
@@ -572,7 +580,9 @@
         { title: 'Upright' },
         { title: 'Website' },
       ] },
-      { title: 'Doodles',           bubble: true, o: 0 },
+      { title: 'Doodles',           photo: false, o: 0, items: [
+        { title: 'Bubble Bob', game: true },
+      ] },
       { title: 'Contact',           body: loremTypes, photo: false, o: 0 },
     ];
     const sections = SECTIONS.map((s, n) => ({
@@ -599,7 +609,7 @@
       // name's letters, its text's, its shut baseline, where its text is
       // cut from (clip) and how tall the text stands under that (span),
       // its bubble shut, round its caret and name (shut), and full, round
-      // its text open too (full), and its corners' radius (round), how far
+      // its text open too (full), each with its corners' radius, how far
       // it pushes the items under it open (ext: as far as its bubble grows
       // down, so the next bubble keeps the gap under this one open that it
       // kept under it shut), the box from its bubble's left round its
@@ -611,9 +621,10 @@
       // the box's bottom and right with every item shut. its links go on a
       // line of their own under its text, LINK_SEP between: linkType is
       // the line, and each link { label, url } is laid out with its letters
-      // and the box round them (hit)
+      // and the box round them (hit). game: it is bubble bob, his bubble
+      // shut his o and open the game (layoutItems)
       items: (s.items || []).map((x, i) => ({
-        title: x.title, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        title: x.title, game: !!x.game, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
         // js/logos.js, how big it may be of LOGO_W and LOGO_H, how many of
@@ -625,7 +636,7 @@
         logos: x.logos || [], logosAt: [],
         linkType: new Type((x.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
         open: false, p: 0, turn: 0, caret: null, letters: [], text: [], base: 0, clip: 0, span: 0, ext: 0, hit: null, shift: 0, right: 0, wide: 0,
-        shut: null, full: null, round: 0, skin: null,
+        shut: null, full: null, skin: null,
         warble: [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
           hz: hz * (0.8 + 0.4 * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e)),
           ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e + 4),
@@ -642,8 +653,10 @@
       slide: 0,
       show: null,
       photoAt: null,    // the shown slide's photo dithered, its top left and it as a letter that wobbles, { g, x, y, letter }, once it has loaded
-      // with the bubble, its world's place in the box, whole px, and its
-      // wobble, a letter's with nothing to draw: { x, y, w, h, letter }
+      // with bubble bob, the bubble's world's place in his open box, whole
+      // px, the text's size there, how far his caret's ink is in from its
+      // left, and its wobble, a letter's with nothing to draw:
+      // { x, y, w, h, size, inset, letter }
       room: null,
       // its warble: each edge its own sine, left and right at about the
       // letters' sway rate and top and bottom their bob's, rates and
@@ -917,15 +930,6 @@
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
-      if (s.bubble) {
-        // as wide as the photo's box and BUBBLE as tall, and the bubble's
-        // world its inside, within its outline
-        const like = sections.find((o) => o.photo && o.box.full), tall = BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * edge);
-        box.full = { x0, y0, x1, y1: y0 + tall, r: BOX.RADIUS * size };
-        const rx = Math.ceil(x0 + BOX.LINE), ry = Math.ceil(y0 + BOX.LINE);
-        s.room = { x: rx, y: ry, w: Math.floor(x1 - BOX.LINE) - rx, h: Math.floor(y0 + tall - BOX.LINE) - ry, size: bs, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
-        return;
-      }
       // the caption under the photo's frame, and how tall it stands with
       // its gap (capTall): as tall as the slide with the most lines has it,
       // so the frame is the same for every slide, and drop lines more. the
@@ -1025,7 +1029,13 @@
     // ITEM_PAD_X in from ix1 so the bubble fits. with every item shut the
     // box is only as big as its rows, SLACK past the widest, or its word if
     // that is wider, so it covers the word; it grows down by each item's
-    // bubble as it opens, and across to the widest text opening (grow)
+    // bubble as it opens, and across to the widest text opening (grow).
+    // bubble bob's o is a ring BOB of the box's word's o, its ink's left
+    // and bottom where his o's are, the glyphs after it pushed right to
+    // make room and his row down as far as it stands over the caps; the
+    // ring is his bubble shut, and open, his bubble is a box round his
+    // caret and name and the game under them, across the insides and
+    // BUBBLE of About's box's height, the bubble's world (room) inside it
     function layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1) {
       const seed = BOX.FIRST + 10000 * s.n, is = BOX.ITEM * bs, ik = is / TYPE.EM, bk = bs / TYPE.EM;
       // a bubble's padding across, and how far right its ink may reach
@@ -1037,17 +1047,41 @@
         it.letters = [];
         it.text = [];
         it.caret = null;
+        // bubble bob's o, its ring's size and how far its ink goes under the baseline
+        const og = it.game ? t.glyphs.find((gl) => gl.ch === 'o') : null, so = s.box.shut;
+        const ow = og ? BOX.BOB * (so.x1 - so.x0) : 0, oh = og ? BOX.BOB * (so.y1 - so.y0) : 0, below = og ? ik * (og.dy + og.g.h / 2) : 0;
+        if (og) base += Math.max(0, oh - below - BOX.ITEM_CAP * is);
         let nx = ix0 + bx; // the name's ink's left
         if (caretType.glyphs.length) {
           const gl = caretType.glyphs[0];
           it.caret = makeLetter(gl.g, ix0 + bx + ik * gl.g.w / 2, base + ik * gl.dy, seed + 3000 + 100 * i + 99, ik, WOBBLE);
           nx = ix0 + bx + ik * gl.g.w + BOX.CARET * is;
         }
-        const ox = nx + ik * t.left;
-        for (const gl of t.glyphs)
-          it.letters.push(makeLetter(gl.g, ox + ik * (gl.x + gl.dx), base + ik * gl.dy, seed + 3000 + 100 * i + gl.at, ik, WOBBLE));
-        it.hit = { x0: ix0, y0: base - ik * t.ascent, x1: ox + ik * t.right, y1: base + ik * t.descent };
+        const ox = nx + ik * t.left, push = og ? ow - ik * og.g.w : 0;
+        for (const gl of t.glyphs) if (gl !== og)
+          it.letters.push(makeLetter(gl.g, ox + ik * (gl.x + gl.dx) + (og && gl.at > og.at ? push : 0), base + ik * gl.dy, seed + 3000 + 100 * i + gl.at, ik, WOBBLE));
+        const ring = og ? { x0: ox + ik * (og.x + og.dx - og.g.w / 2), y0: base + below - oh, x1: ox + ik * (og.x + og.dx - og.g.w / 2) + ow, y1: base + below, r: Math.min(ow, oh) / 2 } : null;
+        it.hit = { x0: ix0, y0: Math.min(base - ik * t.ascent, ring ? ring.y0 : Infinity), x1: ox + ik * t.right + push, y1: base + ik * t.descent };
         it.right = it.hit.x1; // its furthest ink right, its text's too
+        if (ring) {
+          // shut, the ring; open, ITEM_PAD_Y over the ring and down
+          // BUBBLE of About's box's height, across to ix1, taking the
+          // box's right to its edge, and the room inside its outline
+          const like = sections.find((o) => o.photo && o.box.full), tall = BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * x0);
+          const fy = it.hit.y0 - BOX.ITEM_PAD_Y * is;
+          it.shut = ring;
+          it.full = { x0: ix0, y0: fy, x1: ix1, y1: fy + tall, r: BOX.ITEM_RADIUS * is };
+          it.right = ix1;
+          it.ext = it.full.y1 - it.shut.y1;
+          it.base = base;
+          it.clip = base;
+          it.span = 0;
+          it.logosAt = [];
+          const qx = Math.ceil(ix0 + BOX.LINE), qy = Math.ceil(fy + BOX.LINE);
+          s.room = { x: qx, y: qy, w: Math.floor(ix1 - BOX.LINE) - qx, h: Math.floor(fy + tall - BOX.LINE) - qy, size: bs, inset: ix0 + bx - qx, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
+          base += BOX.ROW * is;
+          return;
+        }
         // its logos that have loaded, each no more than its scale of LOGO_W
         // ems across or LOGO_H tall: wide, LOGO_GAP apart down a column right
         // of its text, a GUTTER on (and each its dx further) and level with
@@ -1124,9 +1158,8 @@
         // its bubble shut, ITEM_PAD_Y over the name's caps and under its
         // descenders and ITEM_PAD_X right of its ink, and full, as far right
         // of its furthest ink and under its text's bottom
-        it.shut = { x0: ix0, y0: base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is };
-        it.full = { x0: ix0, y0: it.shut.y0, x1: Math.max(it.shut.x1, it.right + bx), y1: Math.max(it.shut.y1, bottom + bx) };
-        it.round = BOX.ITEM_RADIUS * is;
+        it.shut = { x0: ix0, y0: base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is, r: BOX.ITEM_RADIUS * is };
+        it.full = { x0: ix0, y0: it.shut.y0, x1: Math.max(it.shut.x1, it.right + bx), y1: Math.max(it.shut.y1, bottom + bx), r: BOX.ITEM_RADIUS * is };
         it.ext = it.full.y1 - it.shut.y1;
         base += BOX.ROW * is;
       });
@@ -1139,8 +1172,9 @@
       s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       grow(s);
       // each item's skin settled where its bubble is now: laid out again,
-      // it is put straight there, as a box's is
-      for (const it of s.items) it.skin = new Skin(itemAt(it), BOX.ITEM_SPREAD);
+      // it is put straight there, as a box's is. bubble bob's opens as big
+      // as a box, so it bows as a box's skin does
+      for (const it of s.items) it.skin = new Skin(itemAt(it), it.game ? SKIN.SPREAD : BOX.ITEM_SPREAD);
     }
 
     // a box's accordions where they have got to: each item pushed down by
@@ -1279,8 +1313,9 @@
     // the window (x0, y0) to (x1, y1), world px on the screen: the window's
     // rows cleared, the letters near enough it to show, the shown slide's
     // caption and count and the slideshow's < and > among them, the photo
-    // and the bubble if they reach it, the x and the items, each in its
-    // bubble, the ones hover is on in their colours (hover null, none)
+    // if it reaches it, the items, each in its bubble, the bubble's world
+    // while it is on its way between Doodles' o and bubble bob's, and the
+    // x, the ones hover is on in their colours (hover null, none)
     function drawInsides(s, t, sy, x0, y0, x1, y1, hover) {
       const box = s.box;
       cfb.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
@@ -1297,38 +1332,13 @@
         for (const L of f.back.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(-1));
         for (const L of f.on.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(1));
       }
-      // the photo when its box, 2 px more all round, reaches the window,
-      // and the bubble when any skin in its world does where it is drawn
-      // (bubbleAt), a stroke and 4 px more for its wobble
+      // the photo when its box, 2 px more all round, reaches the window
       const ph = s.photoAt;
       if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, cfb);
-      if (s.room && bubble) {
-        // its skins and its hands, HAND_REACH round a hand's palm
-        let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
-        for (const o of world.blobs) for (const p of o.points) {
-          bx0 = Math.min(bx0, p.x);
-          by0 = Math.min(by0, p.y);
-          bx1 = Math.max(bx1, p.x);
-          by1 = Math.max(by1, p.y);
-        }
-        for (const h of world.hands) {
-          bx0 = Math.min(bx0, h.x - HAND_REACH);
-          by0 = Math.min(by0, h.y - HAND_REACH);
-          bx1 = Math.max(bx1, h.x + HAND_REACH);
-          by1 = Math.max(by1, h.y + HAND_REACH);
-        }
-        const b = bubbleAt(), lx = bubble.lockX, ly = bubble.lockY, m = BUBBLE_LINE + 4;
-        if (b.x + b.k * (bx0 - lx) - m < x1 && b.x + b.k * (bx1 - lx) + m > x0 && b.y + b.k * (by0 - ly) - sy - m < y1 && b.y + b.k * (by1 - ly) - sy + m > y0) {
-          const view = roomView(cfb, t, sy);
-          drawBubble(view, () => {
-            for (const d of world.held) drawDrag(view, d);
-            drawHands(sy);
-          });
-        }
-        if (sub) drawSubtitle(t, sy);
-        drawShop(t, sy, hover);
-      }
-      if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
+      // the bubble's world goes into bubble bob's insides, through his
+      // skin, only while Doodles' box is at rest open; otherwise it is on
+      // its way between the two o's, and goes over everything else here
+      const home = s === bubbleHome && box.open && box.p === 1;
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, all into pfb over its
@@ -1336,7 +1346,9 @@
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
       // item whose skin's box, LINE + 1 px more all round, misses the
-      // window's rows is left out
+      // window's rows is left out. bubble bob's insides are the bubble's
+      // world, and his caret and name go over his skin, as they are
+      // outside it while it is his o
       for (const it of s.items) {
         if (!it.skin) continue;
         const b = it.skin.bounds(), m = BOX.LINE + 1;
@@ -1344,6 +1356,18 @@
         const d = it.shift - sy;
         const v = hover && hover.it === it && !hover.link ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
+        if (it.game) {
+          if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
+          const pts = it.skin.screen(-sy), n = pts.length;
+          cfb.fillPolygon(pts, pfb);
+          for (let i = 0; i < n; i++) {
+            const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+            cfb.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
+          }
+          if (it.caret) it.caret.draw(t, d, cfb, it.turn * Math.PI / 2, v);
+          for (const L of it.letters) L.draw(t, d, cfb, 0, v);
+          continue;
+        }
         if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, pfb, 0, v);
         if (it.p > 0) {
@@ -1364,6 +1388,70 @@
           cfb.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
         }
       }
+      if (s.room && bubble && !home) drawGame(cfb, t, sy, x0, y0, x1, y1, hover);
+      if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
+    }
+
+    // the bubble's world sy up into into in cicada's layers: the small
+    // bubbles, the hands' holds' lines and the hands where they are in the
+    // room (inRoom), there all along for bubble bob's box to wipe in, then
+    // the bubble where it is drawn (bubbleAt), filled with paper over them,
+    // with its face over it; then his subtitle and the shop. each lot goes
+    // down only when its skins, and a hand HAND_REACH round its palm, reach
+    // the window (x0, y0) to (x1, y1) where they are drawn, a stroke and 4
+    // px more for the wobble. while he is shut, the bubble alone, as the
+    // rest are inside his o
+    function drawGame(into, t, sy, x0, y0, x1, y1, hover) {
+      const lx = bubble.lockX, ly = bubble.lockY, m = BUBBLE_LINE + 4, all = bubbleItem.p > 0;
+      // whether the box (bx0, by0) to (bx1, by1) in the world's px reaches
+      // the window drawn with its lock at, as roomView puts it
+      const shows = (at, bx0, by0, bx1, by1) => at.x + at.k * (bx0 - lx) - m < x1 && at.x + at.k * (bx1 - lx) + m > x0 &&
+        at.y + at.k * (by0 - ly) - sy - m < y1 && at.y + at.k * (by1 - ly) - sy + m > y0;
+      if (all) {
+        let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+        for (let i = 0; i < world.blobs.length; i++) {
+          const o = world.blobs[i];
+          if (o === bubble) continue;
+          for (let j = 0; j < o.points.length; j++) {
+            const p = o.points[j];
+            bx0 = Math.min(bx0, p.x);
+            by0 = Math.min(by0, p.y);
+            bx1 = Math.max(bx1, p.x);
+            by1 = Math.max(by1, p.y);
+          }
+        }
+        for (const h of world.hands) {
+          bx0 = Math.min(bx0, h.x - HAND_REACH);
+          by0 = Math.min(by0, h.y - HAND_REACH);
+          bx1 = Math.max(bx1, h.x + HAND_REACH);
+          by1 = Math.max(by1, h.y + HAND_REACH);
+        }
+        const r = inRoom();
+        if (shows(r, bx0, by0, bx1, by1)) {
+          const still = roomView(into, t, sy, r);
+          for (const o of world.blobs) if (o !== bubble) drawSkin(still, o);
+          for (const d of world.held) drawDrag(still, d);
+          drawHands(sy, into);
+        }
+      }
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (let j = 0; j < bubble.points.length; j++) {
+        const p = bubble.points[j];
+        bx0 = Math.min(bx0, p.x);
+        by0 = Math.min(by0, p.y);
+        bx1 = Math.max(bx1, p.x);
+        by1 = Math.max(by1, p.y);
+      }
+      const b = bubbleAt();
+      if (shows(b, bx0, by0, bx1, by1)) {
+        const view = roomView(into, t, sy, b);
+        drawSkin(view, bubble);
+        face.draw(view);
+        // beard.draw(view);
+      }
+      if (!all) return;
+      if (sub) drawSubtitle(t, sy, into);
+      drawShop(t, sy, hover, into);
     }
 
     // where a section's box is at p, from the o (0) to open (1), as
@@ -1384,13 +1472,13 @@
     }
 
     // where an item's bubble is at its p, from shut (0) to full (1), as
-    // { x0, y0, x1, y1, r }: every edge that much of the way from one to
-    // the other, pushed down by the texts above it (shift), and, given a
-    // time t, each edge warbled WARBLE px either way on its own sine, as
-    // boxAt has the boxes
+    // { x0, y0, x1, y1, r }: every edge and the corners' radius that much
+    // of the way from one to the other, pushed down by the texts above it
+    // (shift), and, given a time t, each edge warbled WARBLE px either way
+    // on its own sine, as boxAt has the boxes
     function itemAt(it, t) {
-      const a = it.shut, b = it.full, c = { r: it.round };
-      for (const k of ['x0', 'y0', 'x1', 'y1']) c[k] = a[k] + (b[k] - a[k]) * it.p;
+      const a = it.shut, b = it.full, c = {};
+      for (const k of ['x0', 'y0', 'x1', 'y1', 'r']) c[k] = a[k] + (b[k] - a[k]) * it.p;
       c.y0 += it.shift;
       c.y1 += it.shift;
       if (t !== undefined) {
@@ -1429,8 +1517,10 @@
     // finger) or anywhere in the strip across the box's top (short of the
     // photo's frame up there), { s, close }; the slideshow's < or >, a
     // little round it as the x is, or the photo's frame, { s, slide }, -1
-    // for the < and 1 for the rest; one of its items, its caret, its name
-    // or right of them to the box's edge, a little above and below,
+    // for the < and 1 for the rest; the shop's menu, while bubble bob is
+    // open; one of its items, its caret, its name
+    // or right of them to the box's edge (bubble bob's only as far as his
+    // name, so the game under it is free), a little above and below,
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; a word whose box is not
     // open, a little round it, { s }; or null
@@ -1444,7 +1534,7 @@
           if (!c) continue;
           const mx = Math.max(4, (20 - c.w) / 2), my = Math.max(4, (20 - c.h) / 2);
           if (x >= c.x - mx && x <= c.x + c.w + mx && py >= c.y - my && py <= c.y + c.h + my) return { s, close: true };
-          const ui = s === bubbleHome && shopNow();
+          const ui = s === bubbleHome && bubbleItem.open && shopNow();
           if (ui) {
             const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && py >= r.y0 - m && py <= r.y1 + m;
             if (inside(ui.shut, 2)) return { s, shop: true, menu: true };
@@ -1465,7 +1555,7 @@
           }
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
-            if (x >= h.x0 - 4 && x <= b.x1 && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            if (x >= h.x0 - 4 && x <= (it.game ? h.x1 + 4 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
               if (!k) continue;
@@ -1559,7 +1649,7 @@
     // in what the name leaves. the menu is off for now; true brings it
     // back.
     //
-    // the bubble's world is its room in Doodles' box (layoutBox),
+    // the bubble's world is its room in bubble bob's box (layoutItems),
     // the bubble locked to its middle. the bubble is made here the first
     // time there is a room; after that a resize carries its lock, skin,
     // face and all to the new middle, so nothing flies across. with no room
@@ -1620,7 +1710,7 @@
     }
 
     // --- the bubble --------------------------------------------------------------
-    // Doodles' box holds cicada's bubble, its face at 5/3 its art's
+    // bubble bob's box, in Doodles', holds cicada's bubble, its face at 5/3 its art's
     // size and the skin drawn in tighter round it than cicada's: a ring of
     // verlet points (js/softbody.js) locked to the middle of the box, which
     // gives when pulled and wobbles home. it lives in a world the size of
@@ -1638,10 +1728,14 @@
     // art goes down 1:1 on a bubble of FACE.DEFAULT_RADIUS (js/face.js) and
     // scales with the radius, each feature by its own size, drawn as line
     // art (roomView), so its strokes are BUBBLE_LINE px at any size, as the
-    // skin's are. shut, it is drawn shrunk into the o, its skin under the
-    // o's ring, so its face shows through the o; as the box opens it is
-    // drawn growing out of the o to its room's middle (bubbleAt), its world
-    // and its physics as they are. while the box is open its world spawns
+    // skin's are. with Doodles' box shut, it is drawn shrunk into Doodles'
+    // o, its skin under the o's ring, so its face shows through the o; as
+    // the box opens it is drawn going over to bubble bob's o, half as big,
+    // and sits in that one the same way; as his box opens it is drawn
+    // growing out of his o to its room's middle (bubbleAt), its world and
+    // its physics as they are. the rest of its world, the small bubbles
+    // and the hands, is drawn where it is in the room all along (inRoom),
+    // so the boxes wipe it in as they open. while his box is open its world spawns
     // smaller bubbles, skins like its own with no face, one every
     // couple of seconds, a few at most, each drifting a little as it comes;
     // dragged onto the bubble, one is eaten, and the bubble keeps its 32
@@ -1654,31 +1748,48 @@
     const BUBBLE_R = FACE.DEFAULT_RADIUS * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
     // let beard = null;
-    const bubbleHome = sections.find((s) => s.bubble) || null; // the section whose box it is in
+    const bubbleHome = sections.find((s) => s.items.some((it) => it.game)) || null; // the section whose box it is in
+    const bubbleItem = bubbleHome ? bubbleHome.items.find((it) => it.game) : null; // bubble bob, the item it is in
 
-    // where the bubble's lock is drawn, world px on the page as laid out,
-    // and how much it is drawn scaled, { x, y, k }, as far as its box is
-    // open: shut, in the middle of its o, its skin at rest (BUBBLE_R
-    // puffed, PUFFED) as big round as the o's ring is across its longer
-    // way, so it sits under the ring there and the porthole cuts it off
-    // under the ring the other way; open, its room's middle at its own
-    // size; between, that far from one to the other, and past open as the
-    // box swings past it
-    function bubbleAt() {
-      const r = bubbleHome.room, o = bubbleHome.box.shut, q = 1 - bubbleHome.box.p;
-      const hx = r.x + bubble.lockX, hy = r.y + bubble.lockY, k = Math.max(o.x1 - o.x0, o.y1 - o.y0) / 2 / (BUBBLE_R * PUFFED);
-      return { x: hx + ((o.x0 + o.x1) / 2 - hx) * q, y: hy + ((o.y0 + o.y1) / 2 - hy) * q, k: 1 - (1 - k) * q };
+    // whether the game is on: Doodles' box open and bubble bob open in it
+    function playing() {
+      return !!bubbleHome && bubbleHome.box.open && bubbleItem.open;
     }
 
-    // a framebuffer the bubble draws into as into its world: what goes into
-    // it at its world's px lands in into at the page's, its box dy up,
-    // scaled about its lock and its lock moved as bubbleAt has it, and
-    // warbled about its lock by its room's letter. the face's sprites go
+    // where the bubble's lock is drawn, world px on the page as laid out,
+    // and how much it is drawn scaled, { x, y, k }. in an o, in its middle,
+    // its skin at rest (BUBBLE_R puffed, PUFFED) as big round as the o's
+    // ring is across its longer way, so it sits under the ring there and
+    // the porthole cuts it off under the ring the other way; open, its
+    // room's middle at its own size. as far as bubble bob is open it goes
+    // from his o to the room's middle, and as far as Doodles' box is open
+    // from Doodles' o to there, and past it as the box swings past open
+    function bubbleAt() {
+      const r = bubbleHome.room, f = bubbleItem.p, p = bubbleHome.box.p;
+      const at = (o) => ({ x: (o.x0 + o.x1) / 2, y: (o.y0 + o.y1) / 2, k: Math.max(o.x1 - o.x0, o.y1 - o.y0) / 2 / (BUBBLE_R * PUFFED) });
+      const a = at(bubbleHome.box.shut), o = at(bubbleItem.shut);
+      const b = { x: o.x + (r.x + bubble.lockX - o.x) * f, y: o.y + (r.y + bubble.lockY - o.y) * f, k: o.k + (1 - o.k) * f };
+      return { x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, k: a.k + (b.k - a.k) * p };
+    }
+
+    // where the bubble's lock is in its room on the page as laid out, at
+    // its own size, { x, y, k } as bubbleAt has it: where everything in its
+    // world but the bubble is drawn, there all along whatever the boxes do
+    function inRoom() {
+      const r = bubbleHome.room;
+      return { x: r.x + bubble.lockX, y: r.y + bubble.lockY, k: 1 };
+    }
+
+    // a framebuffer the bubble's world draws into as into the world: what
+    // goes into it at its world's px lands in into at the page's, its box
+    // dy up, scaled about its lock and its lock moved as b has it ({ x, y,
+    // k }, bubbleAt's unless given), and warbled about its lock by its
+    // room's letter. the face's sprites go
     // down as line art (Framebuffer.strokeSprite), so at any size their
     // strokes are BUBBLE_LINE px, as the skin's are; a line is as thick as
     // it is asked, 1 px unless told
-    function roomView(into, t, dy) {
-      const w = bubbleHome.room.letter.pose(t), b = bubbleAt(), lx = bubble.lockX, ly = bubble.lockY;
+    function roomView(into, t, dy, b = bubbleAt()) {
+      const w = bubbleHome.room.letter.pose(t), lx = bubble.lockX, ly = bubble.lockY;
       const c = b.k * w.s * Math.cos(w.a), n = b.k * w.s * Math.sin(w.a), ox = b.x + w.x, oy = b.y - dy + w.y;
       const at = (x, y) => [ox + c * (x - lx) - n * (y - ly), oy + n * (x - lx) + c * (y - ly)];
       return {
@@ -1744,17 +1855,6 @@
       }
     }
 
-    // the bubble's world through view in cicada's layers: the small bubbles,
-    // then whatever under draws (the hands and their holds' lines), then the
-    // bubble, filled with paper over them, with its face over it
-    function drawBubble(view, under) {
-      for (const b of world.blobs) if (b !== bubble) drawSkin(view, b);
-      if (under) under();
-      drawSkin(view, bubble);
-      face.draw(view);
-      // beard.draw(view);
-    }
-
     // --- the subtitles -----------------------------------------------------------
     // what the bubble says (js/voice.js), in the box text's face at its
     // size, as words beside him: one syllable more each time he begins one,
@@ -1762,13 +1862,13 @@
     // soon as he says another or his box shuts. a line goes somewhere round
     // him at random (js/subtitle.js), GAP of its size clear of his skin as
     // it is when he starts, inside his room EDGE of its size in from the
-    // box and off the box's x, and stays there; with nowhere it fits, it
+    // box and off bubble bob's caret and name, and stays there; with nowhere it fits, it
     // does not show. its letters warble more than the box text's, each its
     // own way: WOBBLE's sway, bob, breathe and tilt, depth and rate, each
     // times its own 1 ± SPREAD at random
     const SUBS = {
       GAP: 0.6,     // of its size, from his skin to the line's ink
-      EDGE: 0.6,    // of its size, from the room's edge to the line's ink, and round the x
+      EDGE: 0.6,    // of its size, from the room's edge to the line's ink, and round bubble bob's caret and name
       LINGER: 0.75, // seconds it stays once he is done
       SPREAD: 0.5,
       WOBBLE: { SWAY_PX: 0.5, SWAY_HZ: 1.2, BOB_PX: 0.5, BOB_HZ: 0.7, BREATHE: 0.03, BREATHE_HZ: 0.9, TILT_RAD: 0.03, TILT_HZ: 0.5 },
@@ -1787,7 +1887,7 @@
       const room = bubbleHome.room, size = room.size, k = size / TYPE.EM, edge = SUBS.EDGE * size;
       let reach = 0; // his skin's furthest from his lock
       for (const p of bubble.points) reach = Math.max(reach, Math.hypot(p.x - bubble.lockX, p.y - bubble.lockY));
-      const x = bubbleHome.box.close, keep = x ? [{ x0: x.x - edge, y0: x.y - edge, x1: x.x + x.w + edge, y1: x.y + x.h + edge }] : [];
+      const h = bubbleItem.hit, keep = [{ x0: h.x0 - edge, y0: h.y0 - edge, x1: h.x1 + edge, y1: h.y1 + edge }];
       const ui = shopNow();
       if (ui) {
         const r = menu.p > 0 || menu.open ? ui.full : ui.shut;
@@ -1813,26 +1913,26 @@
     function stepSubtitle() {
       if (Voice.said !== subSaid) {
         subSaid = Voice.said;
-        sub = bubble && bubbleHome.room && bubbleHome.box.open && Voice.line ? makeSubtitle(Voice.line) : null;
+        sub = bubble && bubbleHome.room && playing() && Voice.line ? makeSubtitle(Voice.line) : null;
       }
-      if (sub && (!Voice.line || !bubbleHome.box.open || bubbleHome.room !== sub.room ||
+      if (sub && (!Voice.line || !playing() || bubbleHome.room !== sub.room ||
           (Voice.endedAt !== null && Date.now() - Voice.endedAt > SUBS.LINGER * 1000))) sub = null;
     }
 
-    // the subtitle sy up into cfb: as many syllables as he has begun, every
+    // the subtitle sy up into into: as many syllables as he has begun, every
     // one once he is done
-    function drawSubtitle(t, sy) {
+    function drawSubtitle(t, sy, into) {
       const n = Voice.endedAt !== null ? sub.ends.length : Math.min(Voice.heard, sub.ends.length);
       if (!n) return;
       const end = sub.ends[n - 1];
-      for (const s of sub.letters) if (s.at < end) s.L.draw(t, -sy, cfb);
+      for (const s of sub.letters) if (s.at < end) s.L.draw(t, -sy, into);
     }
 
     // --- the shop ------------------------------------------------------------------
-    // Doodles' box sells drag strength, hands, spawn rate, max bubbles
+    // bubble bob's box sells drag strength, hands, spawn rate, max bubbles
     // and a random voice for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
     // shown to two places, in a menu of its own in the room's top right, as
-    // far in from its top and right as the x is from its left. shut, the
+    // far in from its top and right as his caret's ink is from its left. shut, the
     // menu is a button: a rounded rect drawn as the box is, filled with
     // paper over whatever drifts under it and outlined LINE px from point to
     // point, RADIUS of its text's size round its corners, saying with a
@@ -1861,7 +1961,7 @@
     // (js/hands.js), drawn as the pointer is (js/cursor.js), a fist while
     // it holds one, its hold's line dashed as the pointer's is, over the
     // small bubbles and under the bubble, as cicada layered them
-    // (drawBubble). HAND_REACH is how far its art reaches from its palm.
+    // (drawGame). HAND_REACH is how far its art reaches from its palm.
     const SHOP_UI = {
       KEYS: ['drag', 'hands', 'spawn', 'max', 'voice'], TITLE: 'upgrades', BAR: '|',
       LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', voice: 'randomize voice' },
@@ -1888,14 +1988,14 @@
     };
 
     // the menu laid out, again whenever the room or what it says changes;
-    // null with no room or no x
+    // null with no room
     function shopNow() {
-      const room = bubbleHome && bubbleHome.room, c = bubbleHome && bubbleHome.box.close;
-      if (!room || !c) return null;
+      const room = bubbleHome && bubbleHome.room;
+      if (!room) return null;
       const U = SHOP_UI, labels = U.KEYS.map((k) => U.LABELS[k] + ' · ' + shop.price(k).toFixed(2));
       const count = shop.bubbles.toFixed(2) + ' bubbles', key = labels.join('|') + '|' + count;
       if (shopUI && shopUI.room === room && shopUI.key === key) return shopUI;
-      const size = Math.max(BOX.CAP_LEAST, BOX.CAP * room.size), k = size / TYPE.EM, inset = c.x - room.x;
+      const size = Math.max(BOX.CAP_LEAST, BOX.CAP * room.size), k = size / TYPE.EM, inset = room.inset;
       const type = (text) => {
         let t = shopTypes.get(text);
         if (!t) shopTypes.set(text, t = new Type(text, () => document.createElement('canvas'), TAG.FACE));
@@ -1999,33 +2099,33 @@
       return pts;
     }
 
-    // the menu sy up into cfb, hover what the pointer is on: its header and,
+    // the menu sy up into into, hover what the pointer is on: its header and,
     // while it is open at all, its buttons, each ring outlined LINE px from
-    // point to point, drawn into pfb over the skin's box; then pfb copied
-    // into cfb through the skin and the skin outlined over it, as drawBox
+    // point to point, drawn into qfb over the skin's box; then qfb copied
+    // into into through the skin and the skin outlined over it, as drawBox
     // does a box
-    function drawShop(t, sy, hover) {
+    function drawShop(t, sy, hover, into) {
       const ui = shopNow();
       if (!ui || !menu.skin) return;
       const v = hover && hover.menu ? HOVER_ITEM : 1, box = menu.skin.bounds();
-      pfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
-      for (const L of ui.header.count) L.draw(t, -sy, pfb, 0, v);
-      for (const L of ui.header.bar) L.draw(t, -sy, pfb, 0, v);
-      if (ui.header.caret) ui.header.caret.draw(t, -sy, pfb, menu.turn * Math.PI / 2, v);
-      for (const L of ui.header.title) L.draw(t, -sy, pfb, 0, v);
+      qfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
+      for (const L of ui.header.count) L.draw(t, -sy, qfb, 0, v);
+      for (const L of ui.header.bar) L.draw(t, -sy, qfb, 0, v);
+      if (ui.header.caret) ui.header.caret.draw(t, -sy, qfb, menu.turn * Math.PI / 2, v);
+      for (const L of ui.header.title) L.draw(t, -sy, qfb, 0, v);
       if (menu.p > 0) for (const b of ui.buttons) {
         const bv = hover && hover.buy === b.key ? HOVER_LINK : 1, n = b.ring.length;
         for (let i = 0; i < n; i++) {
           const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
-          pfb.line(p.x, p.y - sy, q.x, q.y - sy, bv, BOX.LINE);
+          qfb.line(p.x, p.y - sy, q.x, q.y - sy, bv, BOX.LINE);
         }
-        for (const L of b.letters) L.draw(t, -sy, pfb, 0, bv);
+        for (const L of b.letters) L.draw(t, -sy, qfb, 0, bv);
       }
       const pts = menu.skin.screen(-sy), n = pts.length;
-      cfb.fillPolygon(pts, pfb);
+      into.fillPolygon(pts, qfb);
       for (let i = 0; i < n; i++) {
         const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
-        cfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
+        into.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
       }
     }
 
@@ -2043,25 +2143,26 @@
       helpers.push({ hand, cursor: new Cursor() });
     }
 
-    // the hands sy up into cfb, each where its world has it as the bubble
-    // is drawn (bubbleAt)
-    function drawHands(sy) {
+    // the hands sy up into into, each where its world has it in the room,
+    // as the small bubbles are drawn (inRoom)
+    function drawHands(sy, into) {
       if (!helpers.length) return;
-      const b = bubbleAt();
+      const room = bubbleHome.room;
       for (const { hand, cursor } of helpers) {
-        cursor.moveTo(b.x + (hand.x - bubble.lockX) * b.k, b.y + (hand.y - bubble.lockY) * b.k - sy);
-        cursor.draw(cfb);
+        cursor.moveTo(room.x + hand.x, room.y + hand.y - sy);
+        cursor.draw(into);
       }
     }
 
     // a point in world px on the screen as its world's px, wherever the page
     // has scrolled to, the boxes have pushed the bubble's and its box has it
-    // drawn (bubbleAt), so a press lands on the bubble where it is drawn; as
-    // it is with no room
+    // drawn (bubbleAt), so a press lands on the bubble where it is drawn,
+    // or, while a small bubble is held, where the room is (inRoom), so it
+    // follows the pointer where it is drawn; as it is with no room
     function toRoom(p) {
       const r = bubbleHome && bubbleHome.room;
       if (!r) return p;
-      const b = bubbleAt(), y = p.y + scrolled() - bubbleHome.off;
+      const b = world.drag && world.drag.blob !== bubble ? inRoom() : bubbleAt(), y = p.y + scrolled() - bubbleHome.off;
       return { x: bubble.lockX + (p.x - b.x) / b.k, y: bubble.lockY + (y - b.y) / b.k };
     }
 
@@ -2133,7 +2234,7 @@
     const cursor = new Cursor();
 
     // --- the drag ----------------------------------------------------------------
-    // a press near the skin, while its box is open and the press presses
+    // a press near the skin, while bubble bob's box is open and the press presses
     // nothing else, takes hold of its nearest point and two either
     // side and pulls them toward the pointer, and so does a press near one
     // of the tag's bubbles that presses nothing else, until the press lifts or the
@@ -2155,7 +2256,7 @@
       cursor.press();
       pointerAt = p;
       const q = toRoom(p);
-      grabbed = !!(bubbleHome && bubbleHome.box.open && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
+      grabbed = !!(playing() && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
       if (grabbed && world.drag.blob === bubble) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
       const b = !grabbed && !hitAt(p.x, p.y) && tagBubbleAt(p.x, p.y);
       if (b) grabbed = b.world.grab(p.x, p.y);
@@ -2417,7 +2518,7 @@
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
-      if (bubble) world.spawning = bubbleHome.box.open;
+      if (bubble) world.spawning = playing();
       world.step(now);
       // the bubble, having eaten, strikes one of the name's notes at random
       // at once (js/piano.js) and a moment later thanks whoever fed him
@@ -2469,7 +2570,9 @@
       for (const L of letters) L.draw(t, 0, fb, 0, lit && L === lit.L ? lit.v : undefined);
       for (const b of tagBubbles) drawTagBubble(b);
       if (SHOW_DAEDALUS && panel) panel.draw();
-      if (bubble && bubbleHome.room) drawDrag(roomView(fb, t, sy - bubbleHome.off), world.drag);
+      // the pointer's hold's line, from the skin where it is drawn: the
+      // bubble's as bubbleAt has it, a small bubble's in the room
+      if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
       for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
       cursor.draw(fb);
       fb.present(ctx);
