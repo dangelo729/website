@@ -450,7 +450,7 @@
     // the name round it. it is his item's bubble shut, so his item has no
     // bubble round its caret and name; open, it grows out of the o into a
     // box round them and the game under them, as wide as the box's
-    // insides and BUBBLE of About's box's height. in the others, lorem ipsum in the
+    // insides and BUBBLE of About's box's height. in the others, their text in the
     // tag's face, under the x at BODY size wide
     // (no wider than MEASURE) and at PHONE size stacked, and, in About's,
     // a slideshow: the photos (SLIDES, js/about-photos.js) one at a time
@@ -564,13 +564,23 @@
     // place below is world px from the page's top as laid out, with every
     // box above it shut; off is how far down the boxes above have it now.
     // o is which of the word's o's, from 0, its shut box is: that o is
-    // drawn as the box, not as a letter
+    // drawn as the box, not as a letter. an item's body is its text, a
+    // paragraph each, the role and its years first; without one, lorem ipsum
     const SECTIONS = [
       { title: 'About',             body: loremTypes, photo: true,  o: 0 },
       { title: 'Professional work', photo: false, o: 0, items: [
-        { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
-        { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
-        { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
+        { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']], body: [
+          'Software Engineer, 2025–present',
+          'I build SoundBase, a live-audio app for touring crews and audio engineers, with Show Code at Sennheiser. I led its integration of Spectera, Sennheiser\'s wideband wireless system, built its device telemetry recording system, overhauled its TV channel API, and plenty more.',
+        ] },
+        { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']], body: [
+          'Lead Designer, 2023–2025',
+          'I designed toy instruments with the company\'s owner and wrote the firmware and DSP they run on. I led the software for Reverse the Curse, a lo-fi recorder that has sold over a thousand units.',
+        ] },
+        { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']], body: [
+          'Product Designer and Software Engineer, 2024–2025',
+          'I designed a new flagship instrument with the company\'s owner: its circuit boards and its firmware, from a custom driver for the SGTL5000 audio codec up to the interface. I also led a small team of assemblers manufacturing existing products.',
+        ] },
       ] },
       { title: 'Personal work',     photo: false, o: 0, items: [
         { title: 'Cicada' },
@@ -583,7 +593,11 @@
       { title: 'Doodles',           photo: false, o: 0, items: [
         { title: 'Bubble Bob', game: true },
       ] },
-      { title: 'Contact',           body: loremTypes, photo: false, o: 0 },
+      { title: 'Contact',           photo: false, o: 0, body: [
+        'Feel free to reach out!',
+        'peterdangelo729@gmail.com',
+        '+1 704-941-4838',
+      ].map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE)) },
     ];
     const sections = SECTIONS.map((s, n) => ({
       ...s,
@@ -625,6 +639,7 @@
       // shut his o and open the game (layoutItems)
       items: (s.items || []).map((x, i) => ({
         title: x.title, game: !!x.game, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        body: x.body ? x.body.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE)) : loremTypes,
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
         // js/logos.js, how big it may be of LOGO_W and LOGO_H, how many of
@@ -1022,8 +1037,8 @@
 
     // a box's items down it from top, under the x: each its caret, its ink
     // ITEM_PAD_X ems in from ix0, and its name CARET ems on, at ITEM of the
-    // text's size bs and ROW ems apart, and its text (lorem, as the other
-    // boxes') under its name and indented to it, there all along but cut
+    // text's size bs and ROW ems apart, and its text (its body) under its
+    // name and indented to it, there all along but cut
     // off where the accordion has got to, and its bubble, from ix0, round
     // its caret and name shut and round its text too open, its ink kept
     // ITEM_PAD_X in from ix1 so the bubble fits. with every item shut the
@@ -1122,7 +1137,7 @@
           lx = x + a.w + BOX.LOGO_GAP * bs;
         }
         if (arts.length && !beside) tb = logoBottom + 0.9 * bs + 0.75 * bs;
-        loremTypes.forEach((pt, p) => {
+        it.body.forEach((pt, p) => {
           for (const line of wrapType(pt, tw / bk)) {
             it.right = Math.max(it.right, nx + bk * (line.right - line.left));
             for (const gl of line.glyphs)
