@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # the text editor's server: serves the repo so tools/text/editor.html can
-# load ../../js/text.js and show the page beside its fields, and writes
-# js/text.js when the editor saves (a POST to /save with the file's text as
-# the body). local only.
+# load ../../js/text.js and ../../js/icons.js and show the page beside its
+# fields, and writes both when the editor saves: js/text.js on a POST to
+# /save and js/icons.js on a POST to /icons, each with the file's text as
+# the body. local only.
 #
 #   python3 tools/text/serve.py             opens the editor in the browser
 #   python3 tools/text/serve.py --no-open   serves it, opens nothing
@@ -13,7 +14,7 @@ import threading
 import webbrowser
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-TEXT = os.path.join(ROOT, 'js', 'text.js')
+SAVES = {'/save': 'js/text.js', '/icons': 'js/icons.js'}  # the file each save writes, from the repo root
 PORT = 8789
 URL = f'http://127.0.0.1:{PORT}/tools/text/editor.html'
 
@@ -28,14 +29,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_POST(self):
-        if self.path != '/save':
+        name = SAVES.get(self.path)
+        if not name:
             self.send_error(404)
             return
         n = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(n)
-        with open(TEXT, 'wb') as f:
+        with open(os.path.join(ROOT, name), 'wb') as f:
             f.write(body)
-        print(f'wrote js/text.js ({n} bytes)', flush=True)
+        print(f'wrote {name} ({n} bytes)', flush=True)
         self.send_response(200)
         self.send_header('Content-Type', 'text/plain')
         self.end_headers()
