@@ -1951,9 +1951,9 @@
     // does, with the menu's insides, drawn apart (pfb), copied through the
     // skin, so it wipes the list in as it grows. its caret turns from > to v as it opens, as an
     // item's does, and a press on the header shuts it. under the pointer
-    // the menu's outline, its caret and its words are in the items' hover
-    // colour, and a button's outline and words in the links' (the
-    // musician's). a press on a button buys a level: drag strength pulls every
+    // the menu's outline, its caret and its words are in the links' hover
+    // colour (the musician's), and a button's outline and words in the
+    // words' (the inventor's). a press on a button buys a level: drag strength pulls every
     // held skin in the bubble's world harder, spawn rate spawns small
     // bubbles there more often, max bubbles lets it hold more at once,
     // randomize voice gives the bubble a new voice (js/voice.js), and
@@ -2107,14 +2107,14 @@
     function drawShop(t, sy, hover, into) {
       const ui = shopNow();
       if (!ui || !menu.skin) return;
-      const v = hover && hover.menu ? HOVER_ITEM : 1, box = menu.skin.bounds();
+      const v = hover && hover.menu ? HOVER_LINK : 1, box = menu.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
       for (const L of ui.header.count) L.draw(t, -sy, qfb, 0, v);
       for (const L of ui.header.bar) L.draw(t, -sy, qfb, 0, v);
       if (ui.header.caret) ui.header.caret.draw(t, -sy, qfb, menu.turn * Math.PI / 2, v);
       for (const L of ui.header.title) L.draw(t, -sy, qfb, 0, v);
       if (menu.p > 0) for (const b of ui.buttons) {
-        const bv = hover && hover.buy === b.key ? HOVER_LINK : 1, n = b.ring.length;
+        const bv = hover && hover.buy === b.key ? HOVER : 1, n = b.ring.length;
         for (let i = 0; i < n; i++) {
           const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
           qfb.line(p.x, p.y - sy, q.x, q.y - sy, bv, BOX.LINE);
