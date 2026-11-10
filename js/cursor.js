@@ -5,9 +5,10 @@
 // the canvas. it sits open with its palm's middle on the pointer; while the
 // button is held it closes through the art's transitional frames to the
 // fist, one frame a 60 hz step, and when the button lifts it opens back
-// through them. behind it goes cicada's dark ellipse, bottom-anchored and as
-// tall as the frame's ink, so the hand reads over the letters and the
-// bubble. the frames walk in whole 60 hz steps; the cursor never asks the
+// through them. behind it goes its own silhouette in paper, each row of the
+// frame filled from its first ink to its last and drawn through the same
+// sampler at the same place, so the hand reads over the letters and the
+// bubble and covers nothing outside its outline. the frames walk in whole 60 hz steps; the cursor never asks the
 // clock or the pointer itself, the page hands it where the pointer is,
 // whether the button is down and the time gone by.
 
@@ -18,7 +19,6 @@ const CURSOR = {
   HOT: { x: 0, y: 4 },                // art px from the bitmap's centre that sits on the pointer: the palm's middle
   OPEN_FRAME: 0, GRAB_FRAME: 13,
   CLOSE_S: 13 / 60, OPEN_S: 13 / 60,  // seconds to walk open -> fist and back: one frame a step, every transitional sprite shown
-  BACKING: { WIDTH: 1.0, HEIGHT: 0.98, X_OFFSET: -1, POINTS: 48 }, // cicada's dark ellipse behind the hand, bottom-anchored
   MIN_HITS: 3,                        // of a pixel's 16 sample points on ink to light it; the letters use 6, this small 3 keeps the outline whole
 };
 
@@ -28,9 +28,14 @@ class Cursor {
     // every frame as a sprite's bitmap, made once, not each draw
     const rows = (f) => CURSOR.MIRROR ? f.map((r) => r.split('').reverse().join('')) : f;
     this.ink = frames.map((f) => Framebuffer.ink(rows(f)));
-    // each frame's first row with ink: the fist's is 8 rows down, so its
-    // backing is only as tall as what is drawn
-    this.top = frames.map((f) => Math.max(0, f.findIndex((r) => r.includes('#'))));
+    // and its silhouette: each row inked from its first ink to its last. the
+    // art's every row has its inside in one run, so that is the hand and its
+    // outline and nothing round them
+    const fill = (r) => {
+      const a = r.indexOf('#'), b = r.lastIndexOf('#');
+      return a < 0 ? r : r.slice(0, a) + '#'.repeat(b - a + 1) + r.slice(b + 1);
+    };
+    this.fill = frames.map((f) => Framebuffer.ink(rows(f).map(fill)));
     // the pointer, in world px, unrounded; it is drawn on its pixel
     this.x = 0;
     this.y = 0;
@@ -39,9 +44,6 @@ class Cursor {
     // a float walked toward the fist or the open hand and rounded to draw
     this.frame = CURSOR.OPEN_FRAME;
     this.owed = 0;
-    // the backing's polygon, refilled each draw: a frame should not allocate
-    this.ring = [];
-    for (let k = 0; k < CURSOR.BACKING.POINTS; k++) this.ring.push({ x: 0, y: 0 });
   }
 
   // where the pointer is; a touch is moved with shown false, as there is
@@ -79,8 +81,9 @@ class Cursor {
     else if (this.frame > target) this.frame = Math.max(target, this.frame - by);
   }
 
-  // the backing and then the hand, the bitmap's centre put on the middle
-  // of the pixel the hotspot's pointer puts it in. the art's 1 px strokes
+  // the silhouette in paper and then the hand over it, both with the
+  // bitmap's centre put on the middle of the pixel the hotspot's pointer
+  // puts it in. the art's 1 px strokes
   // are a third of a world pixel wide at this scale, so what the sampler
   // makes of the hand depends wholly on where in a pixel it lands: on a
   // pixel's middle every frame samples the same way wherever the pointer
@@ -88,21 +91,10 @@ class Cursor {
   // grid should
   draw(fb) {
     if (!this.shown) return;
-    const B = CURSOR.BACKING, s = CURSOR.SCALE, ring = this.ring, n = ring.length;
-    const f = Cursor.frameIndex(this.frame), g = this.ink[f];
+    const s = CURSOR.SCALE, f = Cursor.frameIndex(this.frame);
     const cx = Math.floor(this.x - CURSOR.HOT.x * s) + 0.5, cy = Math.floor(this.y - CURSOR.HOT.y * s) + 0.5;
-    // as wide as the bitmap, as tall as the frame's ink, its bottom on the bitmap's
-    const rx = g.w / 2 * B.WIDTH * s, ry = (g.h - this.top[f]) / 2 * B.HEIGHT * s;
-    const ex = cx + B.X_OFFSET * s, ey = cy + g.h / 2 * s - ry;
-    // fillPolygon fills a pixel when its corner is inside, the sprite asks
-    // at the pixel's middle: half a pixel back puts the two on one grid
-    for (let k = 0; k < n; k++) {
-      const a = 2 * Math.PI * k / n;
-      ring[k].x = ex + rx * Math.cos(a) - 0.5;
-      ring[k].y = ey + ry * Math.sin(a) - 0.5;
-    }
-    fb.fillPolygon(ring, 0);
-    fb.sprite(g, cx, cy, s, 0, 1, CURSOR.MIN_HITS);
+    fb.sprite(this.fill[f], cx, cy, s, 0, 0, CURSOR.MIN_HITS);
+    fb.sprite(this.ink[f], cx, cy, s, 0, 1, CURSOR.MIN_HITS);
   }
 
   // a float frame as the index of the one to draw

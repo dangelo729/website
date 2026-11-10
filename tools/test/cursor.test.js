@@ -114,15 +114,22 @@ const at = (c) => Cursor.frameIndex(c.frame);
     for (let y = 0; y < 34; y++) for (let x = 0; x < 21; x++) if (g.ink[y * 21 + x] !== (rows[y][x] === '#' ? 1 : 0)) asArt = false;
   });
   check('ink: one bitmap a frame, hand1 as drawn while MIRROR is false', asArt && CURSOR.MIRROR === false);
-  const tops = c.top.join(',');
-  check('ink: each frame\'s top inked row, the open hand\'s 0 and the fist\'s 8', c.top.length === 14 && c.top[0] === 0 && c.top[13] === 8 &&
-    c.top.every((t, f) => t === A.frames[f].findIndex((r) => r.includes('#'))), tops);
+  let filled = c.fill.length === 14;
+  A.frames.forEach((rows, f) => {
+    const g = c.fill[f];
+    if (!g || g.w !== 21 || g.h !== 34) { filled = false; return; }
+    for (let y = 0; y < 34; y++) {
+      const a = rows[y].indexOf('#'), b = rows[y].lastIndexOf('#');
+      for (let x = 0; x < 21; x++) if (g.ink[y * 21 + x] !== (a >= 0 && x >= a && x <= b ? 1 : 0)) filled = false;
+    }
+  });
+  check('ink: each frame\'s silhouette, every row inked from its first ink to its last', filled);
   check('start: at (0, 0), hidden, not held, open, nothing owed', c.x === 0 && c.y === 0 && c.shown === false && c.held === false &&
-    c.frame === CURSOR.OPEN_FRAME && c.owed === 0 && c.ring.length === CURSOR.BACKING.POINTS);
-  const ink0 = c.ink[0], ring = c.ring, p0 = ring[0];
+    c.frame === CURSOR.OPEN_FRAME && c.owed === 0);
+  const ink0 = c.ink[0], fill0 = c.fill[0];
   c.moveTo(50, 50);
   c.draw(makeFb());
-  check('draw: the ink and the ring made once in the constructor, not each draw', c.ink[0] === ink0 && c.ring === ring && ring[0] === p0 && ring.length === CURSOR.BACKING.POINTS);
+  check('draw: the ink and the silhouettes made once in the constructor, not each draw', c.ink[0] === ink0 && c.fill[0] === fill0);
 }
 
 // --- hidden --------------------------------------------------------------------
@@ -266,40 +273,35 @@ let openFb = null, fistFb = null, openLit = null, fistLit = null;
 }
 
 // --- the backing ---------------------------------------------------------------------
-// on a lit field: an ellipse behind the hand goes dark, every pixel of the
-// hand's own sprite stays lit, nothing outside the bitmap's box is touched,
-// and the backing is as tall as the frame's ink
+// on a field of a third value: the hand's silhouette, as its own sprite
+// lights it, is all paper or the hand's ink, so nothing of the field shows
+// inside the outline; every pixel of the hand's own sprite is ink; and
+// nothing outside the silhouette is touched, so no paper shows past the
+// outline
+const FIELD = 7;
 const backed = {};
 function backing(name, frame, x, y) {
   const c = new Cursor();
   c.moveTo(x, y);
   if (frame) { c.press(); run(c, 20); }
   const fb = makeFb(60, 60);
-  fb.bits.fill(1);
+  fb.bits.fill(FIELD);
   c.draw(fb);
-  const dark = pixels(fb, 0), hand = spriteAt(c.ink[at(c)], x, y, 60, 60);
-  const cx = Math.floor(x - CURSOR.HOT.x * S) + 0.5, cy = Math.floor(y - CURSOR.HOT.y * S) + 0.5, hw = A.w * S / 2, hh = A.h * S / 2;
-  const top = cy - hh + c.top[at(c)] * S;
-  const lost = [...hand].filter((k) => dark.has(k)).length;
-  // the ring is nudged X_OFFSET * SCALE left, and fillPolygon rounds its
-  // spans' ends: half a pixel of slack each side
-  const left = cx - hw + CURSOR.BACKING.X_OFFSET * S - 0.5;
-  const outBox = [...dark].filter((k) => { const [px, py] = xy(k); return px + 0.5 < left || px + 0.5 > cx + hw + 0.5 || py + 0.5 < top || py + 0.5 > cy + hh; }).length;
-  const b = box(dark);
-  check(name + ': dark behind the hand, its own pixels all lit, nothing outside the box', dark.size > 0 && lost === 0 && outBox === 0,
-    dark.size + ' dark, ' + lost + ' of ' + hand.size + ' hand pixels lost, ' + outBox + ' outside; dark ' + fmtBox(b));
-  backed[name] = { fb, dark, b, top, bottom: cy + hh };
+  const dark = pixels(fb, 0), hand = spriteAt(c.ink[at(c)], x, y, 60, 60), shape = spriteAt(c.fill[at(c)], x, y, 60, 60);
+  const lost = [...hand].filter((k) => !pixels(fb, 1).has(k)).length;
+  const through = [...shape].filter((k) => !dark.has(k) && !hand.has(k)).length;
+  const past = [...dark].filter((k) => !shape.has(k)).length + [...pixels(fb, 1)].filter((k) => !hand.has(k)).length;
+  check(name + ': paper inside the outline, the hand all ink, the field nowhere inside and untouched outside',
+    dark.size > 0 && lost === 0 && through === 0 && past === 0,
+    dark.size + ' paper, ' + lost + ' of ' + hand.size + ' hand pixels lost, ' + through + ' of the field inside, ' + past + ' past the silhouette');
+  backed[name] = { fb, dark, b: box(dark) };
   return backed[name];
 }
 {
   const o = backing('backing open', 0, 30, 30);
   const f = backing('backing fist', 13, 30, 30);
-  // the bitmap's bottom edge is 28.5 + 5.1 = 33.6 here: the ellipse fills
-  // every row whose middle is above it
-  check('backing: bottom-anchored, both down to the bitmap\'s bottom row', o.b.y1 === Math.ceil(o.bottom - 0.5) - 1 && f.b.y1 === o.b.y1,
-    'open to row ' + o.b.y1 + ', fist to row ' + f.b.y1 + ', bottom edge ' + o.bottom);
   check('backing: the fist\'s is its own height, shorter than the open hand\'s', f.b.y0 > o.b.y0 && f.dark.size < o.dark.size,
-    'open from row ' + o.b.y0 + ' (' + o.dark.size + ' px), fist from row ' + f.b.y0 + ' (' + f.dark.size + ' px), fist top edge ' + f.top);
+    'open from row ' + o.b.y0 + ' (' + o.dark.size + ' px), fist from row ' + f.b.y0 + ' (' + f.dark.size + ' px)');
 }
 
 // --- hiding --------------------------------------------------------------------------
@@ -368,8 +370,9 @@ check('never read Date, performance, window, document, requestAnimationFrame or 
 // y 19.5..36.5
 console.log('\nthe pointer at (30, 30), x 22..37, y 18..37: open | fist, on dark:\n' +
   pair(dump(openFb, 22, 18, 16, 20), dump(fistFb, 22, 18, 16, 20)) + '\n');
-console.log('the same on a lit field, the backing dark behind each:\n' +
-  pair(dump(backed['backing open'].fb, 22, 18, 16, 20), dump(backed['backing fist'].fb, 22, 18, 16, 20)) + '\n');
+const field = (fb) => dump(fb, 22, 18, 16, 20).map((r, y) => [...r].map((ch, x) => fb.get(22 + x, 18 + y) === FIELD ? '+' : ch).join(''));
+console.log('the same on a field of another value (+), paper inside each outline:\n' +
+  pair(field(backed['backing open'].fb), field(backed['backing fist'].fb)) + '\n');
 
 console.log('\n' + (failures ? failures + ' failed' : 'all passed'));
 process.exit(failures ? 1 : 0);
