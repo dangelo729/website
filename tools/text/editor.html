@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>text editor</title>
   <style>
-    :root { --bg: #111; --fg: #eee; --muted: #777; --line: #333; --accent: #e33; }
+    :root { --bg: #111; --fg: #eee; --muted: #777; --line: #333; --accent: #e33; --none: #2a2a2a; }
     html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
                  font: 14px/1.4 system-ui, sans-serif; }
     body { display: flex; flex-direction: column; height: 100vh; }
@@ -26,21 +26,62 @@
                font: inherit; line-height: 1.45; }
     textarea:focus { outline: none; border-color: #888; }
     #page { flex: 1; min-width: 0; border: 0; background: #fff; }
+    #icon .tools { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 8px 0; }
+    #icon .tools label { display: inline; margin: 0; font-size: 14px; }
+    input[type=number] { width: 3.2em; background: #222; color: var(--fg); border: 1px solid #444; padding: 2px 4px; }
+    .swatch { display: flex; align-items: center; gap: 6px; }
+    .swatch i { display: block; width: 11px; height: 11px; border: 1px solid #666; }
+    .swatch.sel { border-color: var(--accent); }
+    .strip { display: flex; flex-wrap: wrap; gap: 6px; }
+    .cell { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
+            padding: 3px; border: 1px solid transparent; border-radius: 3px; }
+    .cell:hover { border-color: #555; }
+    .cell.sel { border-color: var(--accent); }
+    .cell canvas { image-rendering: pixelated; background: var(--none); display: block; }
+    .cell span { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
+    #big { display: block; cursor: crosshair; touch-action: none; }
   </style>
 </head>
 <body>
   <header>
     <strong>text</strong>
-    <span>a line is a paragraph &nbsp; ⌘S saves</span>
+    <span>a line is a paragraph &nbsp; click to paint, right-click clears, 1/2/3 ink/paper/clear &nbsp; ⌘S saves</span>
     <button id="savebtn">save</button>
     <span id="status"></span>
   </header>
   <main>
-    <div id="fields"></div>
+    <div id="fields">
+      <div id="icon">
+        <h2>Icons</h2>
+        <label>Mute icon</label>
+        <div class="strip" id="iconstrip"></div>
+        <label>Scroll hand</label>
+        <div class="strip" id="handstrip"></div>
+        <div class="tools">
+          <button id="addbtn">add frame</button>
+          <button id="delbtn">delete frame</button>
+          <button id="playbtn">play</button>
+        </div>
+        <div class="tools">
+          <label>w <input id="w" type="number" min="1" max="64"></label>
+          <label>h <input id="h" type="number" min="1" max="64"></label>
+          <button id="flipbtn">flip ↔</button>
+          <button id="vflipbtn">flip ↕</button>
+          <button id="clearbtn">clear all</button>
+        </div>
+        <div class="tools">
+          <button class="swatch" data-c="#"><i style="background: #000"></i>ink</button>
+          <button class="swatch" data-c="o"><i style="background: #fbf6f0"></i>paper</button>
+          <button class="swatch" data-c="."><i style="background: var(--none)"></i>clear</button>
+        </div>
+        <canvas id="big"></canvas>
+      </div>
+    </div>
     <iframe id="page" src="../../index.html"></iframe>
   </main>
 
   <script src="../../js/text.js"></script>
+  <script src="../../js/icons.js"></script>
   <script>
     // the page's words (js/text.js): a section's text under its title, a
     // paragraph each, or its items' texts under theirs. the editor shows a
@@ -53,17 +94,36 @@
 // the item's title, and an item with none shows lorem ipsum (index.html).
 `;
 
+    // the mute button's icons and the scroll hand's frames (js/icons.js):
+    // each rows of '#' ink, 'o' paper and '.' clear, every row as wide, and
+    // every hand frame the same size. the editor shows them above the
+    // fields, the selected one big to paint, and hands every change to the
+    // page beside; ⌘S writes js/icons.js back with js/text.js
+    const ICONS_HEAD = `// the mute button's icons and the scroll hand's frames (index.html),
+// written by tools/text/editor.html (python3 tools/text/serve.py): edit
+// there, not here. each is rows of '#' ink, 'o' paper and '.' clear; sound
+// shows while the page plays, muted while it is muted, and hand's frames
+// play from pointing down, first, to thumbs up, last, as the page comes to
+// its bottom, every frame the same size.
+`;
+
     const $ = (id) => document.getElementById(id);
     const fields = $('fields'), status = $('status'), page = $('page');
 
     // --- model ------------------------------------------------------------------
     const text = JSON.parse(JSON.stringify(TEXT));
+    const icons = JSON.parse(JSON.stringify(ICONS));
 
     function serialize(t) {
       return HEAD + 'const TEXT = ' + JSON.stringify(t, null, 2) + ';\n';
     }
 
+    function serializeIcons(i) {
+      return ICONS_HEAD + 'const ICONS = ' + JSON.stringify(i, null, 2) + ';\n';
+    }
+
     let savedText = serialize(text);
+    let savedIcons = serializeIcons(icons);
     let dirty = false;
 
     function setStatus(words, isDirty) {
@@ -72,7 +132,7 @@
     }
 
     function changed() {
-      dirty = serialize(text) !== savedText;
+      dirty = serialize(text) !== savedText || serializeIcons(icons) !== savedIcons;
       setStatus(dirty ? 'unsaved' : 'saved', dirty);
     }
 
@@ -108,6 +168,325 @@
       }
     }
 
+    // --- icons ------------------------------------------------------------------
+    const MAX_SIDE = 64;
+    const MAX_CELL = 32;  // css px per grid cell in the big view at most; fewer when the icon is wide
+    const THUMB = 3;      // css px per cell in the mute icons' strip
+    const HAND_THUMB = 1; // and in the hand's, its frames many and large
+    const COLOURS = { '#': '#000', 'o': '#fbf6f0', '.': '#2a2a2a' };
+    const iconBox = $('icon'), iconStrip = $('iconstrip'), handStrip = $('handstrip');
+    const big = $('big'), bctx = big.getContext('2d');
+    const names = Object.keys(icons).filter((k) => k !== 'hand'); // the mute icons
+    const iconCells = {}, frameCells = [];
+    let cur = names[0];
+    let selDiv = null; // the outlined strip cell
+    let CELL = MAX_CELL;
+    const undoStack = [];
+    let clip = null;
+
+    // the selection: a mute icon by its name, or a hand frame by its index
+    function isFrame(c) { return typeof c === 'number'; }
+    function rowsOf(c) { return isFrame(c) ? icons.hand[c] : icons[c]; }
+    function getRows() { return rowsOf(cur); }
+    function setRows(rows) { if (isFrame(cur)) icons.hand[cur] = rows; else icons[cur] = rows; }
+    function size() { const rows = getRows(); return [rows[0].length, rows.length]; }
+    function cellOf(c) { return isFrame(c) ? frameCells[c] : iconCells[c]; }
+    function title(c) { return isFrame(c) ? 'frame ' + c : c; }
+
+    // the page beside draws the icons as they are, and shows the selected
+    // one: a frame held on its scroll hand, or the hand let go and the page
+    // muted or playing as the icon is. play runs the hand's animation from
+    // the far end to where the page stands. the page may not have these
+    // yet, or still be loading
+    function showIcons() { try { page.contentWindow.readIcons(icons); } catch (e) {} }
+    function hold(i) { try { page.contentWindow.holdHand(i); } catch (e) {} }
+    function play() { try { page.contentWindow.playHand(); } catch (e) {} }
+    function showSelected() {
+      if (isFrame(cur)) { hold(cur); return; }
+      hold(null);
+      try { page.contentWindow.setMuted(cur === 'muted'); } catch (e) {}
+    }
+    page.addEventListener('load', () => { showIcons(); showSelected(); });
+
+    // the big grid: cells as large as fit the column's width, ink and
+    // paper filling theirs, a clear one the dark grey with a faint dot at
+    // its centre
+    function drawBig() {
+      const rows = getRows(), [w, h] = size(), dpr = window.devicePixelRatio || 1;
+      CELL = Math.max(1, Math.min(MAX_CELL, Math.floor((iconBox.clientWidth - 1) / w)));
+      const pw = w * CELL + 1, ph = h * CELL + 1;
+      big.width = Math.round(pw * dpr); big.height = Math.round(ph * dpr);
+      big.style.width = pw + 'px'; big.style.height = ph + 'px';
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      bctx.fillStyle = COLOURS['.']; bctx.fillRect(0, 0, pw, ph);
+      const dot = Math.max(2, Math.round(CELL / 8)), at = (CELL - dot) / 2;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const c = rows[y][x];
+        if (c === '.') { bctx.fillStyle = '#4a4a4a'; bctx.fillRect(x * CELL + at, y * CELL + at, dot, dot); }
+        else { bctx.fillStyle = COLOURS[c]; bctx.fillRect(x * CELL, y * CELL, CELL, CELL); }
+      }
+      // the cell under the pointer: a ghost of the picked colour
+      if (hover) {
+        bctx.fillStyle = pick === '#' ? 'rgba(0, 0, 0, 0.5)' : pick === 'o' ? 'rgba(251, 246, 240, 0.5)' : 'rgba(42, 42, 42, 0.7)';
+        bctx.fillRect(hover[0] * CELL, hover[1] * CELL, CELL, CELL);
+      }
+      bctx.strokeStyle = '#3a3a3a'; bctx.lineWidth = 1;
+      bctx.beginPath();
+      for (let x = 0; x <= w; x++) { bctx.moveTo(x * CELL + 0.5, 0); bctx.lineTo(x * CELL + 0.5, ph); }
+      for (let y = 0; y <= h; y++) { bctx.moveTo(0, y * CELL + 0.5); bctx.lineTo(pw, y * CELL + 0.5); }
+      bctx.stroke();
+    }
+
+    // a thumbnail: a pixel a cell, clear left to the canvas's dark grey
+    function drawCell(c) {
+      const rows = rowsOf(c), w = rows[0].length, h = rows.length, k = isFrame(c) ? HAND_THUMB : THUMB;
+      const cv = cellOf(c).canvas, ctx = cv.getContext('2d');
+      cv.width = w; cv.height = h;
+      cv.style.width = w * k + 'px'; cv.style.height = h * k + 'px';
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const v = rows[y][x];
+        if (v === '.') continue;
+        ctx.fillStyle = COLOURS[v];
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    // a strip's cell: a thumbnail over its label, selecting c when clicked
+    function stripCell(into, c, label) {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      const cv = document.createElement('canvas');
+      const span = document.createElement('span');
+      span.textContent = label;
+      div.append(cv, span);
+      div.addEventListener('click', () => select(c));
+      into.append(div);
+      return { div, canvas: cv };
+    }
+
+    function buildIconStrip() {
+      for (const name of names) { iconCells[name] = stripCell(iconStrip, name, name); drawCell(name); }
+    }
+
+    // the hand's strip, built again whenever its frames change in number or size
+    function buildHandStrip() {
+      handStrip.innerHTML = '';
+      frameCells.length = 0;
+      for (let i = 0; i < icons.hand.length; i++) { frameCells[i] = stripCell(handStrip, i, String(i)); drawCell(i); }
+    }
+
+    // the selected one's cell outlined, across both strips
+    function outline() {
+      if (selDiv) selDiv.classList.remove('sel');
+      selDiv = cellOf(cur).div;
+      selDiv.classList.add('sel');
+    }
+
+    function select(c) {
+      cur = c;
+      outline();
+      syncInputs();
+      drawBig();
+      showSelected();
+    }
+
+    // ←/→: the previous or next in the selected one's strip, wrapping
+    function step(d) {
+      if (isFrame(cur)) { const n = icons.hand.length; select((cur + d + n) % n); }
+      else { const i = names.indexOf(cur), n = names.length; select(names[(i + d + n) % n]); }
+    }
+
+    // an edit: redrawn, handed to the page beside, the status said, a
+    // selected frame held there again. whole: the hand's frames changed in
+    // number or size, or the selection moved, so the hand's strip is built
+    // again and the page shown the selected one afresh
+    function iconChanged(whole) {
+      if (whole) { buildHandStrip(); outline(); }
+      syncInputs(); drawBig(); drawCell(cur); showIcons();
+      if (whole || isFrame(cur)) showSelected();
+      changed();
+    }
+
+    // an undo entry: the selection, and what the edit is about to change:
+    // the selected icon's rows, or with hand every frame of the hand, so a
+    // frame added, deleted or resized comes back as it was
+    function pushUndo(hand = isFrame(cur)) {
+      undoStack.push(hand ? { cur, hand: icons.hand.map((f) => f.slice()) } : { cur, rows: icons[cur].slice() });
+      if (undoStack.length > 200) undoStack.shift();
+    }
+
+    function undo() {
+      const u = undoStack.pop();
+      if (!u) return;
+      if (u.hand) icons.hand = u.hand; else icons[u.cur] = u.rows;
+      cur = u.cur;
+      iconChanged(true);
+    }
+
+    // rows made again at w x h: each cell what rows has at from(x, y),
+    // clear past its edges
+    function remade(rows, w, h, from) {
+      const n = [];
+      for (let y = 0; y < h; y++) {
+        let row = '';
+        for (let x = 0; x < w; x++) { const [sx, sy] = from(x, y); row += (rows[sy] && rows[sy][sx]) || '.'; }
+        n.push(row);
+      }
+      return n;
+    }
+
+    // the selected one made again, the old kept for undo
+    function remake(w, h, from) { pushUndo(); setRows(remade(getRows(), w, h, from)); iconChanged(); }
+
+    function nudge(dx, dy) { const [w, h] = size(); remake(w, h, (x, y) => [x - dx, y - dy]); }
+    function flip() { const [w, h] = size(); remake(w, h, (x, y) => [w - 1 - x, y]); }
+    function vflip() { const [w, h] = size(); remake(w, h, (x, y) => [x, h - 1 - y]); }
+    function clearIcon() { const [w, h] = size(); remake(w, h, () => [-1, -1]); }
+
+    // a new size, what fits kept from the top-left corner: the selected
+    // icon, or every hand frame alike, so the frames stay one size
+    function resize(w, h) {
+      const keep = (x, y) => [x, y];
+      if (!isFrame(cur)) { remake(w, h, keep); return; }
+      pushUndo();
+      icons.hand = icons.hand.map((f) => remade(f, w, h, keep));
+      iconChanged(true);
+    }
+
+    // a copy of the selected frame right after it, or with a mute icon
+    // selected, of the last frame at the end; the copy selected
+    function addFrame() {
+      const at = isFrame(cur) ? cur : icons.hand.length - 1;
+      pushUndo(true);
+      icons.hand.splice(at + 1, 0, icons.hand[at].slice());
+      cur = at + 1;
+      iconChanged(true);
+    }
+
+    // the selected frame gone and its neighbour selected; the hand keeps
+    // its last frame
+    function deleteFrame() {
+      if (!isFrame(cur)) { setStatus('select a hand frame to delete it', dirty); return; }
+      if (icons.hand.length === 1) { setStatus('the hand keeps its last frame', dirty); return; }
+      pushUndo();
+      icons.hand.splice(cur, 1);
+      cur = Math.min(cur, icons.hand.length - 1);
+      iconChanged(true);
+    }
+
+    // the clipboard: one icon's or frame's rows. a paste makes the
+    // selected icon that, its size with it; a frame takes only a copy of
+    // its own size, the hand's frames all one size
+    function copyIcon() {
+      clip = getRows().slice();
+      setStatus(`copied ${title(cur)}, ${clip[0].length}x${clip.length}`, dirty);
+    }
+    function pasteIcon() {
+      if (!clip) { setStatus('nothing copied yet: ⌘C copies the icon', dirty); return; }
+      const [w, h] = size();
+      if (isFrame(cur) && (clip[0].length !== w || clip.length !== h)) {
+        setStatus(`not pasted: the hand's frames are ${w}x${h}, the copy ${clip[0].length}x${clip.length}`, dirty);
+        return;
+      }
+      pushUndo();
+      setRows(clip.slice());
+      iconChanged();
+    }
+
+    // --- painting ---------------------------------------------------------------
+    let pick = '#';  // the palette's colour: '#' ink, 'o' paper, '.' clear
+    let painting = false, paintValue = '#';
+    let hover = null; // [x, y] under the pointer, or null
+
+    function setPick(c) {
+      pick = c;
+      for (const b of document.querySelectorAll('.swatch')) b.classList.toggle('sel', b.dataset.c === c);
+      drawBig();
+    }
+
+    function setHover(c) {
+      if ((c && hover && c[0] === hover[0] && c[1] === hover[1]) || (!c && !hover)) return;
+      hover = c;
+      drawBig();
+    }
+
+    function cellAt(e) {
+      const [w, h] = size(), r = big.getBoundingClientRect();
+      const x = Math.floor((e.clientX - r.left) / CELL), y = Math.floor((e.clientY - r.top) / CELL);
+      return (x >= 0 && x < w && y >= 0 && y < h) ? [x, y] : null;
+    }
+
+    function paint(x, y) {
+      const rows = getRows(), row = rows[y];
+      if (row[x] === paintValue) return;
+      rows[y] = row.slice(0, x) + paintValue + row.slice(x + 1);
+      iconChanged();
+    }
+
+    big.addEventListener('pointerdown', (e) => {
+      const c = cellAt(e);
+      if (!c) return;
+      pushUndo();
+      paintValue = e.button === 2 || e.altKey ? '.' : pick;
+      paint(c[0], c[1]);
+      painting = true;
+      big.setPointerCapture(e.pointerId);
+    });
+    big.addEventListener('pointermove', (e) => {
+      const c = cellAt(e);
+      if (painting && c) paint(c[0], c[1]);
+      setHover(c);
+    });
+    big.addEventListener('pointerleave', () => { if (!painting) setHover(null); });
+    big.addEventListener('pointerup', (e) => { painting = false; setHover(cellAt(e)); });
+    big.addEventListener('pointercancel', () => { painting = false; });
+    big.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // the icon's keys, only while no textarea or input has the focus: those
+    // keep their own typing, undo and copy and paste. the page beside keeps
+    // its keys too, only ⌘S reaching out of it
+    window.addEventListener('keydown', (e) => {
+      const meta = e.metaKey || e.ctrlKey, k = e.key;
+      if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+      if (meta && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if (meta && k.toLowerCase() === 'c') { e.preventDefault(); copyIcon(); return; }
+      if (meta && k.toLowerCase() === 'v') { e.preventDefault(); pasteIcon(); return; }
+      if (meta) return;
+      if (k.startsWith('Arrow') && e.shiftKey) {
+        e.preventDefault();
+        nudge(k === 'ArrowLeft' ? -1 : k === 'ArrowRight' ? 1 : 0, k === 'ArrowUp' ? -1 : k === 'ArrowDown' ? 1 : 0);
+      } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+        e.preventDefault();
+        step(k === 'ArrowRight' ? 1 : -1);
+      } else if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); clearIcon(); }
+      else if (k === '1') setPick('#');
+      else if (k === '2') setPick('o');
+      else if (k === '3') setPick('.');
+    });
+
+    // --- icon tools -------------------------------------------------------------
+    function syncInputs() { const [w, h] = size(); $('w').value = w; $('h').value = h; }
+    function readInputs() {
+      const [w, h] = size();
+      const nw = Math.max(1, Math.min(MAX_SIDE, Math.round(+$('w').value) || w));
+      const nh = Math.max(1, Math.min(MAX_SIDE, Math.round(+$('h').value) || h));
+      if (nw !== w || nh !== h) resize(nw, nh);
+      syncInputs();
+    }
+    for (const id of ['w', 'h']) $(id).addEventListener('change', readInputs);
+    for (const b of document.querySelectorAll('.swatch')) b.addEventListener('click', () => setPick(b.dataset.c));
+    $('flipbtn').addEventListener('click', flip);
+    $('vflipbtn').addEventListener('click', vflip);
+    $('clearbtn').addEventListener('click', clearIcon);
+    $('addbtn').addEventListener('click', addFrame);
+    $('delbtn').addEventListener('click', deleteFrame);
+    $('playbtn').addEventListener('click', play);
+
+    buildIconStrip();
+    buildHandStrip();
+    setPick(pick);
+    select(cur);
+
     // --- save -------------------------------------------------------------------
     // the page beside the fields takes the words where it stands, its open
     // boxes left open; one that cannot is loaded again
@@ -117,18 +496,29 @@
       catch (e) { w.location.reload(); }
     }
 
+    // a file's text to serve.py, which writes it
+    async function post(path, body) {
+      const r = await fetch(path, { method: 'POST', body, headers: { 'Content-Type': 'text/plain' } });
+      if (!r.ok) throw new Error('http ' + r.status);
+    }
+
+    // the words to js/text.js (/save), then the icons to js/icons.js
+    // (/icons); a server without /icons writes the words alone
     async function save() {
-      const out = serialize(text);
+      const out = serialize(text), iconsOut = serializeIcons(icons);
       try {
-        const r = await fetch('/save', { method: 'POST', body: out, headers: { 'Content-Type': 'text/plain' } });
-        if (!r.ok) throw new Error('http ' + r.status);
+        await post('/save', out);
       } catch (e) {
         setStatus('not saved: run python3 tools/text/serve.py', true);
         return;
       }
       savedText = out;
+      let iconsSaved = true;
+      try { await post('/icons', iconsOut); savedIcons = iconsOut; }
+      catch (e) { iconsSaved = false; }
       changed();
-      if (!dirty) setStatus('saved ' + new Date().toLocaleTimeString(), false);
+      if (!iconsSaved) setStatus('icons not saved: restart python3 tools/text/serve.py', true);
+      else if (!dirty) setStatus('saved ' + new Date().toLocaleTimeString(), false);
       show();
     }
 

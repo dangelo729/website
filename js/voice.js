@@ -63,6 +63,7 @@ const Voice = {
   // order with gaps between them as grabs come (tools/test/voice.test.js
   // prints each one's peak); a voice or a sound tuned again moves them
   MASTER: 1.5,
+  MUTE_S: 0.03, // s, the time constant the master gain eases to silence and back by (mute)
   // ms a grab's line is held for the worklet to be ready and the context
   // running; past it the line is dropped, too late to answer its grab
   HOLD: 1000,
@@ -71,7 +72,9 @@ const Voice = {
 
   ctx: null,     // the audio context, made on the first gesture
   node: null,    // the worklet's node, once loaded
+  out: null,     // the master gain, once loaded
   ready: false,  // the worklet has the voice made
+  muted: false,  // the master gain is at 0 or easing there
   busy: false,   // a sound has gone to the worklet and is not yet over
   held: null,    // a line waiting for the voice: { line, at }, at in ms
   said: 0,       // how many lines have gone to the worklet
@@ -108,9 +111,10 @@ const Voice = {
             processorOptions: { wasm, voice: this.VOICE },
           });
           const out = ctx.createGain();
-          out.gain.value = this.MASTER;
+          out.gain.value = this.muted ? 0 : this.MASTER;
           node.connect(out);
           out.connect(ctx.destination);
+          this.out = out;
           // ready once; after that, a line's syllables as they begin, then
           // done or bad: the line is over
           node.port.onmessage = (e) => {
@@ -128,6 +132,14 @@ const Voice = {
         .catch(() => {});
     }
     if (this.ctx.state !== 'running') this.ctx.resume().then(() => this.flush(), () => {});
+  },
+
+  // muted or not: the master gain eased to 0 or back to MASTER by the house
+  // approach, MUTE_S its time constant. a voice made muted starts at 0; it
+  // still speaks, so its lines and their subtitles go on unheard
+  mute(on) {
+    this.muted = on;
+    if (this.out) this.out.gain.setTargetAtTime(on ? 0 : this.MASTER, this.ctx.currentTime, this.MUTE_S);
   },
 
   // the bubble taken hold of: one of the lines, at random

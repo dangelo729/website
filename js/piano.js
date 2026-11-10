@@ -29,12 +29,15 @@ const Piano = {
   // (tools/upright-web's make measure measures it); the worklet never
   // strikes two keys closer than 20 ms, so nothing louder reaches it
   MASTER: 1.25,
+  MUTE_S: 0.03, // s, the time constant the master gain eases to silence and back by (mute)
   WORKLET: 'js/piano-worklet.js',
   WASM: 'upright/upright.wasm',
 
   ctx: null,     // the audio context, made on the first gesture
   node: null,    // the worklet's node, once loaded
+  out: null,     // the master gain, once loaded
   ready: false,  // the worklet has the piano made
+  muted: false,  // the master gain is at 0 or easing there
 
   // makes the audio on win's first gesture and wakes it on any later one
   listen(win) {
@@ -58,15 +61,23 @@ const Piano = {
             processorOptions: { wasm, knobs: this.KNOBS, velocity: this.VELOCITY },
           });
           const out = ctx.createGain();
-          out.gain.value = this.MASTER;
+          out.gain.value = this.muted ? 0 : this.MASTER;
           node.connect(out);
           out.connect(ctx.destination);
           node.port.onmessage = () => { this.ready = true; };
           this.node = node;
+          this.out = out;
         })
         .catch(() => {});
     }
     if (this.ctx.state !== 'running') this.ctx.resume();
+  },
+
+  // muted or not: the master gain eased to 0 or back to MASTER by the house
+  // approach, MUTE_S its time constant. a piano made muted starts at 0
+  mute(on) {
+    this.muted = on;
+    if (this.out) this.out.gain.setTargetAtTime(on ? 0 : this.MASTER, this.ctx.currentTime, this.MUTE_S);
   },
 
   // letter i's key struck; nothing until the worklet is ready, nor while

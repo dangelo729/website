@@ -41,6 +41,7 @@
   <script src="js/about-photos.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/text.js"></script>
+  <script src="js/icons.js"></script>
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/subtitle.js"></script>
@@ -75,6 +76,8 @@
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
       layout();
+      placeMute();
+      placeHand();
     }
 
     // --- letters -----------------------------------------------------------------
@@ -393,7 +396,8 @@
     // the header's letters, and a letter writes only its ink, so passing
     // under the header they are hidden by its letters and nothing else:
     // there is only paper behind the header. it scrolls until the last
-    // word's ink, or its box's while there is one, has gone off the top.
+    // word's ink, or its box's while there is one, stands END above the
+    // window's bottom edge, and not at all while it already does.
     //
     // an open box pushes every word under it down, and their boxes, by as
     // far as its bottom has got past its own word's ink, in whole px, so
@@ -405,6 +409,7 @@
       SPACE: 1.8,  // of the words' size: from a word's ink, or its box, to the next word's ink
       INDENT: 0.4, // of the words' size: their ink's left in from the name's, wide
       FIRST: 300,  // their letters' seeds run from here, a hundred a word, clear of the tag's
+      END: 64,     // world px from the last word's ink, or its box, to the window's bottom edge at the page's end
     };
     const scroller = document.getElementById('scroll');
     let scrollEnd = 0; // css px the document scrolls at most
@@ -1226,8 +1231,9 @@
     }
 
     // the page tall enough to scroll the last word, and its box while it
-    // is shown, off the top, pushed down by every box shown above it as
-    // far as each will open
+    // is shown, up to ABOUT.END above the window's bottom edge, pushed down
+    // by every box shown above it as far as each will open; no taller than
+    // the window when it is there already
     function setScroll() {
       let push = 0, end = 0;
       for (const s of sections) {
@@ -1237,7 +1243,7 @@
         if (s.box.shown && s.box.full) push += Math.max(0, y1 - s.ink.y1);
         end = s.ink.y1 + push;
       }
-      scrollEnd = Math.ceil(end) * SCALE;
+      scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
       scroller.style.height = (window.innerHeight + scrollEnd) + 'px';
     }
 
@@ -1593,12 +1599,15 @@
       return null;
     }
 
-    // a click: the x shuts its box, a link opens its site in a new tab, the
-    // slideshow's < shows the slide before and its > or its photo the one
-    // after, an item opens or shuts its text, a word opens its box
+    // a click: the mute button mutes the page or gives it its sound back
+    // (muteAt, below), the x shuts its box, a link opens its site in a new
+    // tab, the slideshow's < shows the slide before and its > or its photo
+    // the one after, an item opens or shuts its text, a word opens its box
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
-      const p = worldPointer(e), h = hitAt(p.x, p.y);
+      const p = worldPointer(e);
+      if (muteAt(p.x, p.y)) { setMuted(!muted); return; }
+      const h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) window.open(h.link.url, '_blank', 'noopener');
       else if (h.buy) buy(h.buy);
@@ -1662,6 +1671,158 @@
     canvas.addEventListener('pointerleave', () => { nameOn = -1; });
     Piano.listen(window);
     Voice.listen(window);
+
+    // --- the mute button ---------------------------------------------------------
+    // a speaker MUTE.GAP world px clear of the window's bottom-right corner,
+    // held there while the page scrolls under it, over everything but the
+    // hand: ICONS.sound (js/icons.js) while the page plays and ICONS.muted
+    // while it is muted. each is drawn as the letters are, wobbling, as two
+    // sprites on one seed so they wobble as one: its paper, with its ink in
+    // it so nothing between the two shows through, then its ink over that,
+    // in the first tag colour while a mouse is over it. a press on it, or a
+    // little round it, eases the piano and the voice (js/piano.js,
+    // js/voice.js) to silence or brings them back, and presses nothing under
+    // it. the browser keeps it, so a visitor who muted the page finds it
+    // muted the next time
+    const MUTE = {
+      GAP: 21,             // world px clear of the right and bottom edges, as the tag is of the right
+      SCALE: LETTER_SCALE, // of the icon's px, as the name's letters are of the font's
+      SEED: 99000,         // its wobble's, clear of the letters'
+      KEY: 'muted',        // where the browser keeps it
+    };
+    let muted = false;
+    let iconRows = ICONS; // each icon's rows by name, and the scroll hand's frames (below)
+    let muteArt = {};     // each icon as { paper, ink } letters in the corner, by name
+
+    // icons (ICONS, js/icons.js) read again and put in the corner, the
+    // scroll hand's frames beside them
+    function readIcons(icons) {
+      iconRows = icons;
+      placeMute();
+      placeHand();
+    }
+
+    // each icon as its two letters, centred so the icon stands MUTE.GAP clear
+    // of the window's bottom-right corner; an empty icon has none
+    function placeMute() {
+      muteArt = {};
+      for (const name of ['sound', 'muted']) {
+        const rows = iconRows[name] || [];
+        const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
+        if (!ink.w || !ink.h) continue;
+        const s = MUTE.SCALE, x = W - MUTE.GAP - ink.w * s / 2, y = H - MUTE.GAP - ink.h * s / 2;
+        muteArt[name] = { paper: makeLetter(paper, x, y, MUTE.SEED, s), ink: makeLetter(ink, x, y, MUTE.SEED, s) };
+      }
+    }
+
+    // whether world (x, y) on the screen presses the icon shown: its box and
+    // a little round it, at least 20 world px across, for a finger
+    function muteAt(x, y) {
+      const a = muteArt[muted ? 'muted' : 'sound'];
+      if (!a) return false;
+      const L = a.ink, w = L.g.w * L.scale, h = L.g.h * L.scale;
+      const mx = Math.max(4, (20 - w) / 2), my = Math.max(4, (20 - h) / 2);
+      return Math.abs(x - L.cx) <= w / 2 + mx && Math.abs(y - L.cy) <= h / 2 + my;
+    }
+
+    // the icon shown, its ink in the first tag colour if over
+    function drawMute(t, over) {
+      const a = muteArt[muted ? 'muted' : 'sound'];
+      if (!a) return;
+      a.paper.draw(t, 0, fb, 0, 0);
+      a.ink.draw(t, 0, fb, 0, over ? HOVER : 1);
+    }
+
+    // the page muted or given its sound back, and the browser told
+    function setMuted(on) {
+      muted = on;
+      Piano.mute(on);
+      Voice.mute(on);
+      try { localStorage.setItem(MUTE.KEY, on ? '1' : '0'); } catch (e) {}
+    }
+    try { if (localStorage.getItem(MUTE.KEY) === '1') setMuted(true); } catch (e) {}
+
+    // --- the scroll hand ---------------------------------------------------------
+    // a hand HAND.GAP world px left of the mute button, as far off the
+    // bottom edge as it is, pointing down while the page scrolls further
+    // and giving a thumbs up at its end (setScroll), or when it does not
+    // scroll:
+    // ICONS.hand's frames (js/icons.js), pointing down first and thumbs up
+    // last, each turned as it is drawn. the frame it is at eases toward its
+    // first or its last by the house approach and the nearest is drawn, so
+    // coming to the bottom plays the frames through and leaving it plays
+    // them back. each is drawn as the cursor's hand is, at its scale through
+    // the same sampler, its paper with its ink in it and then its ink, and
+    // wobbles as the mute button does. the text editor (tools/text) holds
+    // it on the frame it paints (holdHand) and plays it (playHand)
+    const HAND = {
+      GAP: 6,              // world px between it and the mute button
+      SCALE: CURSOR.SCALE, // of a frame's px, as the cursor is of its art's
+      SEED: 99100,         // its wobble's, clear of the mute button's
+      RATE: 0.15,          // of the way left to its frame, each 60 hz frame
+    };
+    let handArt = [];    // each frame as { paper, ink } bitmaps
+    let handWob = null;  // its wobble, a letter with no bitmap (makeLetter)
+    let handAt = 0;      // the frame it is at, unrounded
+    let handHold = null; // the frame the editor holds it on, or null
+
+    // the frames as bitmaps, centred so the widest and tallest stand
+    // HAND.GAP clear of the mute button's widest icon and MUTE.GAP clear of
+    // the bottom edge; an empty frame is left out
+    function placeHand() {
+      handArt = [];
+      let w = 0, h = 0;
+      for (const rows of iconRows.hand || []) {
+        const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
+        if (!ink.w || !ink.h) continue;
+        handArt.push({ paper, ink });
+        w = Math.max(w, ink.w);
+        h = Math.max(h, ink.h);
+      }
+      let left = W - MUTE.GAP;
+      for (const name in muteArt) {
+        const L = muteArt[name].ink;
+        left = Math.min(left, L.cx - L.g.w * L.scale / 2);
+      }
+      const s = HAND.SCALE;
+      handWob = makeLetter(null, left - HAND.GAP - w * s / 2, H - MUTE.GAP - h * s / 2, HAND.SEED, s);
+      if (handHold !== null) holdHand(handHold);
+    }
+
+    // whether the page is scrolled to its end, to within a world px, or
+    // does not scroll
+    function atBottom() {
+      return scrolled() >= scrollEnd / SCALE - 1;
+    }
+
+    // the frame eased toward the last at the bottom and the first anywhere
+    // else, the house approach dt-correct; held, it stays on its frame
+    function stepHand(dt) {
+      if (handHold !== null) return;
+      const to = atBottom() ? handArt.length - 1 : 0;
+      handAt += (to - handAt) * (1 - Math.pow(1 - HAND.RATE, 60 * dt));
+    }
+
+    // the nearest frame, its paper then its ink, at its wobble's pose
+    function drawHand(t) {
+      const f = handArt[Math.max(0, Math.min(handArt.length - 1, Math.round(handAt)))];
+      if (!f || !handWob) return;
+      const p = handWob.pose(t);
+      fb.sprite(f.paper, p.x, p.y, p.s, p.a, 0, CURSOR.MIN_HITS);
+      fb.sprite(f.ink, p.x, p.y, p.s, p.a, 1, CURSOR.MIN_HITS);
+    }
+
+    // held on frame i, or let go to follow the page again with null
+    function holdHand(i) {
+      handHold = i === null ? null : Math.max(0, Math.min(handArt.length - 1, i));
+      if (handHold !== null) handAt = handHold;
+    }
+
+    // let go and played from its far end to where the page is
+    function playHand() {
+      handHold = null;
+      handAt = atBottom() ? 0 : handArt.length - 1;
+    }
 
     // --- layout ------------------------------------------------------------------
     // wide: the menu down the left side and daedalus's panel in the middle,
@@ -2279,9 +2440,10 @@
       cursor.press();
       pointerAt = p;
       const q = toRoom(p);
-      grabbed = !!(playing() && !hitAt(p.x, p.y)) && world.grab(q.x, q.y);
+      const free = !hitAt(p.x, p.y) && !muteAt(p.x, p.y); // the press presses nothing else
+      grabbed = !!(playing() && free) && world.grab(q.x, q.y);
       if (grabbed && world.drag.blob === bubble) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
-      const b = !grabbed && !hitAt(p.x, p.y) && tagBubbleAt(p.x, p.y);
+      const b = !grabbed && free && tagBubbleAt(p.x, p.y);
       if (b) grabbed = b.world.grab(p.x, p.y);
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -2532,8 +2694,8 @@
     // its insides showing through it, the bubble in its box, every other
     // letter over them on its own
     // clock, the tag's bubbles, daedalus's panel if it is shown, the
-    // drag's marks, and last the hand on its backing, over the end of the
-    // drag's line, each layer simply writing over the bits of the last. then
+    // drag's marks, the scroll hand and the mute button, and last the hand on its backing, over
+    // the end of the drag's line, each layer simply writing over the bits of the last. then
     // the whole of it goes to the canvas in one copy.
     let lastNow = null; // the last frame's time, for the face's dt
     function frame(now) {
@@ -2577,12 +2739,14 @@
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       stepSwipe(dt);
+      stepHand(dt);
       fb.clear();
       // the words and their boxes first, scrolled and pushed down by the
       // boxes above them, each box over its word, so the header's letters
       // cover them all
       const sy = scrolled();
-      const hit = hoverAt && hitAt(hoverAt.x, hoverAt.y);
+      const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y);
+      const hit = hoverAt && !overMute && hitAt(hoverAt.x, hoverAt.y);
       for (const s of sections) {
         const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
@@ -2597,6 +2761,8 @@
       // bubble's as bubbleAt has it, a small bubble's in the room
       if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
       for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
+      drawHand(t);
+      drawMute(t, overMute);
       cursor.draw(fb);
       fb.present(ctx);
       requestAnimationFrame(frame);
