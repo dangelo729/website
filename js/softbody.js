@@ -17,6 +17,11 @@ const SOFT = {
   STEP_MS: 1000 / 60, MAX_CATCHUP_MS: 100,
   DAMPING: 0.99, GRAVITY: 0, ITERATIONS: 10,
   DISTANCE_ERROR_THRESHOLD: 0.01, DISTANCE_CORRECTION_FACTOR: 0.5,
+  // a ring that has just eaten is lobed, its skin many times as long as
+  // its circumference: past LOBED times, the area pass spreads the missing
+  // area over the skin's length over LOBED, not the circumference, or its
+  // push would overshoot and swing wider every pass
+  LOBED: 3,
   LOCK_RATE: 0.1, LOCK_DAMPING: 0.92, LOCK_DIFF_THRESHOLD: 0.1,
   COLLISION_THRESHOLD: 1.86, MERGE_PUFF_SHARE: 0.3, MAX_PUFFINESS: 2.5,
   // a locked blob's points past TARGET are shed every INTERVAL_MS, SHARE
@@ -32,12 +37,17 @@ const SOFT = {
   // three times cicada's sizes, fewer and slower: one every EVERY_MS
   // while the world is spawning, at most MAX_BLOBS with the centre one
   // (a world's own spawnMs and maxBlobs, these unless set),
-  // none within EXCLUSION of the middle, each set drifting at DRIFT px a
+  // none within EXCLUSION of the middle or CLEAR px of as far as another
+  // blob's skin reaches, each set drifting at DRIFT px a
   // step, which the damping bleeds off over a few seconds
-  SPAWN: { MIN_RADIUS: 6, MAX_RADIUS: 30, EXCLUSION: 110, MAX_BLOBS: 7, POINTS: 32, PUFFINESS: 1.2, EVERY_MS: 2000, DRIFT: [0.1, 0.3] },
+  SPAWN: { MIN_RADIUS: 6, MAX_RADIUS: 30, EXCLUSION: 110, CLEAR: 4, MAX_BLOBS: 7, POINTS: 32, PUFFINESS: 1.2, EVERY_MS: 2000, DRIFT: [0.1, 0.3] },
   // a locked blob grown by eating eases back to the area and puffiness it
   // was made with, at RATE a second
   SHRINK: { RATE: 0.2 },
+  // and what it has past a circle's SHARE of its world's shorter side
+  // across eases away at RATE a second, so however much it eats it comes
+  // back to what fits its world
+  FIT: { SHARE: 0.8, RATE: 5 },
   // cicada's colour pulse at half its speed and for longer: its head
   // moves SPEED points a step, a lap of the bubble in about a second, it
   // lights TRAIL points behind it, its colour goes once round its cycle
@@ -124,7 +134,8 @@ class SoftBlob {
   // one 60 Hz step, cicada's Blob.update in its order. drags are what hold
   // it, each { points: [{ point, force }], x, y }, or null for none; each
   // held point is pulled force times its own weight of the way to its
-  // drag's x, y each iteration. tMs is the world's clock.
+  // drag's x, y each iteration, all the way at the most. tMs is the
+  // world's clock.
   step(w, h, drags, tMs, force = SOFT.DRAG.FORCE) {
     // each pulse ages a step and moves on SPEED points, or, LIFE steps
     // old, goes
@@ -144,11 +155,14 @@ class SoftBlob {
       const n = pts.length;
 
       // chords: each pair splits its error, too long pulls in, too short
-      // pushes apart. a tiny error is left alone so a ring at rest is still
+      // pushes apart. a tiny error is left alone so a ring at rest is still.
+      // length is the skin's, as it stands
+      let length = 0;
       for (let i = 0; i < n; i++) {
         const cur = pts[i], next = pts[(i + 1) % n];
         const dx = next.x - cur.x, dy = next.y - cur.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        length += dist;
         const error = dist - this.chord;
         if (Math.abs(error) > SOFT.DISTANCE_ERROR_THRESHOLD) {
           const c = error * SOFT.DISTANCE_CORRECTION_FACTOR;
@@ -158,9 +172,10 @@ class SoftBlob {
         }
       }
 
-      // area: the missing area spread over the circumference is how far
-      // every point moves along its normal (the secant across it, turned)
-      const offset = (this.area - this.getArea()) / this.circumference;
+      // area: the missing area spread over the circumference, or over the
+      // skin's length over LOBED if that is more, is how far every point
+      // moves along its normal (the secant across it, turned)
+      const offset = (this.area - this.getArea()) / Math.max(this.circumference, length / SOFT.LOBED);
       for (let i = 0; i < n; i++) {
         const prev = pts[i === 0 ? n - 1 : i - 1], cur = pts[i], next = pts[(i + 1) % n];
         const sx = next.x - prev.x, sy = next.y - prev.y;
@@ -173,7 +188,7 @@ class SoftBlob {
       for (const p of pts) p.applyDisplacement();
 
       if (drags) {
-        for (const drag of drags) for (const d of drag.points) d.point.attract(drag.x, drag.y, force * d.force);
+        for (const drag of drags) for (const d of drag.points) d.point.attract(drag.x, drag.y, Math.min(force * d.force, 1));
       }
 
       for (const p of pts) p.keepIn(w, h);
@@ -226,6 +241,30 @@ class SoftBlob {
     this.radius = Math.sqrt(this.area / (Math.PI * this.puffiness));
     this.circumference = 2 * Math.PI * this.radius;
     this.chord = this.circumference / this.points.length;
+  }
+
+  // one step of its area down toward most, if it is over, the
+  // exponential approach at FIT.RATE, the skin's chords shortening with
+  // it; within a hair of most, most exactly, and never under its own size
+  fit(most) {
+    most = Math.max(most, this.homeArea);
+    if (this.area <= most) return;
+    this.area += (most - this.area) * (1 - Math.exp(-SOFT.FIT.RATE * SOFT.STEP_MS / 1000));
+    if (this.area - most < 1e-6 * most) this.area = most;
+    this.radius = Math.sqrt(this.area / (Math.PI * this.puffiness));
+    this.circumference = 2 * Math.PI * this.radius;
+    this.chord = this.circumference / this.points.length;
+  }
+
+  // how far its skin reaches from its centre
+  reach() {
+    const c = this.getCenter();
+    let most = 0;
+    for (const p of this.points) {
+      const dx = p.x - c.x, dy = p.y - c.y;
+      most = Math.max(most, Math.sqrt(dx * dx + dy * dy));
+    }
+    return most;
   }
 
   // shoelace
@@ -481,8 +520,11 @@ class World {
     if (this.drag && broken(this.drag)) this.drag = null;
     this.held = this.held.filter((d) => !broken(d));
 
+    // a locked blob bigger than fits the world eases back to that
+    const most = Math.PI * Math.pow(SOFT.FIT.SHARE * Math.min(this.w, this.h) / 2, 2);
     const drags = this.drag ? [this.drag, ...this.held] : this.held;
     for (const b of this.blobs) {
+      if (b.locked) b.fit(most);
       const on = drags.filter((d) => d.blob === b);
       b.step(this.w, this.h, on.length ? on : null, this.nowMs, this.dragForce);
     }
@@ -568,19 +610,26 @@ class World {
   }
 
   // a random size anywhere inside the world but not within EXCLUSION of
-  // (cx, cy), so nothing is born already touching the centre blob. cicada
-  // tried until it found a spot; a small world may have none, so this
-  // gives up after a while and returns null, as it does when full. it
+  // (cx, cy), so nothing is born already touching the centre blob, nor
+  // within CLEAR of as far as any blob's skin reaches from its centre, so
+  // nothing is born on or inside another. cicada
+  // tried until it found a spot; a small or crowded world may have none,
+  // so this gives up after a while and returns null, as it does when full. it
   // comes in drifting, DRIFT px a step in any direction.
   spawnRandom(cx = this.w / 2, cy = this.h / 2) {
     const S = SOFT.SPAWN;
     if (this.blobs.length >= this.maxBlobs) return null;
     const r = S.MIN_RADIUS + Math.random() * (S.MAX_RADIUS - S.MIN_RADIUS);
+    const others = this.blobs.map((b) => ({ c: b.getCenter(), reach: b.reach() }));
+    const taken = (x, y) => others.some((o) => {
+      const dx = x - o.c.x, dy = y - o.c.y;
+      return Math.sqrt(dx * dx + dy * dy) < o.reach + r + S.CLEAR;
+    });
     for (let tries = 0; tries < 100; tries++) {
       const x = r + Math.random() * (this.w - r * 2);
       const y = r + Math.random() * (this.h - r * 2);
       const dx = x - cx, dy = y - cy;
-      if (Math.sqrt(dx * dx + dy * dy) > S.EXCLUSION) {
+      if (Math.sqrt(dx * dx + dy * dy) > S.EXCLUSION && !taken(x, y)) {
         const b = this.spawn(r, x, y);
         const a = 2 * Math.PI * Math.random(), v = S.DRIFT[0] + Math.random() * (S.DRIFT[1] - S.DRIFT[0]);
         for (const p of b.points) { p.px = p.x - v * Math.cos(a); p.py = p.y - v * Math.sin(a); }
