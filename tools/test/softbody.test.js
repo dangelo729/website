@@ -754,5 +754,118 @@ check('Math.random came through the sandbox', randoms > 0, randoms + ' calls');
   check('spawning: a higher limit holds more, and no more', more.peak === S.MAX_BLOBS + 5, more.peak);
 }
 
+// --- a lobed ring ----------------------------------------------------------------
+// a ring pulled into thirty deep lobes, its skin nearly ten times as long
+// as its circumference, as one is that has eaten many at once: the area
+// pass spreads its push over the skin's length, so it rounds out to its
+// area where it stands; spread over the circumference alone the push
+// overshoots, swings wider every pass and throws it at the walls
+{
+  const star = (lobed) => {
+    const was = SOFT.LOBED;
+    SOFT.LOBED = lobed;
+    const n = 600, w = new World(1000, 1000), b = new SoftBlob(500, 500, n, 100, 1.2, false);
+    w.blobs.push(b);
+    b.points.forEach((p, i) => {
+      const a = 2 * Math.PI * i / n - Math.PI / 2, r = 100 * (1 + 0.5 * Math.sin(30 * a));
+      p.x = p.px = 500 + r * Math.cos(a);
+      p.y = p.py = 500 + r * Math.sin(a);
+    });
+    let skin = 0;
+    for (let i = 0; i < n; i++) skin += dist(b.points[i], b.points[(i + 1) % n]);
+    const start = b.reach();
+    let most = 0;
+    for (let i = 0; i < 300; i++) { w.tick(); most = Math.max(most, b.reach()); }
+    SOFT.LOBED = was;
+    return { long: skin / b.circumference, start, most, end: b.reach(), ok: finite(b), off: Math.abs(b.getArea() / b.area - 1) };
+  };
+  const held = star(SOFT.LOBED), loose = star(Infinity);
+  check('lobed: the ring\'s skin is many circumferences long', held.long > 2 * SOFT.LOBED, held.long.toFixed(1));
+  check('lobed: it rounds out where it stands', held.ok && held.most <= held.start + 5 && held.end < held.start,
+    'reach ' + held.start.toFixed(0) + ', never past ' + held.most.toFixed(0) + ', to ' + held.end.toFixed(0));
+  check('lobed: and comes to its area', held.off < 0.01, (100 * held.off).toFixed(2) + ' % off');
+  check('lobed: spread over the circumference alone, the same ring is thrown at the walls', loose.most > 2 * loose.start, 'to ' + loose.most.toFixed(0));
+  check('lobed: LOBED is as set', SOFT.LOBED === 3);
+}
+
+// --- a pull of more than all the way -------------------------------------------
+{
+  const world = new World(500, 300);
+  const b = world.spawn(20, 250, 150);
+  for (let i = 0; i < 120; i++) world.tick();
+  world.dragForce = 50;
+  const edge = Math.max(...b.points.map((p) => p.x));
+  world.grab(edge, 150);
+  const held = world.drag.points[0].point;
+  world.pointer(edge + 30, 140);
+  world.tick();
+  check('pull: a force past 1 lands the held point on its hold, no further', held.x === edge + 30 && held.y === 140 && world.drag !== null, held.x + ', ' + held.y);
+  for (let i = 0; i < 60; i++) world.tick();
+  check('pull: and the blob comes after it whole', finite(b) && world.blobs.length === 1 && b.reach() < 60, 'reach ' + b.reach().toFixed(1));
+}
+
+// --- what fits the world -------------------------------------------------------
+{
+  const b = new SoftBlob(100, 100, 32, 20, 1.2, false);
+  const home = b.area, k = 1 - Math.exp(-SOFT.FIT.RATE * SOFT.STEP_MS / 1000);
+  check('reach: a new ring reaches its radius', near(b.reach(), 20, 1e-9), b.reach());
+  b.fit(home * 2);
+  check('fit: under it, untouched', b.area === home && b.radius === 20);
+  b.area = home * 4;
+  b.fit(home * 2);
+  check('fit: over it, a step of the approach toward it', b.area === home * 4 + (home * 2 - home * 4) * k, (b.area / home).toFixed(3) + ' homes');
+  check('fit: radius, circumference and chord from the area', b.radius === Math.sqrt(b.area / (Math.PI * b.puffiness)) &&
+    b.circumference === 2 * Math.PI * b.radius && b.chord === b.circumference / b.points.length);
+  let steps = 0;
+  while (b.area !== home * 2 && steps < 2000) { b.fit(home * 2); steps++; }
+  check('fit: and to it exactly, in a few seconds', b.area === home * 2 && steps < 300, steps + ' steps');
+  for (let i = 0; i < 2000; i++) b.fit(home / 2);
+  check('fit: never under its own size', b.area === home);
+
+  // the centre blob fed past what fits its world eases back to it
+  const { world, b: centre } = settledWorld(250, 150, 300);
+  const most = Math.PI * Math.pow(SOFT.FIT.SHARE * 300 / 2, 2), meal = Math.PI * 40 * 40 * 1.2;
+  let peak = 0, fed = 0;
+  for (let i = 0; i < 12 * 30; i++) {
+    if (i % 30 === 0) world.spawn(40, Math.max(...centre.points.map((p) => p.x)) + 40 - 1, 150);
+    world.merges = [];
+    world.tick();
+    fed += world.merges.length;
+    peak = Math.max(peak, centre.area);
+  }
+  check('fit: the centre blob eats more than fits its world', fed === 12 && centre.homeArea + 12 * meal > 1.5 * most, fed + ' eaten');
+  check('fit: and never holds it all', peak < most + 2 * meal, 'at most ' + (peak / most).toFixed(2) + ' of what fits');
+  for (let i = 0; i < 180; i++) world.tick();
+  check('fit: three seconds on it is back to what fits', centre.area <= most && centre.area > centre.homeArea, (centre.area / most).toFixed(2));
+  check('fit: it holds together', finite(centre) && world.blobs.length === 1 && Math.abs(centre.getArea() / centre.area - 1) < 0.05);
+  check('fit: unlocked blobs are left alone', (() => {
+    const w = new World(100, 100), u = w.spawn(40, 50, 50);
+    const a = u.area;
+    w.tick();
+    return u.area === a && a > Math.PI * Math.pow(SOFT.FIT.SHARE * 100 / 2, 2);
+  })());
+  check('fit: SHARE and RATE are as set', SOFT.FIT.SHARE === 0.8 && SOFT.FIT.RATE === 5);
+}
+
+// --- spawning clear of the others ----------------------------------------------
+{
+  const S = SOFT.SPAWN;
+  const world = new World(500, 300);
+  world.blobs.push(new SoftBlob(250, 150, 32, 36, 1.2, true));
+  world.maxBlobs = 1000;
+  let clear = true, made = 0, gaveUp = 0;
+  for (let k = 0; k < 400; k++) {
+    const others = world.blobs.map((o) => ({ c: o.getCenter(), reach: o.reach() }));
+    const b = world.spawnRandom();
+    if (!b) { gaveUp++; continue; }
+    made++;
+    const c = b.getCenter();
+    if (others.some((o) => dist(c, o.c) < o.reach + b.radius + S.CLEAR - 1e-9)) clear = false;
+  }
+  check('spawn: every one clear of every other blob', clear && made > 10, made + ' made');
+  check('spawn: a crowded world gives up', gaveUp > 0 && world.blobs.length === made + 1, gaveUp + ' gave up');
+  check('spawn: CLEAR is as set', S.CLEAR === 4);
+}
+
 console.log(failures ? failures + ' failed' : 'all passed');
 process.exit(failures ? 1 : 0);
