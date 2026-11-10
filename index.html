@@ -1948,8 +1948,8 @@
     }
 
     // --- the shop ------------------------------------------------------------------
-    // bubble bob's box sells drag strength, hands, spawn rate, max bubbles
-    // and a random voice for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
+    // bubble bob's box sells drag strength, hands, spawn rate, max bubbles,
+    // bubble value and a random voice for the bubbles the bubble has eaten, each paying by its size (js/shop.js), every number
     // shown to two places, in a menu of its own in the room's top right, as
     // far in from its top and right as his caret's ink is from its left. shut, the
     // menu is a button: a rounded rect drawn as the box is, filled with
@@ -1975,6 +1975,7 @@
     // words' (the inventor's). a press on a button buys a level: drag strength pulls every
     // held skin in the bubble's world harder, spawn rate spawns small
     // bubbles there more often, max bubbles lets it hold more at once,
+    // bubble value makes every one the bubble eats pay more,
     // randomize voice gives the bubble a new voice (js/voice.js), and
     // a hand comes out of its button and goes after the small bubbles
     // (js/hands.js), drawn as the pointer is (js/cursor.js), a fist while
@@ -1982,8 +1983,8 @@
     // small bubbles and under the bubble, as cicada layered them
     // (drawGame). HAND_REACH is how far its art reaches from its palm.
     const SHOP_UI = {
-      KEYS: ['drag', 'hands', 'spawn', 'max', 'voice'], TITLE: 'upgrades', BAR: '|',
-      LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', voice: 'randomize voice' },
+      KEYS: ['drag', 'hands', 'spawn', 'max', 'value', 'voice'], TITLE: 'upgrades', BAR: '|',
+      LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', value: 'bubble value', voice: 'randomize voice' },
       PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
       APART: 0.4,                           // of the text's size, between the header's caret, count, bar and title
       ROW: 0.4, MARGIN: 0.4,                // of the text's size, between the list's buttons, and round them in the open menu
@@ -2544,7 +2545,7 @@
       // (js/voice.js)
       const fed = bubble ? world.merges.filter((m) => m.blob === bubble) : [];
       if (fed.length) {
-        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius));
+        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius) * shop.value());
         Piano.strike(Math.floor(Math.random() * Piano.NOTES.length));
         Voice.thank();
       }
