@@ -13,7 +13,8 @@
 // compounding, and max bubbles holds one more a level; that nothing
 // has a ceiling; that the rate is what was earned over the last ten
 // seconds, a second; and that figures are to two places under 10000 and
-// in scientific notation from it. exits 1 on failure.
+// in scientific notation from it; and that a free shop sells every level
+// for nothing, its prices rising as ever. exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -108,6 +109,15 @@ check('randomize voice: a flat 5, every time', voice.join() === '5,5,5,5,5,5', v
 {
   const f = [0, 0.5, 12.5, 9999.5, 10000, 12345, 1234567, 1e21].map((n) => Shop.figure(n));
   check('figures: two places under 10000, then 1.23e4', f.join() === '0.00,0.50,12.50,9999.50,1.00e4,1.23e4,1.23e6,1.00e21', f.join(' '));
+}
+
+{
+  const s = new Shop();
+  s.free = true;
+  s.earn(2);
+  const before = s.price('hands');
+  check('free: a level is bought without bubbles enough, and costs none', s.can('hands') && s.buy('hands') && s.levels.hands === 1 && s.bubbles === 2);
+  check('free: the price still rises', near(s.price('hands'), before * 1.3), before + ' then ' + s.price('hands'));
 }
 
 check('the new rates are as set', SHOP.SPAWN.PRICE === 2 && SHOP.SPAWN.GROWTH === 1.15 && SHOP.SPAWN.STEP === 1.1 && SHOP.MAX.PRICE === 3 && SHOP.MAX.GROWTH === 1.5 && SHOP.MAX.STEP === 1 && SHOP.VALUE.PRICE === 3 && SHOP.VALUE.GROWTH === 1.2 && SHOP.VALUE.STEP === 1.15 && SHOP.VOICE.PRICE === 5 && SHOP.VOICE.GROWTH === 1);

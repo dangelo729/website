@@ -2173,6 +2173,20 @@
       warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
     };
 
+    // dev mode: D, E and V held down together for DEV.MS make the shop free
+    // until the page is reloaded; the count and the prices go on as ever
+    const DEV = { KEYS: ['KeyD', 'KeyE', 'KeyV'], MS: 5000 };
+    const devHeld = new Set();
+    let devTimer = null;
+    const devStop = () => { clearTimeout(devTimer); devTimer = null; };
+    window.addEventListener('keydown', (e) => {
+      if (!DEV.KEYS.includes(e.code)) return;
+      devHeld.add(e.code);
+      if (devHeld.size === DEV.KEYS.length && devTimer === null) devTimer = setTimeout(() => { shop.free = true; }, DEV.MS);
+    });
+    window.addEventListener('keyup', (e) => { if (devHeld.delete(e.code)) devStop(); });
+    window.addEventListener('blur', () => { devHeld.clear(); devStop(); });
+
     // the menu laid out, again whenever the room or what it says changes;
     // null with no room
     function shopNow() {
