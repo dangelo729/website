@@ -14,7 +14,8 @@
 // a flat PRICE every time, its GROWTH 1. none of it is whole numbers, and
 // nothing has a ceiling. the rate is the bubbles earned over the last
 // RATE_MS, a second, and every figure shown is to two places, or from
-// FIGURES on in scientific notation.
+// FIGURES on in scientific notation. a free shop (dev mode) sells every
+// level for nothing, its prices rising as ever.
 
 const SHOP = {
   REWARD: { LEAST: 1, MOST: 3 },
@@ -34,6 +35,7 @@ class Shop {
     this.bubbles = 0;                    // to spend
     this.levels = { drag: 0, hands: 0, spawn: 0, max: 0, value: 0, voice: 0 }; // bought of each
     this.earned = [];                    // each { ms, n } earned, oldest first, until it is out of the rate's window
+    this.free = false;                   // dev mode: every level bought for nothing
   }
 
   // the next level of key: 'drag', 'hands', 'spawn', 'max', 'value' or 'voice'
@@ -43,13 +45,14 @@ class Shop {
   }
 
   can(key) {
-    return this.bubbles >= this.price(key) - SHOP.SLACK;
+    return this.free || this.bubbles >= this.price(key) - SHOP.SLACK;
   }
 
-  // the next level of key, if there are bubbles enough: true if bought
+  // the next level of key, if there are bubbles enough or the shop is
+  // free: true if bought
   buy(key) {
     if (!this.can(key)) return false;
-    this.bubbles = Math.max(0, this.bubbles - this.price(key));
+    if (!this.free) this.bubbles = Math.max(0, this.bubbles - this.price(key));
     this.levels[key]++;
     return true;
   }
