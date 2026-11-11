@@ -310,8 +310,27 @@ class SoftBlob {
     return out;
   }
 
-  // the first pair of points closer than threshold, scanning this ring first
+  // the smallest box round its points
+  bounds() {
+    const pts = this.points;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.y > y1) y1 = p.y;
+    }
+    return { x0, y0, x1, y1 };
+  }
+
+  // the first pair of points closer than threshold, scanning this ring
+  // first. rings whose boxes are more than threshold apart have no such
+  // pair, so their points are never compared
   collides(other, threshold = SOFT.COLLISION_THRESHOLD) {
+    const a = this.bounds(), b = other.bounds();
+    if (a.x1 + threshold < b.x0 || b.x1 + threshold < a.x0 ||
+        a.y1 + threshold < b.y0 || b.y1 + threshold < a.y0) return null;
     for (let i = 0; i < this.points.length; i++) {
       const a = this.points[i];
       for (let j = 0; j < other.points.length; j++) {
