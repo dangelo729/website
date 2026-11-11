@@ -2119,9 +2119,10 @@
     // menu is a button: a rounded rect drawn as the box is, filled with
     // paper over whatever drifts under it and outlined LINE px from point to
     // point, RADIUS of its text's size round its corners, saying with a
-    // caret on its left how many bubbles there are, a BAR and TITLE, APART
-    // from each other, in the box text's face at the photo caption's size, PAD
-    // round them. a press
+    // caret on its left the bubbles earned a second (js/shop.js's rate), a
+    // BAR, how many bubbles there are, a BAR and TITLE, APART from each
+    // other, in the box text's face at the photo caption's size, PAD round
+    // them. a press
     // on it opens the menu as a box opens: the button is its shut shape, and
     // its open one reaches down and left round a list of the upgrades under
     // the header, a button each, ROW apart, every one as wide as the
@@ -2150,7 +2151,7 @@
       KEYS: ['drag', 'hands', 'spawn', 'max', 'value', 'voice'], TITLE: 'upgrades', BAR: '|',
       LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', value: 'bubble value', voice: 'randomize voice' },
       PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
-      APART: 0.4,                           // of the text's size, between the header's caret, count, bar and title
+      APART: 0.4,                           // of the text's size, between the header's caret, rate, bars, count and title
       ROW: 0.4, MARGIN: 0.4,                // of the text's size, between the list's buttons, and round them in the open menu
       BOUNCE: 0.45,                         // the spring's: damped 1 - BOUNCE (the boxes' 0.35, 7 % past open)
       KICK: 12,                             // a second, added to its speed toward open as it opens: with BOUNCE, about 19 % past open
@@ -2159,10 +2160,11 @@
       STEP: 2,                              // px between a button's outline's points, as the box's skin stands
     };
     const shop = new Shop();
+    let bps = 0;                 // the shop's rate, as of this frame
     const helpers = [];          // each hand bought, { hand, cursor }
     const HAND_REACH = 20;       // world px
     const shopTypes = new Map(); // a label's text, to its Type
-    let shopUI = null;           // as laid out: { room, key, size, shut, full, header: { caret, count, bar, title }, buttons: [{ key, rect, ring, letters }] }
+    let shopUI = null;           // as laid out: { room, key, size, shut, full, header: { caret, rate, rateBar, count, bar, title }, buttons: [{ key, rect, ring, letters }] }
     // the menu: whether it is open, how far (p, 0 shut, 1 open and past as
     // it swings) and how fast, its caret's turn, its skin and the room it
     // was made in, and each edge's warble
@@ -2176,8 +2178,9 @@
     function shopNow() {
       const room = bubbleHome && bubbleHome.room;
       if (!room) return null;
-      const U = SHOP_UI, labels = U.KEYS.map((k) => U.LABELS[k] + ' · ' + shop.price(k).toFixed(2));
-      const count = shop.bubbles.toFixed(2) + ' bubbles', key = labels.join('|') + '|' + count;
+      const U = SHOP_UI, labels = U.KEYS.map((k) => U.LABELS[k] + ' · ' + Shop.figure(shop.price(k)));
+      const rate = Shop.figure(bps) + ' bps', count = Shop.figure(shop.bubbles) + ' bubbles';
+      const key = labels.join('|') + '|' + rate + '|' + count;
       if (shopUI && shopUI.room === room && shopUI.key === key) return shopUI;
       const size = Math.max(BOX.CAP_LEAST, BOX.CAP * room.size), k = size / TYPE.EM, inset = room.inset;
       const type = (text) => {
@@ -2188,14 +2191,17 @@
       const wide = (t) => k * (t.left + t.right), h = Math.round(size * (2 * U.PAD_Y + U.CAP + U.DESC));
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
       const letters = (t, x0, y0, seed) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, seed + gl.at, k, WOBBLE));
-      // the header, the shut menu: the caret, the count, the bar and the title
-      const ct = type(count), bt = type(U.BAR), tt = type(U.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = U.APART * size;
+      // the header, the shut menu: the caret, the rate, a bar, the count, a bar and the title
+      const rt = type(rate), ct = type(count), bt = type(U.BAR), tt = type(U.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = U.APART * size;
       const right = room.x + room.w - inset, top = room.y + inset;
-      const hw = Math.round(cw + wide(ct) + wide(bt) + wide(tt) + 3 * apart + 2 * U.PAD_X * size);
+      const hw = Math.round(cw + wide(rt) + wide(ct) + 2 * wide(bt) + wide(tt) + 5 * apart + 2 * U.PAD_X * size);
       const shut = { x0: right - hw, y0: top, x1: right, y1: top + h };
-      const x = shut.x0 + U.PAD_X * size, xc = x + cw + apart, xb = xc + wide(ct) + apart, xt = xb + wide(bt) + apart;
+      const x = shut.x0 + U.PAD_X * size, xr = x + cw + apart, xa = xr + wide(rt) + apart;
+      const xc = xa + wide(bt) + apart, xb = xc + wide(ct) + apart, xt = xb + wide(bt) + apart;
       const header = {
         caret: cg ? makeLetter(cg.g, x + cw / 2, top + size * (U.PAD_Y + U.CAP) + k * cg.dy, 78999, k, WOBBLE) : null,
+        rate: letters(rt, xr, top, 76000),
+        rateBar: letters(bt, xa, top, 76500),
         count: letters(ct, xc, top, 79000),
         bar: letters(bt, xb, top, 77000),
         title: letters(tt, xt, top, 78000),
@@ -2293,6 +2299,8 @@
       if (!ui || !menu.skin) return;
       const v = hover && hover.menu ? HOVER_LINK : 1, box = menu.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 - sy) - BOX.LINE, Math.ceil(box.y1 - sy) + BOX.LINE + 1);
+      for (const L of ui.header.rate) L.draw(t, -sy, qfb, 0, v);
+      for (const L of ui.header.rateBar) L.draw(t, -sy, qfb, 0, v);
       for (const L of ui.header.count) L.draw(t, -sy, qfb, 0, v);
       for (const L of ui.header.bar) L.draw(t, -sy, qfb, 0, v);
       if (ui.header.caret) ui.header.caret.draw(t, -sy, qfb, menu.turn * Math.PI / 2, v);
@@ -2710,10 +2718,11 @@
       // (js/voice.js)
       const fed = bubble ? world.merges.filter((m) => m.blob === bubble) : [];
       if (fed.length) {
-        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius) * shop.value());
+        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius) * shop.value(), now);
         Piano.strike(Math.floor(Math.random() * Piano.NOTES.length));
         Voice.thank();
       }
+      bps = shop.rate(now);
       for (const h of helpers) {
         if (h.hand.drag) h.cursor.press(); else h.cursor.release();
         h.cursor.update(dt);
