@@ -1,12 +1,14 @@
 // node tools/test/hands.test.js
 //
-// loads js/softbody.js and js/hands.js the way the page does, classic
+// loads js/softbody.js, js/hands.js and js/shop.js the way the page does, classic
 // scripts sharing one global scope, in a vm context, and runs a world the
 // size of Personal work's room with its bubble locked in the middle.
 // checks a hand fetches a small blob: comes up beside it, takes hold as
 // the pointer does, tows it in and has it eaten; a hold that breaks lets
 // go and the hand comes back; two hands go after two blobs, not the same
-// one; a blob takes a hand for every spawn in it, so a crew tows a heavy
+// one; a blob goes to the hand nearest it, which takes it over from one
+// far off; a bigger blob pays more for the time, a far one less; a blob
+// takes a hand for every spawn in it, so a crew tows a heavy
 // one together, holding side by side, faster than one hand that keeps
 // losing its hold; a blob the pointer holds is left alone; an idle hand
 // waits beside the bubble; a hand never leaves the world; and a stronger
@@ -25,7 +27,7 @@ function check(name, ok, detail) {
 }
 
 const ctx = vm.createContext({});
-for (const file of ['js/softbody.js', 'js/hands.js']) {
+for (const file of ['js/softbody.js', 'js/hands.js', 'js/shop.js']) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), ctx, { filename: file });
 }
 const { World, SoftBlob, Hand, HANDS, SOFT } = vm.runInContext('({ World, SoftBlob, Hand, HANDS, SOFT })', ctx);
@@ -98,6 +100,37 @@ const secs = (k) => (k / 60).toFixed(1) + ' s';
   v.grab(300 + 10, 150);
   v.tick();
   check('a blob the pointer holds is left alone, though nearer', v.drag && v.drag.blob === held && h.target === free);
+}
+
+// --- who goes after what -------------------------------------------------------------
+{
+  // a new blob goes to the hand nearest it, not the first
+  const w = room(), far = new Hand(100, 150, 0), near = new Hand(1050, 150, 1);
+  w.hands.push(far, near);
+  const b = w.spawn(10, 1100, 150);
+  w.tick();
+  check('a blob goes to the nearest hand, not the first', near.target === b && far.target === null);
+
+  // a hand that comes free beside a blob another is still far off from
+  // takes it over, and the other has nothing left to go after
+  const v = room(), x = v.spawn(10, 1100, 150), h1 = new Hand(80, 150, 0);
+  v.hands.push(h1);
+  v.tick();
+  const h2 = new Hand(1080, 150, 1);
+  v.hands.push(h2);
+  v.tick();
+  check('a hand much nearer takes a blob over from one far off', h2.target === x && h1.target === null);
+
+  // as near, the bigger pays more; a big one far out loses to a small one
+  // by the bubble
+  const u = room(), small = u.spawn(8, 900, 80), big = u.spawn(28, 900, 220), hand = new Hand(900, 150, 0);
+  u.hands.push(hand);
+  u.tick();
+  check('of two as near, the bigger', hand.target === big);
+  const t = room(), close = t.spawn(8, 700, 150), wide = t.spawn(28, 1150, 150), other = new Hand(640, 150, 0);
+  t.hands.push(other);
+  t.tick();
+  check('a small one by the bubble before a big one far out', other.target === close && wide);
 }
 
 // --- a crew for a heavy blob ---------------------------------------------------------
