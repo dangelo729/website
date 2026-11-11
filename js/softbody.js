@@ -527,7 +527,9 @@ class World {
       this.spawnRandom();
     }
 
-    // the hands go where they are going, and their drags with them
+    // the hands share out the blobs (js/hands.js), then go where they are
+    // going, and their drags with them
+    if (this.hands.length) Hand.plan(this);
     for (const hand of this.hands) hand.step(this);
 
     // pulled too far, the skin lets go
