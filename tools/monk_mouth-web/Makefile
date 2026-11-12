@@ -23,7 +23,7 @@ CPPFLAGS := -I$(MM)/src
 
 # no entry, no runtime: the glue's functions and the memory are the exports,
 # the memory fixed, so the page's worklet needs nothing of emscripten's
-EXPORTS := _voice_init,_voice_text,_voice_speak,_voice_tenseness,_voice_wobble,_voice_sections,_voice_tune,_voice_busy,_voice_heard,_voice_mouth,_voice_stop,_voice_render,_voice_note_on,_voice_note_off,_voice_pitch,_voice_syllable,_voice_glide
+EXPORTS := _voice_init,_voice_text,_voice_speak,_voice_tenseness,_voice_wobble,_voice_sections,_voice_tune,_voice_busy,_voice_heard,_voice_mouth,_voice_state,_voice_stop,_voice_render,_voice_note_on,_voice_note_off,_voice_pitch,_voice_syllable,_voice_glide,_voice_vibrato
 LDFLAGS := -O2 -sSTANDALONE_WASM=1 --no-entry -sFILESYSTEM=0 -sINITIAL_MEMORY=1mb \
            -sEXPORTED_FUNCTIONS=$(EXPORTS)
 

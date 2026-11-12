@@ -1,30 +1,47 @@
 // --- the monk ------------------------------------------------------------------
-// monk mouth in personal work sings: a face whose mouth the voice moves,
+// monk mouth in personal work sings: a face the voice moves (js/moon.js),
 // and a ribbon under it. a press on the ribbon sings a note, the ribbon's
-// length cut into DEGREES degrees of c major up from ROOT, and each attack
-// and each note it moves to sings a fresh syllable, a consonant and a vowel
-// drawn at random. it is moon_man's ribbon (its scene_sing): a fresh press
-// takes the degree whose zone holds the finger; while it sings, the degree
-// it holds keeps the finger inside its zone widened by HYST of a zone
-// either side, so a finger resting on a boundary never chatters, and past
-// that the degree is the one whose zone holds it. a new note is glided to,
-// and struck with its syllable once MIN_STRIKE_MS have passed since the
-// last strike and it is not the note last struck; a crossing inside that
-// waits, and the syllable takes the note the finger is on by then. the
+// length cut into DEGREES degrees of a scale, one of MODES on one of KEYS
+// in one of OCTAVES, the three the page sets (mode, key, octave), and each
+// attack and each note it moves to sings a fresh syllable, a consonant and
+// a vowel drawn at random. it is moon_man's ribbon (its scene_sing): a
+// fresh press takes the degree whose zone holds the finger; while it
+// sings, the degree it holds keeps the finger inside its zone widened by
+// HYST of a zone either side, so a finger resting on a boundary never
+// chatters, and past that the degree is the one whose zone holds it. a new
+// note is glided to, and struck with its syllable once MIN_STRIKE_MS have
+// passed since the last strike and it is not the note last struck; a
+// crossing inside that waits, and the syllable takes the note the finger
+// is on by then. the note is worked out from the scale each frame, so a
+// setting changed while a note is held moves it as a crossing does. the
 // singer is a second monk_mouth voice beside the bubble's (js/voice.js):
 // its own node of the same worklet (js/voice-worklet.js), made from the
 // same bytes in the same context, through its own master gain. it is made
 // the first frame the ribbon is pressed once that context exists, and
 // nothing is sung until its worklet is ready and the context running; a
-// press held through that is sung as soon as both are. the mouth comes
-// from the worklet as the bubble's does, a little before the sound reaches
-// the speaker, and waits (coming) until the context's time at the speaker
-// has reached it. the page sets down and calls update() once a frame.
+// press held through that is sung as soon as both are. its node is asked
+// for the voice's raw state rather than the mouth, for moon_man's face to
+// read (js/voice-worklet.js lays it out); it comes from the worklet as the
+// bubble's mouth does, a little before the sound reaches the speaker, and
+// waits (coming) until the context's time at the speaker has reached it.
+// randomize() draws a wild voice, and the node holds every sample under
+// CEILING through the master. the page sets down and calls update() once
+// a frame.
 
 const Monk = {
-  ROOT: 48,                      // midi, the ribbon's first degree: c3
-  DEGREES: 8,                    // degrees along the ribbon, c3 .. c4
-  MAJOR: [0, 2, 4, 5, 7, 9, 11], // c major's degrees, semitones over its root
+  DEGREES: 8,                    // degrees along the ribbon, the scale's root to its octave
+  // the seven diatonic modes, each its seven degrees in semitones over the root
+  MODES: [
+    { name: 'ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
+    { name: 'dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
+    { name: 'phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
+    { name: 'lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
+    { name: 'mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
+    { name: 'aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
+    { name: 'locrian', steps: [0, 1, 3, 5, 6, 8, 10] },
+  ],
+  KEYS: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], // the root, semitones over c
+  OCTAVES: [1, 2, 3, 4, 5],      // the root's octave: the ribbon's first degree is midi 12 * (octave + 1) + key
   HYST: 0.15,                    // of a zone, how far the degree being sung holds past its zone either side
   MIN_STRIKE_MS: 90,             // ms, the least time from one syllable to the next
   VEL: 0.8,                      // the note's velocity, its breath
@@ -37,15 +54,35 @@ const Monk = {
   // has what each setting is), and the glide from note to note, per second,
   // 95% of the way there in 0.4 s
   VOICE: { sections: 22, breathiness: 0, roughness: 0, tension: 0.6, diction: 1, wobble: 0.3, glide: 3 / 0.4 },
-  // the master gain: every syllable on every degree, held and let go,
-  // peaks through it at 0.25 to 0.55, where the bubble's lines do
+  // where randomize() draws each setting, lo .. hi, wide: the tube tiny to
+  // huge (the engine takes 2 to 64), the folds shut to nearly a whisper,
+  // the growl, the tension's whole range, consonants slurred to crisp, the
+  // wobble none to a lot, the glide a slow slide to nearly a jump, the
+  // vibrato's speed in hz, its swing in cents and how long a note waits
+  // for it, and the lips on every vowel wide open to pursed. the vibrato
+  // keeps near the engine's own, 5.5 hz and 25 cents: none to twice its
+  // swing, a tremble, never a warble. diction stops at 2: past it, a stop
+  // struck mid-note in a big tube clicks at the engine's own clamp
+  RANDOM: {
+    sections: [4, 60], breathiness: [0, 0.7], roughness: [0, 1], tension: [0, 1], diction: [0.3, 2], wobble: [0, 4],
+    glide: [2, 100], vibratoHz: [4, 7], vibratoCents: [0, 50], vibratoOnset: [0, 0.5], lipRound: [-1, 1],
+  },
+  // the master gain: every syllable on every degree from c3, held and let
+  // go, peaks through it at 0.25 to 0.55, where the bubble's lines do
   // (tools/test/monk.test.js prints them); a voice tuned again moves them
   MASTER: 1.9,
+  // the most the singer peaks at through the master: its node holds every
+  // sample under CEILING / MASTER (js/voice-worklet.js). the voice above
+  // never reaches it from c3; higher notes and wild voices do
+  CEILING: 0.9,
   MUTE_S: 0.03, // s, the time constant the master gain eases to silence and back by (mute)
 
+  mode: 0,        // the scale's mode, an index into MODES; the page sets it
+  key: 0,         // its root, an index into KEYS; the page sets it
+  octave: 2,      // the root's octave, an index into OCTAVES; the page sets it
   down: null,     // where the finger is on the ribbon, 0 .. 1, or null; the page sets it
   deg: -1,        // the degree being sung, 0 .. DEGREES - 1, or -1
-  mouth: null,    // the mouth as heard by now (js/mouth.js), or null in silence
+  state: null,    // the voice's raw state as heard by now, a Float32Array, or null in silence
   asked: false,   // the node has been asked for
   node: null,     // the worklet's node, once made
   out: null,      // the master gain, once made
@@ -56,10 +93,10 @@ const Monk = {
   struck: 0,      // the note last struck with a syllable
   struckAt: 0,    // when, in update()'s ms
   crossed: false, // the note has moved since then
-  coming: [],     // the mouths the worklet has said and are still to be heard: { t, mouth }, oldest first
+  coming: [],     // the states the worklet has said and are still to be heard: { t, state }, oldest first
 
   // once a frame, now in ms: the node asked for at the first press, the
-  // mouth heard, and the note sung: struck at a press, moved and struck
+  // state heard, and the note sung: struck at a press, moved and struck
   // again as the finger crosses the degrees, let go at the lift
   update(now) {
     if (!this.asked && this.down !== null && Voice.ctx && Voice.loading) this.make();
@@ -72,7 +109,8 @@ const Monk = {
   },
 
   // the singer's node, made in the voice's context from the same worklet
-  // and the same wasm once both have come, through its own master gain
+  // and the same wasm once both have come, saying the voice's raw state,
+  // through its own master gain
   make() {
     this.asked = true;
     const win = Voice.win, ctx = Voice.ctx;
@@ -81,20 +119,20 @@ const Monk = {
         const node = new win.AudioWorkletNode(ctx, 'voice', {
           numberOfInputs: 0,
           outputChannelCount: [1],
-          processorOptions: { wasm, voice: this.VOICE },
+          processorOptions: { wasm, voice: this.VOICE, state: true, ceiling: this.CEILING / this.MASTER },
         });
         const out = ctx.createGain();
         out.gain.value = this.muted ? 0 : this.MASTER;
         node.connect(out);
         out.connect(ctx.destination);
         this.out = out;
-        // ready once; after that the mouth as a note plays, then done: it
+        // ready once; after that the state as a note plays, then done: it
         // is over. a done that comes while a note is sung is the last
         // one's, and the note sung plays on
         node.port.onmessage = (e) => {
           const m = e.data;
           if (m === 'ready') this.ready = true;
-          else if (m && m.mouth) this.coming.push(m);
+          else if (m && m.state) this.coming.push(m);
           else if (m === 'done' && this.deg < 0) this.busy = false;
         };
         this.node = node;
@@ -102,12 +140,12 @@ const Monk = {
       .catch(() => {});
   },
 
-  // the mouths the speaker has reached by now taken up, the last of them
-  // the mouth; with nothing more to come and no note playing, silence
+  // the states the speaker has reached by now taken up, the last of them
+  // the state; with nothing more to come and no note playing, silence
   hear() {
     const at = Voice.heardAt();
-    while (this.coming.length && !(this.coming[0].t > at)) this.mouth = this.coming.shift().mouth;
-    if (!this.busy && !this.coming.length) this.mouth = null;
+    while (this.coming.length && !(this.coming[0].t > at)) this.state = this.coming.shift().state;
+    if (!this.busy && !this.coming.length) this.state = null;
   },
 
   // a press: the degree whose zone holds the finger, struck with a fresh
@@ -160,9 +198,9 @@ const Monk = {
     return this.zone(pos);
   },
 
-  // a degree's midi note
+  // a degree's midi note in the scale as it is set now
   midi(deg) {
-    return this.ROOT + 12 * Math.floor(deg / 7) + this.MAJOR[deg % 7];
+    return 12 * (this.OCTAVES[this.octave] + 1) + this.key + 12 * Math.floor(deg / 7) + this.MODES[this.mode].steps[deg % 7];
   },
 
   // a consonant and a vowel, at random, as phones
@@ -170,6 +208,19 @@ const Monk = {
     const c = this.CONSONANTS[Math.floor(Math.random() * this.CONSONANTS.length)];
     const v = this.VOWELS[Math.floor(Math.random() * this.VOWELS.length)];
     return c + ' ' + v;
+  },
+
+  // a new voice, each setting drawn evenly inside its RANDOM, kept as the
+  // singer's voice: to the node's next block if it is made, and the node
+  // made later is made with it
+  randomize() {
+    const voice = {};
+    for (const k in this.RANDOM) {
+      const [lo, hi] = this.RANDOM[k];
+      voice[k] = lo + Math.random() * (hi - lo);
+    }
+    this.VOICE = voice;
+    if (this.node) this.node.port.postMessage({ type: 'voice', voice });
   },
 
   // muted or not: the master gain eased to 0 or back to MASTER by the house

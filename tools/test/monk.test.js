@@ -4,20 +4,31 @@
 // in one vm context, and hands the voice a fake window as
 // tools/test/voice.test.js does: its AudioContext counts what is made, its
 // worklet nodes record their options and every message posted to them,
-// and its fetch and addModule answer at once. checks the ribbon's degrees,
-// plain and held past their zones, that the singer makes nothing before a
-// press, that its node is made in the voice's context from the same load,
-// that nothing is sung until its worklet is ready and the context running,
-// that a press sends one note, that a crossing sends the new note and,
-// once the floor has passed, one fresh syllable, a crossing inside the
-// floor waiting for it, that a lift sends the note off, and that the mouth
+// and its fetch and addModule answer at once. checks the scale (each
+// mode's eight degrees from a few keys and every octave) and the ribbon's
+// degrees, plain and held past their zones, the random ranges, that the
+// singer makes nothing before a press, that a voice drawn before its node
+// is made goes with the node, that its node is made in the voice's context
+// from the same load, asks for the voice's raw state and is held under the
+// ceiling, that nothing is sung until its worklet is ready and the context
+// running, that a press sends one note, that a crossing sends the new note
+// and, once the floor has passed, one fresh syllable, a crossing inside
+// the floor waiting for it, that a lift sends the note off, that the state
 // is taken up once the context's time at the speaker reaches it and is in
-// silence once the note is done. then loads js/voice-worklet.js with the
-// real monk_mouth/monk_mouth.wasm and checks a note: it sounds, says the
-// mouth every three blocks while it does, says done only after it is let
-// go, and every syllable on every degree stays inside full scale through
-// the master gain. the peaks it prints, through the master gain, are what
-// js/monk.js's master is set by. exits 1 on failure.
+// silence once the note is done, that a setting of the scale changed while
+// a note is held sends the new note and then a syllable, as a crossing
+// does, and that a voice drawn at random has every setting inside its
+// range and goes to the node. then loads js/voice-worklet.js with the real
+// monk_mouth/monk_mouth.wasm and checks a note: it sounds, says the
+// voice's raw state every three blocks while it does, each a copy of its
+// own as long as its tube says, says done only after it is let go, and
+// every syllable on every degree from c3 stays inside full scale through
+// the master gain, never reaching the ceiling. the peaks it prints, through
+// the master gain, are what js/monk.js's master is set by. last, the
+// loudness: the singer's own voice, every corner of the six settings that
+// set a voice's level and voices drawn at random, each sung from every
+// octave, peak no higher than 0.95 through the master, and none reaches
+// the engine's own clamp. exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -76,9 +87,37 @@ const isSyllable = (phones) => {
 };
 
 (async () => {
-  // --- the degrees -----------------------------------------------------------------
+  // --- the scale ---------------------------------------------------------------------
   const D = Monk.DEGREES;
-  check('eight degrees of c major up from c3, c3 .. c4', D === 8 && Array.from({ length: D }, (_, d) => Monk.midi(d)).join() === '48,50,52,53,55,57,59,60');
+  const STEPS = [
+    ['ionian', '0,2,4,5,7,9,11'], ['dorian', '0,2,3,5,7,9,10'], ['phrygian', '0,1,3,5,7,8,10'], ['lydian', '0,2,4,6,7,9,11'],
+    ['mixolydian', '0,2,4,5,7,9,10'], ['aeolian', '0,2,3,5,7,8,10'], ['locrian', '0,1,3,5,6,8,10'],
+  ];
+  check('the seven modes in order, each its seven steps over the root',
+    Monk.MODES.length === 7 && STEPS.every(([name, steps], i) => Monk.MODES[i].name === name && Monk.MODES[i].steps.join() === steps));
+  check('twelve keys up from c, five octaves', Monk.KEYS.join() === 'C,C#,D,D#,E,F,F#,G,G#,A,A#,B' && Monk.OCTAVES.join() === '1,2,3,4,5');
+  const notes = () => Array.from({ length: D }, (_, d) => Monk.midi(d)).join();
+  check('set to c3 ionian at first: eight degrees, c3 .. c4', Monk.mode === 0 && Monk.key === 0 && Monk.octave === 2 && D === 8 && notes() === '48,50,52,53,55,57,59,60');
+  const wrong = [];
+  for (let m = 0; m < 7; m++) {
+    for (const k of [0, 2, 9, 11]) {
+      for (let o = 0; o < 5; o++) {
+        Monk.mode = m;
+        Monk.key = k;
+        Monk.octave = o;
+        const root = 12 * (o + 2) + k;
+        const want = STEPS[m][1].split(',').map((x) => root + Number(x)).concat(root + 12).join();
+        if (notes() !== want) wrong.push(STEPS[m][0] + ' ' + Monk.KEYS[k] + (o + 1) + ': ' + notes());
+      }
+    }
+  }
+  check('every mode\'s eight degrees from four keys and every octave, the root at 12 * (octave + 1) + key, the last an octave over it', wrong.length === 0, wrong.slice(0, 3).join('; '));
+  const at = (m, k, o) => { Monk.mode = m; Monk.key = k; Monk.octave = o; return notes(); };
+  check('a1 aeolian, d#4 lydian and b5 locrian, by hand',
+    at(5, 9, 0) === '33,35,36,38,40,41,43,45' && at(3, 3, 3) === '63,65,67,69,70,72,74,75' && at(6, 11, 4) === '83,84,86,88,89,91,93,95');
+  at(0, 0, 2);
+
+  // --- the degrees -----------------------------------------------------------------
   check('a fresh press: the zone that holds it, the ribbon\'s ends inside it',
     Monk.zone(0) === 0 && Monk.zone(0.1249) === 0 && Monk.zone(0.125) === 1 && Monk.zone(0.5) === 4 && Monk.zone(0.999) === 7 && Monk.zone(1) === 7);
   const w = 1 / D, edge = Monk.HYST * w;
@@ -90,13 +129,20 @@ const isSyllable = (phones) => {
   check('a syllable is a consonant and a vowel, every pair of them drawn', [...picks].every(isSyllable) && picks.size === Monk.CONSONANTS.length * Monk.VOWELS.length, picks.size);
   check('the voice is the engine\'s own, its tension the engine\'s 0.6, its glide 3 / 0.4 per second',
     Monk.VOICE.sections === 22 && Monk.VOICE.breathiness === 0 && Monk.VOICE.roughness === 0 && Monk.VOICE.diction === 1 && Monk.VOICE.tension === 0.6 && Monk.VOICE.wobble === 0.3 && Monk.VOICE.glide === 7.5);
+  const home = Monk.VOICE;
+  check('with no vibrato or lips of its own: the engine\'s', ['vibratoHz', 'vibratoCents', 'vibratoOnset', 'lipRound'].every((k) => home[k] === undefined));
+  const FIELDS = ['sections', 'breathiness', 'roughness', 'tension', 'diction', 'wobble', 'glide', 'vibratoHz', 'vibratoCents', 'vibratoOnset', 'lipRound'];
+  const R = Monk.RANDOM;
+  check('the random ranges cover every setting, each lo under hi, the tube a little inside the engine\'s 2 .. 64',
+    Object.keys(R).join() === FIELDS.join() && FIELDS.every((k) => R[k][0] < R[k][1]) && R.sections[0] > 2 && R.sections[1] < 64);
+  const within = (v) => FIELDS.every((k) => v[k] >= R[k][0] && v[k] <= R[k][1]);
 
   // --- before a press ----------------------------------------------------------------
   let now = 1000;
   Monk.down = 0.5;
   Monk.update(now);
   await settle();
-  check('a press before the voice\'s gesture makes nothing', made.contexts.length === 0 && !Monk.asked && Monk.deg === -1 && Monk.mouth === null);
+  check('a press before the voice\'s gesture makes nothing', made.contexts.length === 0 && !Monk.asked && Monk.deg === -1 && Monk.state === null);
   Monk.down = null;
   Voice.listen(win);
   listeners.pointerdown();
@@ -105,6 +151,10 @@ const isSyllable = (phones) => {
   Monk.update(now += 16);
   await settle();
   check('nothing made for the singer before the ribbon is pressed', made.nodes.length === 1 && !Monk.asked);
+  Monk.randomize();
+  const early = Monk.VOICE;
+  check('a voice drawn before the node is made is the voice, every setting inside its range, and nothing is made',
+    early !== home && within(early) && made.nodes.length === 1 && !Monk.asked);
 
   // --- the press -----------------------------------------------------------------------
   Monk.down = 0.5;
@@ -114,7 +164,11 @@ const isSyllable = (phones) => {
   check('a press makes the singer\'s node, in the voice\'s context, of the same worklet loaded once',
     made.nodes.length === 2 && node.name === 'voice' && node.context === Voice.ctx && made.modules.length === 1 && made.fetched.length === 1);
   const opts = node && node.options.processorOptions;
-  check('mono, with its own voice and the same wasm', node.options.outputChannelCount[0] === 1 && opts.voice === Monk.VOICE && opts.wasm === made.nodes[0].options.processorOptions.wasm);
+  check('mono, with its own voice, the one drawn before it, and the same wasm',
+    node.options.outputChannelCount[0] === 1 && opts.voice === Monk.VOICE && opts.voice === early && opts.wasm === made.nodes[0].options.processorOptions.wasm);
+  check('asking for the voice\'s raw state, as the voice\'s node does not', opts.state === true && !made.nodes[0].options.processorOptions.state);
+  check('held under CEILING through the master, as the voice\'s node is not',
+    opts.ceiling === Monk.CEILING / Monk.MASTER && Monk.CEILING <= 0.95 && !made.nodes[0].options.processorOptions.ceiling);
   check('through its own master gain at MASTER', Monk.out && Monk.out !== Voice.out && Monk.out.gain.value === Monk.MASTER);
   Monk.update(now += 16);
   check('a press before the worklet is ready sings nothing', node.posted.length === 0 && Monk.deg === -1);
@@ -167,18 +221,18 @@ const isSyllable = (phones) => {
   Monk.update(now);
   check('a crossing back onto the note last struck strikes nothing', node.posted.length === 8 && node.posted.slice(6).every((m) => m.type === 'pitch'));
 
-  // --- the mouth ---------------------------------------------------------------------------
-  const mouth = { voicing: 0.7, hiss: 0, lips: 1, front: 2, lipMin: 1.5, l: 0 };
+  // --- the state ---------------------------------------------------------------------------
+  const state = new Float32Array(11 + 22);
   Voice.ctx.currentTime = 0.5;
-  node.port.onmessage({ data: { t: 1, mouth } });
+  node.port.onmessage({ data: { t: 1, state } });
   Monk.update(now += 16);
-  check('the mouth waits for the speaker to reach it', Monk.mouth === null && Monk.coming.length === 1);
+  check('the state waits for the speaker to reach it', Monk.state === null && Monk.coming.length === 1);
   Voice.ctx.currentTime = 1;
   Monk.update(now += 16);
-  check('then is the mouth', Monk.mouth === mouth && Monk.coming.length === 0);
+  check('then is the state', Monk.state === state && Monk.coming.length === 0);
   node.port.onmessage({ data: 'done' });
   Monk.update(now += 16);
-  check('a done while a note is sung is the last note\'s: the mouth stays', Monk.mouth === mouth && Monk.busy);
+  check('a done while a note is sung is the last note\'s: the state stays', Monk.state === state && Monk.busy);
 
   // --- the lift ----------------------------------------------------------------------------
   const sent = node.posted.length;
@@ -187,14 +241,14 @@ const isSyllable = (phones) => {
   check('a lift lets the note go', node.posted.length === sent + 1 && node.posted[sent].type === 'off' && Monk.deg === -1);
   Monk.update(now += 16);
   check('once', node.posted.length === sent + 1);
-  check('the mouth stays while the breath falls', Monk.mouth === mouth);
-  node.port.onmessage({ data: { t: 1.01, mouth: Object.assign({}, mouth, { voicing: 0.1 }) } });
+  check('the state stays while the breath falls', Monk.state === state);
+  node.port.onmessage({ data: { t: 1.01, state: new Float32Array(11 + 22) } });
   node.port.onmessage({ data: 'done' });
   Monk.update(now += 16);
-  check('done, the mouth still to come waits', Monk.mouth === mouth && !Monk.busy);
+  check('done, the state still to come waits', Monk.state === state && !Monk.busy);
   Voice.ctx.currentTime = 1.02;
   Monk.update(now += 16);
-  check('and once it is heard, with nothing more to come, the mouth is in silence', Monk.mouth === null);
+  check('and once it is heard, with nothing more to come, the state is in silence', Monk.state === null);
   Monk.down = 0.99;
   Monk.update(now += 16);
   const again = node.posted[node.posted.length - 1];
@@ -203,6 +257,53 @@ const isSyllable = (phones) => {
   check('muted, its master goes to 0', Monk.out.gain.value === 0);
   Monk.mute(false);
 
+  // --- the scale changed mid-note --------------------------------------------------
+  const sentAt = node.posted.length;
+  Monk.octave = 3;
+  Monk.update(now += 16);
+  check('an octave changed while a note is held sends its new note at once', node.posted.length === sentAt + 1 && node.posted[sentAt].type === 'pitch' && node.posted[sentAt].midi === 72 && Monk.deg === 7);
+  now += Monk.MIN_STRIKE_MS;
+  Monk.update(now);
+  check('then, once the floor has passed, one fresh syllable', node.posted.length === sentAt + 2 && node.posted[sentAt + 1].type === 'syllable' && isSyllable(node.posted[sentAt + 1].phones));
+  Monk.down = 0.3;
+  Monk.update(now += 16);
+  now += Monk.MIN_STRIKE_MS;
+  Monk.update(now);
+  const modeAt = node.posted.length;
+  Monk.mode = 5;
+  Monk.update(now += 16);
+  now += Monk.MIN_STRIKE_MS;
+  Monk.update(now);
+  check('a mode changed under a held degree: its new note, e4 to e flat 4, then a syllable',
+    node.posted.length === modeAt + 2 && node.posted[modeAt].type === 'pitch' && node.posted[modeAt].midi === 63 && node.posted[modeAt + 1].type === 'syllable',
+    node.posted.slice(modeAt).map((m) => m.type + ' ' + (m.midi || m.phones)).join(', '));
+  const keyAt = node.posted.length;
+  Monk.key = 2;
+  Monk.update(now += 16);
+  Monk.key = 0;
+  Monk.update(now += 16);
+  now += Monk.MIN_STRIKE_MS;
+  Monk.update(now);
+  check('a key changed and back inside the floor sends both notes and strikes nothing', node.posted.length === keyAt + 2 && node.posted.slice(keyAt).every((m) => m.type === 'pitch'));
+  Monk.mode = 0;
+  Monk.octave = 2;
+  Monk.down = null;
+  Monk.update(now += 16);
+
+  // --- a wild voice ------------------------------------------------------------------
+  const drawn = [];
+  for (let i = 0; i < 300; i++) {
+    Monk.randomize();
+    drawn.push(node.posted[node.posted.length - 1]);
+  }
+  check('a voice drawn once the node is made goes to it, every setting inside its range, and is the voice',
+    drawn.every((m) => m.type === 'voice' && within(m.voice)) && Monk.VOICE === drawn[drawn.length - 1].voice);
+  const spread = FIELDS.every((k) => {
+    const [lo, hi] = R[k], xs = drawn.map((m) => m.voice[k]);
+    return Math.min(...xs) < lo + 0.1 * (hi - lo) && Math.max(...xs) > hi - 0.1 * (hi - lo);
+  });
+  check('and over many draws each setting reaches near both ends of its range', spread);
+
   // --- the worklet, with the real wasm -------------------------------------------
   let Processor = null;
   const said = [];
@@ -210,18 +311,26 @@ const isSyllable = (phones) => {
   const wctx = vm.createContext({ AudioWorkletProcessor, WebAssembly, Float32Array, Uint8Array, currentTime: 0, registerProcessor: (name, P) => { Processor = P; } });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'voice-worklet.js'), 'utf8'), wctx, { filename: 'js/voice-worklet.js' });
   const wasm = fs.readFileSync(path.join(ROOT, 'monk_mouth', 'monk_mouth.wasm'));
-  const p = new Processor({ processorOptions: { wasm: wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.length), voice: Monk.VOICE } });
+  // the node's own options, with the real wasm and the singer's own voice
+  const p = new Processor({ processorOptions: { wasm: wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.length), voice: home, state: opts.state, ceiling: opts.ceiling } });
   for (let i = 0; i < 50 && !said.length; i++) await settle();
   check('the worklet makes the singer\'s voice and says ready', said[0] === 'ready', said.join());
   const out = new Float32Array(128);
   const BLOCK = 128 / 44100;
-  // blocks rendered, the context's time a block on each: the peak
+  // blocks rendered, the context's time a block on each: the peak played;
+  // kept too, the peak of the voice's own blocks before the ceiling and
+  // the lowest the ceiling's gain has come
+  let raw = 0, low = 1;
   const render = (blocks) => {
     let peak = 0;
     for (let b = 0; b < blocks; b++) {
       p.process([], [[out]]);
       wctx.currentTime += BLOCK;
-      for (let i = 0; i < 128; i++) peak = Math.max(peak, Math.abs(out[i]));
+      for (let i = 0; i < 128; i++) {
+        peak = Math.max(peak, Math.abs(out[i]));
+        raw = Math.max(raw, Math.abs(p.out[i]));
+      }
+      low = Math.min(low, p.gain);
     }
     return peak;
   };
@@ -241,12 +350,21 @@ const isSyllable = (phones) => {
 
   const hold = Math.round(0.6 / BLOCK);
   const r = sing(55, 'B AA', hold);
-  const mouths = r.held.filter((m) => m.mouth);
-  const fields = ['voicing', 'hiss', 'lips', 'front', 'lipMin', 'l'];
+  // each state: 0 breath, 1 voicing, 2 hiss, 3 whistle, 4 whistleHz, 5
+  // lips, 6 vibrato, 7 phoneme, 8 and 9 the slots held, 10 the tube's
+  // length n, then the tube
+  const states = r.held.filter((m) => m.state);
+  const own = (s) => s instanceof Float32Array && s.buffer.byteLength === s.byteLength;
   check('a note sounds', r.peak > 0.01, 'peak ' + r.peak.toFixed(3));
-  check('and says the mouth every three blocks as it is held, six numbers, at its time',
-    Math.abs(mouths.length - Math.floor(hold / 3)) <= 1 && mouths.every((m, i) => fields.every((k) => isFinite(m.mouth[k])) && (i === 0 || m.t > mouths[i - 1].t)) &&
-    mouths.some((m) => m.mouth.voicing > 0.5), mouths.length + ' over ' + hold + ' blocks');
+  check('and says the voice\'s raw state every three blocks as it is held, at its time, and never the mouth',
+    Math.abs(states.length - Math.floor(hold / 3)) <= 1 && states.every((m, i) => i === 0 || m.t > states[i - 1].t) && !r.held.some((m) => m.mouth),
+    states.length + ' over ' + hold + ' blocks');
+  check('each a copy of its own, eleven floats and then as many of the tube as its length, the voice\'s sections, all finite',
+    states.length > 0 && states.every((m) => own(m.state) && m.state[10] === home.sections && m.state.length === 11 + m.state[10] && m.state.every(isFinite)),
+    states.length && states[0].state.length + ' floats');
+  check('the slots each held or not, the phoneme a whole number, and the note voiced and breathing',
+    states.every((m) => (m.state[8] === 0 || m.state[8] === 1) && (m.state[9] === 0 || m.state[9] === 1) && Number.isInteger(m.state[7])) &&
+    states.some((m) => m.state[1] > 0.5 && m.state[0] > 0));
   check('held, it is not done', !r.held.includes('done') && !r.held.includes('bad'));
   check('let go, it is done once its breath has fallen', r.done && r.after > 10 && r.after * BLOCK < 1, (r.after * BLOCK).toFixed(2) + ' s after');
 
@@ -259,8 +377,8 @@ const isSyllable = (phones) => {
     peak = Math.max(peak, render(Math.round(0.1 / BLOCK)));
     blocks += Math.round(0.1 / BLOCK);
   }
-  const moved = said.filter((m) => m.mouth).length;
-  check('a note moved and struck again up every degree plays on, saying the mouth', !said.includes('done') && Math.abs(moved - Math.floor(blocks / 3)) <= 1, moved + ' over ' + blocks + ' blocks');
+  const moved = said.filter((m) => m.state).length;
+  check('a note moved and struck again up every degree plays on, saying the state', !said.includes('done') && Math.abs(moved - Math.floor(blocks / 3)) <= 1, moved + ' over ' + blocks + ' blocks');
   p.port.onmessage({ data: { type: 'off' } });
   let n = 0;
   while (!said.includes('done') && n < 8 / BLOCK) { peak = Math.max(peak, render(1)); n++; }
@@ -278,9 +396,79 @@ const isSyllable = (phones) => {
       }
     }
   }
-  check('every syllable on every degree sounds and is done, inside full scale through the master', allDone && hi * Monk.MASTER < 1);
+  check('every syllable on every degree from c3 sounds and is done, inside full scale through the master', allDone && hi * Monk.MASTER < 1);
+  check('and never reaches the ceiling: it plays as the voice made it, the gain never down', hi * Monk.MASTER < Monk.CEILING && low === 1, 'gain down to ' + low);
   console.log('     peaks ' + lo.toFixed(3) + ' (' + loAt + ') to ' + hi.toFixed(3) + ' (' + hiAt + '), ' +
     (lo * Monk.MASTER).toFixed(3) + ' to ' + (hi * Monk.MASTER).toFixed(3) + ' through the master');
+
+  // --- loudness ------------------------------------------------------------------------
+  // a voice set and its tension let land, then sung from every octave in a
+  // key and mode at random: twice on each, a note struck with a syllable on
+  // a degree, held, moved to another degree and struck again, held, and let
+  // go. its peak through the master and its quietest note's, and whether
+  // the voice itself reached the engine's clamp
+  const LEVEL = ['sections', 'breathiness', 'roughness', 'tension', 'diction', 'lipRound'];
+  const any = (n) => Math.floor(Math.random() * n);
+  const loud = (voice) => {
+    p.port.onmessage({ data: { type: 'voice', voice } });
+    render(Math.round(0.5 / BLOCK));
+    raw = 0;
+    let top = 0, least = Infinity, done = true;
+    for (let o = 0; o < Monk.OCTAVES.length; o++) {
+      for (let n = 0; n < 2; n++) {
+        Monk.octave = o;
+        Monk.key = any(12);
+        Monk.mode = any(7);
+        said.length = 0;
+        p.port.onmessage({ data: { type: 'note', midi: Monk.midi(any(D)), vel: Monk.VEL, phones: Monk.syllable() } });
+        let peak = render(Math.round(0.5 / BLOCK));
+        p.port.onmessage({ data: { type: 'pitch', midi: Monk.midi(any(D)) } });
+        peak = Math.max(peak, render(Math.round(Monk.MIN_STRIKE_MS / 1000 / BLOCK)));
+        p.port.onmessage({ data: { type: 'syllable', phones: Monk.syllable() } });
+        peak = Math.max(peak, render(Math.round(0.4 / BLOCK)));
+        p.port.onmessage({ data: { type: 'off' } });
+        let after = 0;
+        while (!said.includes('done') && after < 8 / BLOCK) { peak = Math.max(peak, render(1)); after++; }
+        render(20);
+        done = done && said.includes('done');
+        top = Math.max(top, peak);
+        least = Math.min(least, peak);
+      }
+    }
+    return { top: top * Monk.MASTER, least: least * Monk.MASTER, raw: raw * Monk.MASTER, done };
+  };
+  const voices = [['the singer\'s own', home]];
+  for (let c = 0; c < 1 << LEVEL.length; c++) {
+    Monk.randomize();
+    const voice = Monk.VOICE;
+    LEVEL.forEach((k, i) => { voice[k] = R[k][(c >> i) & 1]; });
+    voices.push(['corner ' + c, voice]);
+  }
+  for (let i = 0; i < 64; i++) {
+    Monk.randomize();
+    voices.push(['drawn ' + i, Monk.VOICE]);
+  }
+  let top = 0, least = Infinity, over = 0, held = 0, topAt = '', leastAt = '', sung = true, clamped = 0, mine = null;
+  for (const [name, voice] of voices) {
+    const r = loud(voice);
+    if (!mine) mine = r;
+    sung = sung && r.done && r.least > 0;
+    if (r.top > 0.95) over++;
+    if (r.raw > Monk.CEILING) held++;
+    if (r.raw >= Monk.MASTER) clamped++;
+    if (r.top > top) { top = r.top; topAt = name; }
+    if (r.least < least) { least = r.least; leastAt = name; }
+  }
+  Monk.mode = 0;
+  Monk.key = 0;
+  Monk.octave = 2;
+  check('the singer\'s own voice from every octave peaks no higher than 0.95 through the master', mine.top <= 0.95 && mine.done,
+    mine.top.toFixed(3) + ', ' + mine.raw.toFixed(3) + ' before the ceiling');
+  check('every corner of the six settings that set a voice\'s level, and 64 voices drawn, from every octave: each sounds, is done, and peaks no higher than 0.95 through the master',
+    sung && over === 0, (voices.length - 1) + ' voices, ' + over + ' over');
+  check('and no voice reaches the engine\'s own clamp', clamped === 0, clamped + ' did');
+  console.log('     loudest ' + top.toFixed(3) + ' (' + topAt + '), quietest note ' + least.toFixed(3) + ' (' + leastAt + ') through the master; ' +
+    held + ' of ' + voices.length + ' held down by the ceiling somewhere');
 
   console.log(failures ? failures + ' failed' : 'all passed');
   process.exit(failures ? 1 : 0);

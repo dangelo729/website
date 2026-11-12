@@ -6,9 +6,9 @@
 // written into the text buffer and then spoken, a line with its own notes
 // and breath, or sung, a syllable at a time on a note held. as a line
 // plays how many of its syllables have begun is counted from the vowel the
-// voice reads back, and the mouth is read off the voice for the face to
-// follow. the rest are the voice's own live setters, a few fields of its
-// tuning by number, and the block.
+// voice reads back, and the mouth, or the voice's raw state whole, is read
+// off the voice for a face to follow. the rest are the voice's own live
+// setters, a few fields of its tuning by number, and the block.
 #include <new>
 #include <stdint.h>
 
@@ -44,6 +44,11 @@ constexpr float kFrontShut = 0.6f;
 constexpr float kLipFull   = 1.5f;
 float mouth_[6];
 float tube_[wp::kMaxSections];
+
+// the voice's raw state as moon_man's mouth and gaze read it: kStateHead
+// floats, the last of them the tube's length in sections, then the tube
+constexpr int kStateHead = 11;
+float state_[kStateHead + wp::kMaxSections];
 
 // the vowels of the phones in text_, in order, into vowels_
 void listVowels()
@@ -100,7 +105,8 @@ void voice_wobble(float amount) { voice_->setWobble(amount); }
 void voice_sections(float sections) { voice_->setSections(sections); }
 
 // one field of the voice's tuning, the rest as they were: 0 glottisRest
-// (breathiness), 1 growl (roughness), 2 diction
+// (breathiness), 1 growl (roughness), 2 diction, 3 lipRound (how the lips
+// hold every vowel, toward 1 pursed, toward -1 wide open)
 void voice_tune(int field, float value)
 {
     wp::Tuning t = voice_->tuning();
@@ -108,6 +114,7 @@ void voice_tune(int field, float value)
         case 0: t.glottisRest = value; break;
         case 1: t.growl = value; break;
         case 2: t.diction = value; break;
+        case 3: t.lipRound = value; break;
         default: return;
     }
     voice_->setTuning(t);
@@ -117,7 +124,8 @@ void voice_tune(int field, float value)
 // vibrato begun; moved to another note, gliding there; the phones in the
 // text buffer sung at the note as it stands, 1 if they were taken, 0 on a
 // bad phone or an overflow, which disturbs nothing; let go, the breath to
-// nothing; and how fast the glide goes, per second (0 jumps)
+// nothing; how fast the glide goes, per second (0 jumps); and the vibrato,
+// its speed in hz, its swing in cents and how long a note waits for it
 void voice_note_on(float midi, float vel) { voice_->noteOn(midi, vel); }
 void voice_pitch(float midi) { voice_->setPitch(midi); }
 int voice_syllable()
@@ -127,6 +135,7 @@ int voice_syllable()
 }
 void voice_note_off() { voice_->noteOff(); }
 void voice_glide(float perSec) { voice_->setGlide(perSec); }
+void voice_vibrato(float hz, float cents, float onsetSec) { voice_->setVibrato(hz, cents, onsetSec); }
 
 // 1 while a line plays, or the breath has yet to fall to nothing
 int voice_busy() { return voice_->busy() || voice_->state().breath > 0.0f ? 1 : 0; }
@@ -160,6 +169,30 @@ float* voice_mouth()
     mouth_[4] = lipMin;
     mouth_[5] = s.phoneme == wp::ph::L && (s.slotActive[0] || s.slotActive[1]) ? 1.0f : 0.0f;
     return mouth_;
+}
+
+// the voice's raw state at the end of the last block, 11 + n floats: the
+// breath, how voiced, how much hiss (0 .. 1), the whistle's lock (0 .. 1)
+// and its pitch in hz, the lips' own pose (0 shut), the vibrato's swing in
+// cents, the phoneme being said (a wp::ph), 1 while each of the two
+// constriction slots holds the tract and else 0, n the tube's length in
+// sections, and then the tube's n diameters from the glottis to the lips
+float* voice_state()
+{
+    const wp::BodyState s = voice_->state();
+    state_[0] = s.breath;
+    state_[1] = s.voicing;
+    state_[2] = s.hiss;
+    state_[3] = s.whistle;
+    state_[4] = s.whistleHz;
+    state_[5] = s.lips;
+    state_[6] = s.vibrato;
+    state_[7] = (float)s.phoneme;
+    state_[8] = s.slotActive[0] ? 1.0f : 0.0f;
+    state_[9] = s.slotActive[1] ? 1.0f : 0.0f;
+    const int n = voice_->diameters(state_ + kStateHead, wp::kMaxSections);
+    state_[10] = (float)n;
+    return state_;
 }
 
 // the next block, kFrames samples in -1 .. 1
