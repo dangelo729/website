@@ -24,7 +24,10 @@ const TEXT = {
   },
   "Personal work": {
     "Cicada": [],
-    "Monk Mouth": [],
+    "Monk Mouth": [
+      "A singing voice for the Teensy 4.1. It makes sound by simulating air moving through a tube shaped like a vocal tract, so nothing is recorded: you move a tongue, lips and lungs, and the voice is whatever comes out.",
+      "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here: drag the slider to hear it sing."
+    ],
     "Third Dimension": [],
     "Second Dimension": [],
     "Upright": [],

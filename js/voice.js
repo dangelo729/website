@@ -91,6 +91,7 @@ const Voice = {
   coming: [],    // what the worklet has said and is still to be heard: { t, heard } and { t, mouth }, oldest first
   endedAt: null, // when it ended, Date.now()'s ms, or null while it plays
   win: null,     // the window the audio was made in
+  loading: null, // the worklet loaded and the wasm fetched, a promise of both, for every node made in the context
 
   // makes the audio on win's first gesture and wakes it on any later one
   listen(win) {
@@ -110,7 +111,8 @@ const Voice = {
       // the worklet by a query no cache has seen, the wasm checked with the
       // server before any copy is used
       const fresh = '?' + Date.now();
-      Promise.all([ctx.audioWorklet.addModule(this.WORKLET + fresh), win.fetch(this.WASM, { cache: 'no-cache' }).then((r) => r.arrayBuffer())])
+      this.loading = Promise.all([ctx.audioWorklet.addModule(this.WORKLET + fresh), win.fetch(this.WASM, { cache: 'no-cache' }).then((r) => r.arrayBuffer())]);
+      this.loading
         .then(([, wasm]) => {
           const node = new win.AudioWorkletNode(ctx, 'voice', {
             numberOfInputs: 0,
