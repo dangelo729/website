@@ -45,6 +45,7 @@
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/monk.js"></script>
+  <script src="js/moon.js"></script>
   <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
@@ -63,7 +64,7 @@
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
     let pfb = null;   // each item's insides, drawn apart and copied through its skin (drawInsides)
-    let qfb = null;   // the upgrades menu's insides, drawn apart and copied through its skin (drawShop)
+    let qfb = null;   // a menu's insides, the upgrades' or the demo's, drawn apart and copied through its skin (drawShop, drawSettings)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -632,8 +633,8 @@
       // the line, and each link { label, url } is laid out with its letters
       // and the box round them (hit). game: it is bubble bob, his bubble
       // shut his o and open the game (layoutItems). demo: it holds monk
-      // mouth's face over its ribbon where its logos would go, laid out as
-      // demoAt (the demo, below)
+      // mouth's menu, its face and its ribbon where its logos would go,
+      // laid out as demoAt (the demo, below)
       items: (s.items || []).map((x, i) => ({
         title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
@@ -1118,9 +1119,10 @@
         // its top, each centred across the column; stacked, or when that would leave the text under
         // LOGO_LEAST ems, LOGO_GAP apart across a row above the text, each
         // centred on the row's middle and all shrunk alike to fit it. its
-        // demo (DEMO, below) goes first among them, a box of its own size
-        // that never shrinks, taking the column as a logo does or, in the
-        // row, centred across the room the text has
+        // demo (DEMO, below) goes first among them, a box DEMO.W wide and
+        // as tall as demoH has it at the text's size, that never shrinks,
+        // taking the column as a logo does or, in the row, centred across
+        // the room the text has
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1131,7 +1133,7 @@
           colW = Math.max(colW, a.w);
         }
         if (it.demo) {
-          arts.unshift({ l: {}, demo: true, w: DEMO.W, h: DEMO.H });
+          arts.unshift({ l: {}, demo: true, w: DEMO.W, h: demoH(bs) });
           colW = Math.max(colW, DEMO.W);
         }
         const beside = arts.length > 0 && !stacked && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
@@ -1154,7 +1156,7 @@
         for (const a of arts) {
           const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
-          if (a.demo) it.demoAt = placeDemo(x, y, seed + 9000 + 10 * i + 5);
+          if (a.demo) it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
           else {
             const g = ditherLogo(a.art, a.w, a.h);
             if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
@@ -1399,7 +1401,7 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1564,7 +1566,15 @@
     // photo's frame up there), { s, close }; the slideshow's < or >, a
     // little round it as the x is, or the photo's frame, { s, slide }, -1
     // for the < and 1 for the rest; the shop's menu, while bubble bob is
-    // open; one of its items, its caret, its name
+    // open, { s, shop }, its header with menu, the menu's state, and a
+    // button with buy, its key; an item's demo's menu, as far as its text
+    // has opened to show it, as the shop's is: its header a little round
+    // it, { s, it, settings, menu }, and, once it is over half open, its
+    // header's row all the way across it, the same, a
+    // slider's bar across and its row down, a little round them,
+    // { s, it, settings, slider }, its button, { s, it, settings,
+    // randomize }, or anywhere else in it, { s, it, settings }; one of the
+    // box's items, its caret, its name
     // or right of them to the box's edge (bubble bob's only as far as his
     // name, so the game under it is free), a little above and below,
     // { s, it }; one of an item's links, as far as its text has opened to
@@ -1585,7 +1595,7 @@
           const ui = s === bubbleHome && bubbleItem.open && shopNow();
           if (ui) {
             const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && py >= r.y0 - m && py <= r.y1 + m;
-            if (inside(ui.shut, 2)) return { s, shop: true, menu: true };
+            if (inside(ui.shut, 2)) return { s, shop: true, menu };
             if (menu.open && menu.p > 0.5) {
               for (const k of ui.buttons) if (inside(k.rect, 2)) return { s, shop: true, buy: k.key };
               if (inside(ui.full, 0)) return { s, shop: true };
@@ -1603,6 +1613,17 @@
           }
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
+            const sm = it.demoAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.demoAt.menu : null;
+            if (sm) {
+              const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              if (inside(sm.shut, 2)) return { s, it, settings: true, menu: demoMenu };
+              if (demoMenu.open && demoMenu.p > 0.5) {
+                if (inside({ x0: sm.full.x0, y0: sm.shut.y0, x1: sm.full.x1, y1: sm.shut.y1 }, 2)) return { s, it, settings: true, menu: demoMenu };
+                for (const sl of sm.sliders) if (inside(sl.hit, 2)) return { s, it, settings: true, slider: sl };
+                if (inside(sm.button.rect, 2)) return { s, it, settings: true, randomize: true };
+                if (inside(sm.full, 0)) return { s, it, settings: true };
+              }
+            }
             if (x >= h.x0 - 4 && x <= (it.game ? h.x1 + 4 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
@@ -1628,8 +1649,12 @@
     // (muteAt, below), the x shuts its box, a link opens its site in a new
     // tab, the slideshow's < shows the slide before and its > or its photo
     // the one after, an item opens or shuts its text, a word opens its box;
-    // a demo's ribbon presses nothing here, played while it is held (the
-    // demo, below)
+    // a button of the shop's buys a level of its upgrade, the demo's
+    // menu's button gives its singer a new voice (Monk.randomize), and
+    // either menu's header opens it, kicked toward open, or shuts it; a
+    // demo's ribbon and its menu's sliders press nothing here, played while
+    // they are held (the demo, below), and nor does the rest of an open
+    // menu
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1638,11 +1663,12 @@
       if (!h) return;
       if (h.link) window.open(h.link.url, '_blank', 'noopener');
       else if (h.buy) buy(h.buy);
+      else if (h.randomize) Monk.randomize();
       else if (h.menu) {
-        menu.open = !menu.open;
-        if (menu.open) menu.v += SHOP_UI.KICK;
+        h.menu.open = !h.menu.open;
+        if (h.menu.open) h.menu.v += SHOP_UI.KICK;
       }
-      else if (h.shop || h.ribbon) return;
+      else if (h.shop || h.ribbon || h.settings) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -1650,14 +1676,17 @@
 
     // hover: a mouse's pointer over anything a press would press turns it
     // a colour of the tag's while it is there: a word, and its box's
-    // outline while the box is not open, the first (Inventor's), anything
-    // in a box, its x, its items, a demo's ribbon and the slideshow's < and
-    // > (the > for the photo too), the second
-    // (Software Engineer's), and a link the third (Musician's); a finger has
-    // no hover. where it is, in world px on the screen, or null; what it is
-    // over is worked out afresh each frame, so it follows the page as it
-    // scrolls and the boxes move under a still pointer. the name's letters
-    // light their own way, under a finger too (the name's keys, below)
+    // outline while the box is not open, and a menu's button or one of
+    // the demo's menu's sliders, its outline and its words, the first
+    // (Inventor's), anything else in a box, its x, its items and the
+    // slideshow's < and > (the > for the photo too), the second (Software
+    // Engineer's), and a link, a menu's header, its outline, caret and
+    // words with it, and a demo's ribbon, the third (Musician's); a finger
+    // has no hover. where it is, in world px on the screen, or null; what
+    // it is over is worked out afresh each frame, so it follows the page as
+    // it scrolls and the boxes move under a still pointer. the name's
+    // letters light their own way, under a finger too (the name's keys,
+    // below)
     const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v, HOVER_LINK = tagLines[2].v;
     let hoverAt = null;
     canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
@@ -1722,12 +1751,13 @@
     let muteArt = {};     // each icon as { paper, ink } letters in the corner, by name
 
     // icons (ICONS, js/icons.js) read again and put in the corner, the
-    // scroll hand's frames beside them, and the demo's face made again
+    // scroll hand's frames beside them, and the demo's face (js/moon.js)
+    // given its eye and its nose again
     function readIcons(icons) {
       iconRows = icons;
       placeMute();
       placeHand();
-      makeFace();
+      Moon.art(iconRows.eye || [], iconRows.nose || []);
     }
 
     // each icon as its two letters, centred so the icon stands MUTE.GAP clear
@@ -1773,143 +1803,339 @@
 
     // --- the demo ----------------------------------------------------------------
     // monk mouth's item, in personal work, holds a small demo of its voice
-    // (js/monk.js): a box DEMO.W by DEMO.H world px where its logos would
-    // go (layoutItems), with a face floating in it, two eyes, a nose and a
-    // mouth and no head round them, over a ribbon across its bottom. a
-    // primary press on the ribbon, or a little round it, takes it, and
-    // while it is held where the finger is across it is Monk.down, 0 at its
-    // left edge to just short of 1 at its right, as moon_man's sim keeps
-    // its ribbon: the voice sings a degree of its scale for each of its
-    // Monk.DEGREES zones. a lift lets it go, and so does a press up or down
-    // that the page takes for a scroll (the swipe, below); a press that
-    // goes across stays the ribbon's. the eyes and the nose are ICONS.eye
-    // and ICONS.nose (js/icons.js), the right eye the left's rows mirrored,
-    // each drawn as the mute button's icons are, at SCALE, its paper with
-    // its ink in it and then its ink, wobbling on a seed of its own. the
-    // mouth is moon_man's guide loop (its face/mouth_arc.cpp), its radii
-    // doubled: POINTS points round its middle, its half-width from RX_MIN
-    // at a pucker to RX_MAX at a spread and its half-height from RY_MIN
-    // shut to RY_MAX agape, its upper half opening UPPER of its lower, as a
-    // jaw carries the lower lip, and a puckered mouth opened going round,
-    // drawn LINE px from point to point. how open and how wide it
-    // is come from a mouth (js/mouth.js) eased each frame toward the voice
-    // as heard, as the bubble's is. the ribbon is a bar outlined LINE px,
-    // RIBBON_R round its corners, with a tick between each two zones and,
-    // while it is held, a dot MARK px round at the finger, in the items'
-    // hover colour while a mouse is over it
+    // (js/monk.js): a box DEMO.W world px wide where its logos would go
+    // (layoutItems), as tall as demoH has it at the item's text size, with
+    // a menu in its top left corner and, GAP under the menu's button, the
+    // face's part of the box, DEMO.H tall: a face floating in it, two eyes,
+    // a nose and a mouth and no head round them, over a ribbon across the
+    // box's bottom. a primary press on the ribbon, or a little round it,
+    // takes it, and while it is held where the finger is across it is
+    // Monk.down, 0 at its left edge to just short of 1 at its right, as
+    // moon_man's sim keeps its ribbon: the voice sings a degree of its
+    // scale for each of its Monk.DEGREES zones. a lift lets it go, and so
+    // does a press up or down that the page takes for a scroll (the swipe,
+    // below); a press that goes across stays the ribbon's. the face is
+    // moon_man's (js/moon.js): its mouth shaped in 3d from the voice's raw
+    // state as it is heard (Monk.state) and tilted with its unseen head,
+    // the eyes and the nose angled to follow it. the eyes are ICONS.eye and
+    // the nose ICONS.nose (js/icons.js), handed to it at load and again
+    // each time the icons are read. it is stepped each frame while monk
+    // mouth is at least partly open in a box out of its o (the frame,
+    // below), and each of its features is a paper bitmap and an ink bitmap
+    // whose middle sits at its own place from the head's centre, HEAD_X
+    // across and HEAD_Y down from the top left of the face's part. each is
+    // drawn as the mute button's icons are, its paper and then its ink,
+    // wobbling on a seed of its own, so each one sways, bobs, breathes and
+    // tilts as a letter does. the ribbon is a bar (RIBBON) outlined
+    // BOX.LINE px and round at its corners, with a tick in the middle of
+    // each zone, a line a degree, and, while it is held, a dot on the line
+    // of the degree being sung, or of the one the finger is on until it
+    // sings: there at once at a press, and from line to line as the degree
+    // changes by the house approach, SNAP of the way left each 60 hz frame
+    // (stepDots). the ribbon is in the links' hover colour while a mouse is
+    // over it. until the ribbon has been pressed a small hand stands left
+    // of it, outside the box, pointing at its left end: the scroll hand's
+    // first frame, which points down (the scroll hand, below), turned a
+    // quarter to point right, at its scale and drawn as it is, its paper
+    // then its ink, wobbling on a seed of its own, its finger level with
+    // the ribbon's middle, its tip HAND.GAP short of the ribbon at the
+    // nearest and bobbing HAND.BOB back from there and in again, HAND.HZ
+    // times a second. the first press on the ribbon takes it away for
+    // good.
+    //
+    // the menu is built as bubble bob's is (the shop, below), on his
+    // SHOP_UI, and moves as his does, on the same spring with the same
+    // bounce and kick, a skin chasing it and its edges warbling (stepMenu,
+    // menuAt). shut, it is a button in the box's top left corner, a caret
+    // and TITLE in the box text's face at the size his menu's rule gives
+    // the item's text size, filled with paper and outlined. a press on it
+    // opens it down and across the whole box, over the face and short of
+    // the ribbon, its caret turning from > to v, and a press on its header,
+    // or anywhere along its top once it is open, as an item's name's row
+    // is the item's, shuts it. open, it holds a row under the header for each of SLIDERS
+    // and one under them for its button, ROW apart and MARGIN round them.
+    // a row's slider is a small ribbon (SLIDER): a bar with a tick in the
+    // middle of each of its values' zones and, always, a dot on the line of
+    // the value in use, which goes from line to line as the ribbon's does.
+    // the bars are one width, as wide as the box leaves them beside the
+    // widest words any slider says, and APART right of each are its words
+    // for the value in use. a primary press on a bar takes it as a press on
+    // the ribbon takes the ribbon, and while it is held the value is the
+    // zone the pointer is in across the bar, set on the singer (Monk[key])
+    // as it changes; the click it ends in presses nothing. the button,
+    // BUTTON, as wide as the rows, is drawn and pressed as his are, and
+    // gives the singer a new voice (Monk.randomize). under a mouse the
+    // menu's outline, its caret and its title are in the links' hover
+    // colour while the pointer is on its header, and a slider and its
+    // words, and the button's outline and words, in the words' (the
+    // inventor's), as his buttons are. its insides are drawn
+    // apart (qfb) and copied through its skin into the item's (pfb), over
+    // the face and under the ribbon, so it covers the face while it is open
     const DEMO = {
-      W: 170, H: 120,        // world px, its box
-      SCALE: 2,              // world px to an eye's or the nose's px
-      EYE_X: 24,             // world px across from the box's middle to each eye's
-      EYE_Y: 22,             // world px down from the box's top to the eyes' middles,
-      NOSE_Y: 45,            // to the nose's
-      MOUTH_Y: 68,           // and to the mouth's shut line
-      RX_MIN: 9, RX_MAX: 27, // world px, the mouth's half-width: moon_man's 4.5 to 13.5, doubled
-      RY_MIN: 2, RY_MAX: 18, // and its half-height: moon_man's 1 to 9, doubled
-      UPPER: 0.65,           // of the lower half's height, the upper half's
-      POINTS: 32,            // round the loop
-      LINE: 2,               // world px, the mouth's line: an eye's strokes at SCALE
-      RIBBON_H: 14,          // world px, the ribbon's height, its bottom the box's
-      RIBBON_R: 5,           // world px, its corners' radius
-      TICK_IN: 4,            // world px each tick stops short of the ribbon's top and bottom edges
-      MARK: 3,               // world px, the finger's dot's radius
+      W: 170, H: 128, // world px, its box's width, and the height of the face's part and the ribbon, under the menu's button and GAP (demoH)
+      GAP: 6,         // world px from the menu's button to the face's part
+      HEAD_X: 85,     // world px across from the face's part's left to the head's centre, its middle,
+      HEAD_Y: 34,     // and down from its top: the features reach about 34 either side of it, 30 above it and 70 below at the most a tilt takes them
+      FEATURES: 4,    // the face's features, a wobble each: its lips, its nose and its two eyes (Moon.features)
+      // world px, a bar's height, its corners' radius, how far each tick
+      // stops short of its top and bottom edges, and its dot's radius: the
+      // ribbon's, its bottom the box's, and a slider's, centred down its row
+      RIBBON: { H: 14, R: 5, TICK_IN: 4, MARK: 3 },
+      SLIDER: { H: 10, R: 4, TICK_IN: 3, MARK: 2 },
+      SNAP: 0.3,      // of the way left to its line a dot goes, each 60 hz frame
+      HAND: { GAP: 2, BOB: 3, HZ: 0.8, DOWN: 2 }, // the hand pointing at the ribbon: world px from its tip to the ribbon's left at the nearest and how far it bobs back from there, its bobs a second, and how far its middle stands under the ribbon's so its finger is level with it
+      TITLE: 'settings', BUTTON: 'randomize voice', // what the menu's header says, and its button
+      // the menu's sliders, top to bottom: the singer's value each sets
+      // (Monk[key]), the list of its values there (Monk[list]) and the
+      // words it says for one of them
+      SLIDERS: [
+        { key: 'mode', list: 'MODES', say: (m) => m.name },
+        { key: 'key', list: 'KEYS', say: (k) => 'key ' + k },
+        { key: 'octave', list: 'OCTAVES', say: (o) => 'octave ' + o },
+      ],
     };
-    const demoMouth = new Mouth(); // the demo's mouth, as the voice is heard
-    let faceArt = {};              // the face's eye, its right eye (eyeR) and its nose, each { paper, ink }, by name
-    let ribbon = null;             // the press holding a ribbon, { id, it }: its pointer and the ribbon's item, or null
+    let holding = null; // the press holding the ribbon or a slider, { id, it, i }: its pointer, the demo's item and the slider's place in SLIDERS, null for the ribbon; or null
+    let dotAt = null;   // where the ribbon's dot is across it, 0 .. 1, or null while the ribbon is not held
+    let played = false; // the ribbon has been pressed: the hand pointing at it is gone
+    const slideAt = DEMO.SLIDERS.map(() => null); // where each slider's dot is across its bar, 0 .. 1, or null before the first frame
+    const demoTypes = new Map(); // a line of the menu's text, to its Type
+    // the menu, as bubble bob's (menu): whether it is open, how far (p, 0
+    // shut, 1 open and past as it swings) and how fast, its caret's turn,
+    // its skin and the box it was made in, and each edge's warble
+    const demoMenu = {
+      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    };
+    const demoHome = sections.find((s) => s.items.some((it) => it.demo)) || null; // the section whose box holds the demo
+    const demoItem = demoHome ? demoHome.items.find((it) => it.demo) : null;      // monk mouth, the item it is in
 
-    // the face's art from the icons: each its ink, and its paper with its
-    // ink in it; an empty one has none
-    function makeFace() {
-      const eye = iconRows.eye || [], rows = { eye, eyeR: eye.map((r) => [...r].reverse().join('')), nose: iconRows.nose || [] };
-      faceArt = {};
-      for (const name in rows) {
-        const ink = Framebuffer.ink(rows[name]), paper = Framebuffer.ink(rows[name].map((r) => r.replace(/o/g, '#')));
-        if (ink.w && ink.h) faceArt[name] = { paper, ink };
-      }
+    // the face's wasm fetched, and handed its eye and its nose
+    Moon.load(window);
+    Moon.art(iconRows.eye || [], iconRows.nose || []);
+
+    // the menu's text size at the item's text size bs, by bubble bob's
+    // menu's rule (shopNow), and the height of its button and of each of
+    // its rows at that size, as his, { size, h }
+    function demoSize(bs) {
+      const U = SHOP_UI, size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs);
+      return { size, h: Math.round(size * (2 * U.PAD_Y + U.CAP + U.DESC)) };
     }
-    makeFace();
+
+    // the demo's box's height in world px at the item's text size bs: the
+    // menu's button, GAP and the face's part
+    function demoH(bs) {
+      return demoSize(bs).h + DEMO.GAP + DEMO.H;
+    }
 
     // a demo's box with its top left at (x, y), world px on the page as
-    // laid out, its seeds from seed on: each eye and the nose a letter with
-    // nothing to draw, for its place and its wobble, the mouth's middle on
-    // its shut line, and the ribbon's box, { eyes, nose, mouth, bar }
-    function placeDemo(x, y, seed) {
-      const D = DEMO, mx = x + D.W / 2;
-      return {
-        eyes: [makeLetter(null, mx - D.EYE_X, y + D.EYE_Y, seed, D.SCALE), makeLetter(null, mx + D.EYE_X, y + D.EYE_Y, seed + 1, D.SCALE)],
-        nose: makeLetter(null, mx, y + D.NOSE_Y, seed + 2, D.SCALE),
-        mouth: { x: mx, y: y + D.MOUTH_Y },
-        bar: { x0: x, y0: y + D.H - D.RIBBON_H, x1: x + D.W, y1: y + D.H },
-      };
+    // laid out, at the item's text size bs, its seeds from seed on: for
+    // each of the face's features a letter with nothing to draw, at the
+    // head's centre in the face's part, for its wobble, at scale 1 so its
+    // pose's scale is its breathe alone; the ribbon's box; the hand
+    // pointing at it, a letter with nothing to draw at the scroll hand's
+    // scale, on the ribbon's left end, for its wobble; and the menu
+    // (placeSettings), { face, bar, hand, menu }
+    function placeDemo(x, y, bs, seed) {
+      const D = DEMO, face = [], h = demoH(bs), top = y + h - D.H;
+      for (let i = 0; i < D.FEATURES; i++) face.push(makeLetter(null, x + D.HEAD_X, top + D.HEAD_Y, seed + i, 1));
+      const bar = { x0: x, y0: y + h - D.RIBBON.H, x1: x + D.W, y1: y + h };
+      return { face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(x, y, bs, seed) };
     }
 
-    // item it's demo, d world px down from where it was laid out, into pfb:
-    // the eyes and the nose, each at its wobble's pose, its paper then its
-    // ink; the mouth's loop, as open and as wide as the demo's mouth is;
-    // and the ribbon in whole px, as the logos are, its ticks and, while it
-    // is held, the finger's dot, in the items' hover colour while hover is
-    // on it
+    // the demo's menu for its box with its top left at (x, y) and the
+    // item's text size bs, laid out as shopNow lays out bubble bob's, its
+    // seeds from seed on. shut, its header: a button in the box's top left
+    // corner round the caret and TITLE, APART from each other with PAD
+    // round them. open, across the box and down round a row for each
+    // slider and one for the button, each as tall as the header, ROW apart
+    // under it and MARGIN round them: a slider's bar MARGIN in from the
+    // left, as wide as the box leaves it beside the widest words any slider
+    // says, and centred down its row, its words for every one of its values
+    // APART right of it; the button across the rows. { room, size, shut,
+    // full, header: { caret, title }, sliders: [{ i, n, hit, bar, says }],
+    // button: { rect, ring, letters } }: room the box, and each slider its
+    // place in SLIDERS, how many values it has, the box a press takes it in
+    // (its bar across, its row down), its bar and its words, a line of
+    // letters for each value
+    function placeSettings(x, y, bs, seed) {
+      const U = SHOP_UI, D = DEMO, { size, h } = demoSize(bs), k = size / TYPE.EM, apart = U.APART * size;
+      const type = (text) => {
+        let t = demoTypes.get(text);
+        if (!t) demoTypes.set(text, t = new Type(text, () => document.createElement('canvas'), TAG.FACE));
+        return t;
+      };
+      const wide = (t) => k * (t.left + t.right);
+      // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
+      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
+      // the header, the shut menu: the caret and the title
+      const tt = type(D.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, cx = x + U.PAD_X * size;
+      const shut = { x0: x, y0: y, x1: x + Math.round(cw + apart + wide(tt) + 2 * U.PAD_X * size), y1: y + h };
+      const header = {
+        caret: cg ? makeLetter(cg.g, cx + cw / 2, y + size * (U.PAD_Y + U.CAP) + k * cg.dy, seed + 50, k, WOBBLE) : null,
+        title: letters(tt, cx + cw + apart, y, seed + 60),
+      };
+      // the rows under it
+      const margin = Math.round(U.MARGIN * size), row = Math.round(U.ROW * size), x0 = x + margin, x1 = x + D.W - margin;
+      const lines = D.SLIDERS.map((sl) => Monk[sl.list].map((v) => type(sl.say(v))));
+      const bw = Math.floor(x1 - x0 - apart - Math.max(...lines.flat().map(wide)));
+      let ry = shut.y1;
+      const sliders = lines.map((ts, i) => {
+        const by = ry + Math.round((h - D.SLIDER.H) / 2);
+        const sl = {
+          i, n: ts.length,
+          hit: { x0, y0: ry, x1: x0 + bw, y1: ry + h },
+          bar: { x0, y0: by, x1: x0 + bw, y1: by + D.SLIDER.H },
+          says: ts.map((t, v) => letters(t, x0 + bw + apart, ry, seed + 1000 * (i + 1) + 50 * v)),
+        };
+        ry += h + row;
+        return sl;
+      });
+      const rect = { x0, y0: ry, x1, y1: ry + h };
+      const button = { rect, ring: ringRound(rect, U.RADIUS * size, U.STEP), letters: letters(type(D.BUTTON), x0 + U.PAD_X * size, ry, seed + 4000) };
+      const room = { x0: x, y0: y, x1: x + D.W, y1: y + demoH(bs) };
+      return { room, size, shut, full: { x0: x, y0: y, x1: x + D.W, y1: ry + h + margin }, header, sliders, button };
+    }
+
+    // item it's demo, d world px down from where it was laid out, into pfb,
+    // in whole px, as the logos are: once the face is in (Moon.ready), each
+    // of its features in its order, its paper then its ink, with its middle
+    // at the head's centre and its own place from there, to the nearest
+    // px so its strokes keep their width wherever the head has turned it,
+    // moved by its wobble's sway and bob, at its own scale by its wobble's
+    // breathe, and turned by its wobble's tilt; the hand pointing at the
+    // ribbon, until the ribbon has been pressed, turned a quarter back
+    // from pointing down, its tip GAP and its bob left of the ribbon; the
+    // menu over the face (drawSettings); and the ribbon (drawBar), its dot where it has got
+    // to (dotAt) while it is held, in the links' hover colour while hover
+    // is on it
     function drawDemo(it, t, d, hover) {
-      const D = DEMO, a = it.demoAt, v = hover && hover.it === it && hover.ribbon ? HOVER_ITEM : 1;
-      const feature = (L, g) => {
-        if (!g) return;
-        const p = L.pose(t);
-        pfb.sprite(g.paper, p.x, p.y + d, p.s, p.a, 0);
-        pfb.sprite(g.ink, p.x, p.y + d, p.s, p.a, 1);
-      };
-      feature(a.eyes[0], faceArt.eye);
-      feature(a.eyes[1], faceArt.eyeR);
-      feature(a.nose, faceArt.nose);
-      // the loop's radii, the height eased halfway toward 0.85 of the width
-      // as far as the mouth is puckered and open (moon_man's rounding cue),
-      // and its points from its right end round, clockwise on screen, the
-      // upper half's heights UPPER of the lower's
-      const open = demoMouth.open, wide = demoMouth.wide, cx = a.mouth.x, cy = a.mouth.y + d;
-      const rx = D.RX_MIN + (D.RX_MAX - D.RX_MIN) * wide, round = (1 - wide) * Math.min(open, 1);
-      let ry = D.RY_MIN + (D.RY_MAX - D.RY_MIN) * open;
-      ry += (0.85 * rx - ry) * 0.5 * round;
-      let px = cx + rx, py = cy;
-      for (let i = 1; i <= D.POINTS; i++) {
-        const th = 2 * Math.PI * i / D.POINTS, sn = Math.sin(th);
-        const x = cx + rx * Math.cos(th), y = cy + (sn > 0 ? ry : D.UPPER * ry) * sn;
-        pfb.line(px, py, x, y, 1, D.LINE);
-        px = x;
-        py = y;
+      const a = it.demoAt, dy = Math.round(d), v = hover && hover.it === it && hover.ribbon ? HOVER_LINK : 1;
+      if (Moon.ready) {
+        const feats = Moon.features;
+        for (let i = 0; i < feats.length && i < a.face.length; i++) {
+          const f = feats[i], p = a.face[i].pose(t), x = p.x + Math.round(f.x), y = p.y + Math.round(f.y) + dy, s = f.scale * p.s;
+          pfb.sprite(f.paper, x, y, s, p.a, 0);
+          pfb.sprite(f.ink, x, y, s, p.a, 1);
+        }
       }
-      // each tick LINE px wide, centred on the line between two zones
-      const b = a.bar, dy = Math.round(d), y0 = b.y0 + dy, y1 = b.y1 + dy;
-      pfb.roundRect(b.x0, y0, b.x1, y1, D.RIBBON_R, null, v, BOX.LINE);
-      for (let k = 1; k < Monk.DEGREES; k++) {
-        const x = Math.round(b.x0 + (b.x1 - b.x0) * k / Monk.DEGREES) - 1;
-        pfb.line(x, y0 + D.TICK_IN, x, y1 - 1 - D.TICK_IN, v, BOX.LINE);
+      const f = handArt[0];
+      if (f && !played) {
+        const H = DEMO.HAND, p = a.hand.pose(t), back = H.GAP + H.BOB * (0.5 + 0.5 * Math.sin(2 * Math.PI * t * H.HZ));
+        const x = p.x - back - f.ink.h * p.s / 2, y = p.y + dy, turn = p.a - Math.PI / 2;
+        pfb.sprite(f.paper, x, y, p.s, turn, 0, CURSOR.MIN_HITS);
+        pfb.sprite(f.ink, x, y, p.s, turn, 1, CURSOR.MIN_HITS);
       }
-      if (Monk.down !== null) pfb.fillCircle(b.x0 + (b.x1 - b.x0) * Monk.down, (y0 + y1) / 2, D.MARK, v);
+      drawSettings(it, t, dy, hover);
+      drawBar(pfb, a.bar, dy, Monk.DEGREES, dotAt, v, DEMO.RIBBON);
     }
 
-    // world x on the screen across the held ribbon, as Monk.down
-    function ribbonTo(x) {
-      const b = ribbon.it.demoAt && ribbon.it.demoAt.bar;
-      if (b) Monk.down = Math.min(Math.max((x - b.x0) / (b.x1 - b.x0), 0), 0.995);
+    // a bar into into, its box b as laid out, dy world px down: outlined
+    // BOX.LINE px, look.R round its corners, a tick BOX.LINE px wide
+    // centred on the middle of each of its n zones, stopping look.TICK_IN
+    // short of its top and bottom edges, and, at at (0 .. 1 across it, or
+    // null for none), a dot look.MARK px round, all in v
+    function drawBar(into, b, dy, n, at, v, look) {
+      const y0 = b.y0 + dy, y1 = b.y1 + dy;
+      into.roundRect(b.x0, y0, b.x1, y1, look.R, null, v, BOX.LINE);
+      for (let k = 0; k < n; k++) {
+        const x = Math.round(b.x0 + (b.x1 - b.x0) * (k + 0.5) / n) - 1;
+        into.line(x, y0 + look.TICK_IN, x, y1 - 1 - look.TICK_IN, v, BOX.LINE);
+      }
+      if (at !== null) into.fillCircle(b.x0 + (b.x1 - b.x0) * at, (y0 + y1) / 2, look.MARK, v);
+    }
+
+    // item it's demo's menu, dy world px down from where it was laid out,
+    // hover what the pointer is on: its header and, while it is open at
+    // all, its sliders, each its bar (drawBar) with its dot where it has
+    // got to (slideAt) and its words for the value in use, and its button,
+    // its ring outlined LINE px from point to point, drawn into qfb over
+    // the skin's box; then qfb copied into pfb through the skin and the
+    // skin outlined over it, as drawShop does bubble bob's
+    function drawSettings(it, t, dy, hover) {
+      const ui = it.demoAt.menu, m = demoMenu;
+      if (!m.skin) return;
+      const on = hover && hover.it === it && hover.settings ? hover : null, v = on && on.menu ? HOVER_LINK : 1, box = m.skin.bounds();
+      qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
+      if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
+      for (const L of ui.header.title) L.draw(t, dy, qfb, 0, v);
+      if (m.p > 0) {
+        for (const sl of ui.sliders) {
+          const sv = on && on.slider === sl ? HOVER : 1;
+          drawBar(qfb, sl.bar, dy, sl.n, slideAt[sl.i], sv, DEMO.SLIDER);
+          for (const L of sl.says[Monk[DEMO.SLIDERS[sl.i].key]]) L.draw(t, dy, qfb, 0, sv);
+        }
+        const b = ui.button, bv = on && on.randomize ? HOVER : 1, n = b.ring.length;
+        for (let i = 0; i < n; i++) {
+          const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
+          qfb.line(p.x, p.y + dy, q.x, q.y + dy, bv, BOX.LINE);
+        }
+        for (const L of b.letters) L.draw(t, dy, qfb, 0, bv);
+      }
+      const pts = m.skin.screen(dy), n = pts.length;
+      pfb.fillPolygon(pts, qfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        pfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
+      }
+    }
+
+    // a dot at at, 0 .. 1 across its bar, dt on toward to by the house
+    // approach, dt-correct, SNAP of the way left each 60 hz frame; at null,
+    // on to at once
+    function dotTo(at, to, dt) {
+      return at === null ? to : at + (to - at) * (1 - Math.pow(1 - DEMO.SNAP, 60 * dt));
+    }
+
+    // the demo's dots dt on (dotTo): each slider's toward the line of the
+    // value in use; and the ribbon's, while the ribbon is held, toward the
+    // line of the degree being sung (Monk.deg), or of the degree whose
+    // zone holds the finger until one is, put on its line at once by a
+    // press and taken away by a lift
+    function stepDots(dt) {
+      for (let i = 0; i < DEMO.SLIDERS.length; i++) {
+        const sl = DEMO.SLIDERS[i];
+        slideAt[i] = dotTo(slideAt[i], (Monk[sl.key] + 0.5) / Monk[sl.list].length, dt);
+      }
+      if (Monk.down === null) { dotAt = null; return; }
+      dotAt = dotTo(dotAt, ((Monk.deg < 0 ? Monk.zone(Monk.down) : Monk.deg) + 0.5) / Monk.DEGREES, dt);
+    }
+
+    // world x on the screen across what is held: across the ribbon, as
+    // Monk.down; across a slider's bar, the zone it is in as the slider's
+    // value, set on the singer when it changes
+    function holdTo(x) {
+      const a = holding.it.demoAt;
+      if (!a) return;
+      if (holding.i === null) {
+        const b = a.bar;
+        Monk.down = Math.min(Math.max((x - b.x0) / (b.x1 - b.x0), 0), 0.995);
+        return;
+      }
+      const sl = a.menu.sliders[holding.i], b = sl.bar, key = DEMO.SLIDERS[holding.i].key;
+      const v = Math.min(sl.n - 1, Math.max(0, Math.floor((x - b.x0) / (b.x1 - b.x0) * sl.n)));
+      if (Monk[key] !== v) Monk[key] = v;
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
       const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
-      if (!h || !h.ribbon) return;
-      ribbon = { id: e.pointerId, it: h.it };
-      ribbonTo(p.x);
+      if (!h || !(h.ribbon || h.slider)) return;
+      holding = { id: e.pointerId, it: h.it, i: h.slider ? h.slider.i : null };
+      if (h.ribbon) played = true;
+      holdTo(p.x);
     });
-    canvas.addEventListener('pointermove', (e) => { if (ribbon && e.pointerId === ribbon.id) ribbonTo(worldPointer(e).x); });
-    // the click a lifted ribbon's press ends in presses nothing, wherever
-    // the pointer has got to, as a drag's does (the drag, below)
-    const ribbonLift = (e) => {
-      if (!ribbon || e.pointerId !== ribbon.id) return;
-      ribbon = null;
-      Monk.down = null;
+    canvas.addEventListener('pointermove', (e) => { if (holding && e.pointerId === holding.id) holdTo(worldPointer(e).x); });
+    // the click a lifted press on the ribbon or a slider ends in presses
+    // nothing, wherever the pointer has got to, as a drag's does (the
+    // drag, below), and the ribbon let go leaves the singer's ribbon with
+    // no finger on it (Monk.down)
+    const letGo = (e) => {
+      if (!holding || e.pointerId !== holding.id) return;
+      if (holding.i === null) Monk.down = null;
+      holding = null;
       if (e.type === 'pointerup') grabbed = true;
     };
-    canvas.addEventListener('pointerup', ribbonLift);
-    canvas.addEventListener('pointercancel', ribbonLift);
+    canvas.addEventListener('pointerup', letGo);
+    canvas.addEventListener('pointercancel', letGo);
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -2316,6 +2542,8 @@
     // it holds one, its hold's line dashed as the pointer's is, over the
     // small bubbles and under the bubble, as cicada layered them
     // (drawGame). HAND_REACH is how far its art reaches from its palm.
+    // the demo's menu (the demo, above) is built on SHOP_UI too, and moves
+    // as this one does (menuAt, stepMenu)
     const SHOP_UI = {
       KEYS: ['drag', 'hands', 'spawn', 'max', 'value', 'voice'], TITLE: 'upgrades', BAR: '|',
       LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', value: 'bubble value', voice: 'randomize voice' },
@@ -2405,14 +2633,14 @@
       return shopUI;
     }
 
-    // the menu's shape at p, from shut (0) to open (1), and, given a time t,
-    // each edge warbled WARBLE px either way on its own sine, as boxAt has
-    // the boxes
-    function menuAt(ui, p, t) {
+    // menu m's shape at p, from shut (0) to open (1), as laid out in ui
+    // (bubble bob's, or the demo's), and, given a time t, each edge
+    // warbled WARBLE px either way on its own sine, as boxAt has the boxes
+    function menuAt(m, ui, p, t) {
       const a = ui.shut, b = ui.full, c = { r: SHOP_UI.RADIUS * ui.size };
       for (const k of ['x0', 'y0', 'x1', 'y1']) c[k] = a[k] + (b[k] - a[k]) * p;
       if (t !== undefined) {
-        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * menu.warble[e].hz + menu.warble[e].ph);
+        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * m.warble[e].hz + m.warble[e].ph);
         c.x0 += w(0);
         c.y0 += w(1);
         c.x1 += w(2);
@@ -2421,28 +2649,29 @@
       return c;
     }
 
-    // the menu dt on toward open or back to its button on the boxes' spring
-    // made bouncier (stepBox's closed form, stopping dead at shut), its
-    // caret turning as an item's does, and its skin after it; a room laid
-    // out again settles a new skin where the menu now is
-    function stepMenu(dt, t) {
-      const ui = shopNow();
+    // menu m, laid out as ui (bubble bob's, or the demo's), dt on toward
+    // open or back to its button on the boxes' spring made bouncier
+    // (stepBox's closed form, stopping dead at shut, at rest open within a
+    // px on the edge that moves furthest), its caret turning as an item's
+    // does, and its skin after it; laid out again in a new room, a new skin
+    // is settled where the menu now is. with no ui, nothing moves
+    function stepMenu(m, ui, dt, t) {
       if (!ui) return;
       const a = ui.shut, b = ui.full;
-      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y1 - a.y1));
-      const target = menu.open ? 1 : 0, w = 2 * Math.PI / BOX.RESPONSE, z = 1 - SHOP_UI.BOUNCE;
-      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = menu.p - target, v0 = menu.v;
+      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
+      const target = m.open ? 1 : 0, w = 2 * Math.PI / BOX.RESPONSE, z = 1 - SHOP_UI.BOUNCE;
+      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = m.p - target, v0 = m.v;
       const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
-      menu.p = target + e * (x0 * c + (v0 + sg * x0) / wd * sn);
-      menu.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
-      if (menu.p <= 0) { menu.p = 0; menu.v = Math.max(0, menu.v); }
-      if (menu.open && Math.abs(menu.p - 1) < px && Math.abs(menu.v) / 60 < px) { menu.p = 1; menu.v = 0; }
-      menu.turn = ease(menu.turn, menu.open, dt, 4 * ui.size, BOX.FLIP);
-      const shape = menuAt(ui, menu.p, t);
-      if (!menu.skin || menu.room !== ui.room) {
-        menu.skin = new Skin(shape, SHOP_UI.SPREAD);
-        menu.room = ui.room;
-      } else menu.skin.step(dt, shape);
+      m.p = target + e * (x0 * c + (v0 + sg * x0) / wd * sn);
+      m.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+      if (m.p <= 0) { m.p = 0; m.v = Math.max(0, m.v); }
+      if (m.open && Math.abs(m.p - 1) < px && Math.abs(m.v) / 60 < px) { m.p = 1; m.v = 0; }
+      m.turn = ease(m.turn, m.open, dt, 4 * ui.size, BOX.FLIP);
+      const shape = menuAt(m, ui, m.p, t);
+      if (!m.skin || m.room !== ui.room) {
+        m.skin = new Skin(shape, SHOP_UI.SPREAD);
+        m.room = ui.room;
+      } else m.skin.step(dt, shape);
     }
 
     // a rounded rect's outline as a ring of points about step px apart,
@@ -2882,11 +3111,12 @@
 
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
-    // framebuffer. first the bubble's world, its face, the demo's voice and
-    // its mouth, the tag's bubbles and the
+    // framebuffer. first the bubble's world, its face, the demo's voice,
+    // its face, its dots and its menu, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
     // under them are pushed down, and each box's skin is stepped after
-    // where its box has got to, warbled; then the bits are cleared, the words and
+    // where its box has got to, warbled, and the upgrades' menu with its
+    // skin; then the bits are cleared, the words and
     // their boxes drawn scrolled, a shut box in its word's o's place with
     // its insides showing through it, the bubble in its box, every other
     // letter over them on its own
@@ -2921,7 +3151,11 @@
       }
       Voice.update();
       Monk.update(now);
-      demoMouth.update(Monk.mouth, dt);
+      stepDots(dt);
+      stepMenu(demoMenu, demoItem && demoItem.demoAt && demoItem.demoAt.menu, dt, t);
+      // the demo's face to the voice as heard, while monk mouth is at least
+      // partly open in a box out of its o
+      if (Moon.ready && demoItem && demoHome.box.shown && demoItem.p > 0) Moon.step(Monk.state, dt);
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
@@ -2938,7 +3172,7 @@
       for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
       // each item's skin after its bubble while its box is out of the o
       for (const s of sections) if (s.box.shown) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
-      stepMenu(dt, t);
+      stepMenu(menu, shopNow(), dt, t);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       stepSwipe(dt);
