@@ -11,7 +11,7 @@ const TEXT = {
   "Professional work": {
     "Sennheiser": [
       "Software Engineer, 2025–present",
-      "I build SoundBase, a live-audio app for touring crews and audio engineers, with Show Code at Sennheiser. I led its integration of Spectera, Sennheiser's wideband wireless system, built its device telemetry recording system, overhauled its TV channel API, and am currently managing deployments and working with the team to build out a more robust continuous integration workflow."
+      "I work with Show Code, a Sennheiser-backed startup, building SoundBase, a live-audio app for touring crews and audio engineers. I led its integration of Spectera, Sennheiser's wideband wireless system, built its device telemetry recording system, overhauled its TV channel API, and am currently managing deployments and working with the team to build out a more robust continuous integration workflow."
     ],
     "BrandNewNoise": [
       "Lead Designer, 2023–2025",
@@ -28,7 +28,7 @@ const TEXT = {
     "Third Dimension": [],
     "Second Dimension": [],
     "Upright": [],
-    "Website": []
+    "This website!": []
   },
   "Contact": [
     "Feel free to reach out!",
