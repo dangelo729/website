@@ -9,13 +9,10 @@
     html, body { margin: 0; background: #fbf6f0; }
     /* no system cursor over the document either, as over the canvas */
     html, body { cursor: none; }
-    /* the document scrolls, only to move the about text: #scroll gives it
-       its height and the canvas stays fixed over the window. no bar, no
-       bounce past either end */
-    html, body { overscroll-behavior: none; }
-    html { scrollbar-width: none; }
-    ::-webkit-scrollbar { display: none; }
-    #scroll { width: 1px; }
+    /* the document never scrolls: the page scrolls itself, in the script
+       (the swipe and the wheel), drawn that far up the canvas, which stays
+       fixed over the window. no bar, no bounce */
+    html, body { overflow: hidden; overscroll-behavior: none; }
     /* a press on the canvas is the page's own, and so is a swipe: a finger
        scrolls the page itself (the swipe, in the script). no selecting. no
        cursor either: the pointer is drawn into the frame as a hand */
@@ -25,7 +22,6 @@
 </head>
 <body>
   <canvas id="view"></canvas>
-  <div id="scroll"></div>
   <script src="font.js"></script>
   <script src="daedalus/daedalus.js"></script>
   <script src="js/raster.js"></script>
@@ -392,10 +388,9 @@
     // when the widest would not fit across the screen, their ink's left
     // INDENT in from the name's (each centred, stacked), the first's top BELOW of the
     // name's ems under the header's ink and each next one's SPACE of their
-    // size under the one before's. they are what scrolls: the document is
-    // given height past the window (#scroll) and the canvas stays fixed
-    // over it, so a wheel or a key scrolls it natively and a finger scrolls
-    // it on top of that (the swipe, below), and each frame the words are
+    // size under the one before's. they are what scrolls: the document
+    // itself never does, a finger or the wheel scrolls the page (the swipe
+    // and the wheel, below), and each frame the words are
     // drawn that far up, in whole world px so they move
     // rigidly rather than shimmer through the sampler. they go down before
     // the header's letters, and a letter writes only its ink, so passing
@@ -416,8 +411,7 @@
       FIRST: 300,  // their letters' seeds run from here, a hundred a word, clear of the tag's
       END: 64,     // world px from the last word's ink, or its box, to the window's bottom edge at the page's end
     };
-    const scroller = document.getElementById('scroll');
-    let scrollEnd = 0; // css px the document scrolls at most
+    let scrollEnd = 0; // css px the page scrolls at most
 
     // --- the boxes -----------------------------------------------------------------
     // a press on a word opens a box round it: a slightly rounded rect, a
@@ -1259,10 +1253,10 @@
       }
     }
 
-    // the page tall enough to scroll the last word, and its box while it
-    // is shown, up to ABOUT.END above the window's bottom edge, pushed down
-    // by every box shown above it as far as each will open; no taller than
-    // the window when it is there already
+    // how far the page scrolls: until the last word, and its box while it
+    // is shown, is ABOUT.END above the window's bottom edge, pushed down
+    // by every box shown above it as far as each will open; not at all
+    // when it is there already
     function setScroll() {
       let push = 0, end = 0;
       for (const s of sections) {
@@ -1273,7 +1267,6 @@
         end = s.ink.y1 + push;
       }
       scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
-      scroller.style.height = (window.innerHeight + scrollEnd) + 'px';
     }
 
     // a press on a word: open its box out of the o, or send it back in
@@ -2170,27 +2163,16 @@
     // scroll (the swipe, below), and the click it ends in presses nothing.
     // the wheel turns it too, WHEEL radians a css px, across or down,
     // whichever is more, but only in a run of the wheel's events, each
-    // under RUN ms after the last, that starts over the box: from its first
+    // under WHEEL.RUN ms after the last, that starts over the box: from its first
     // event the run is the bottle's and never scrolls the page, and a run
     // that starts anywhere else scrolls the page to its end, whatever comes
-    // under the pointer. while the run is the bottle's the document is kept
-    // from scrolling by its overflow, and the page's only wheel listener,
-    // which stops nothing, is on the canvas turning the bottle (holdWheel).
-    // a listener that stops the scroll itself is no use here: the page has
-    // no bounce past its ends (overscroll-behavior), and with it webkit
-    // scrolls the page no more while such a listener is on, nor after it
-    // has stopped one scroll and been taken off
+    // under the pointer (the wheel, below)
     const SHIP = {
       W: 170, H: 100, // world px, its box: the picture at Ship.SCALE, the whole bottle inside it however it is turned
       DRAG: 0.015,    // radians a world px across turns the bottle while it is held
       WHEEL: 0.005,   // radians a css px of wheel turns it
-      LINE: 16,       // css px a line, for a wheel that counts in lines
-      RUN: 200,       // ms: the wheel's events under this apart are one run, and the page scrolling again inside it is still scrolling
     };
     let turning = null;  // the press holding the bottle, { id, x }: its pointer and where it was across last, world px on the screen; or null
-    let wheelHeld = false;   // the wheel is the bottle's: the document is kept from scrolling and the bottle's listener is on the canvas
-    let wheelAt = -Infinity; // when it last heard the wheel, ms on the page's clock
-    let pageY = 0, pageAt = -Infinity; // where the document was scrolled to when a frame last looked, css px, and when it last found it moved
     const shipHome = sections.find((s) => s.items.some((it) => it.ship)) || null; // the section whose box holds the ship
     const shipItem = shipHome ? shipHome.items.find((it) => it.ship) : null;       // third dimension, the item it is in
 
@@ -2241,32 +2223,6 @@
     };
     canvas.addEventListener('pointerup', shipGo);
     canvas.addEventListener('pointercancel', shipGo);
-    // the bottle's wheel listener: the bottle turned
-    function shipWheel(e) {
-      wheelAt = performance.now();
-      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      const px = e.deltaMode === 1 ? SHIP.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
-      Ship.turn(d * px * SHIP.WHEEL);
-    }
-    // the wheel made the bottle's or handed back to the page, each frame,
-    // between its runs alone: the bottle's when the pointer is over the
-    // bottle (over) and the page has stood still RUN ms, the page's when
-    // the pointer is not and the listener has heard nothing for RUN ms, so
-    // a run is the bottle's or the page's from its first event to its
-    // last. the bottle's: the document's overflow hidden, so it stays where
-    // it is scrolled to, and the listener on the canvas
-    function holdWheel(over) {
-      const now = performance.now();
-      if (window.scrollY !== pageY) {
-        pageY = window.scrollY;
-        pageAt = now;
-      }
-      if (over === wheelHeld || now - (wheelHeld ? wheelAt : pageAt) < SHIP.RUN) return;
-      wheelHeld = over;
-      document.documentElement.style.overflow = over ? 'hidden' : '';
-      if (over) canvas.addEventListener('wheel', shipWheel, { passive: true });
-      else canvas.removeEventListener('wheel', shipWheel);
-    }
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -3042,28 +2998,26 @@
     // flick slowing as ios's scroll does, 0.998 of its speed a ms). a press
     // that goes across first is the page's to the end. a press while it
     // glides stops it and is the swipe's alone, its events and its click
-    // going no further: up or down, it swipes on from where it stopped it.
-    // a wheel or a key scrolls the document natively, and the finger's
-    // scroll is kept on top of the document's
+    // going no further: up or down, it swipes on from where it stopped it
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is taken over
       STILL: 60,                             // ms a finger held still before lifting that leaves no glide
       GLIDE: 1 - Math.pow(0.998, 1000 / 60), // of the way left to glide, each 60 hz frame
     };
-    let swipeY = 0, swipeTo = 0; // css px the finger has the page scrolled past the document's own, and where it glides to
+    let swipeY = 0, swipeTo = 0; // css px the page is scrolled, and where it glides to
     let swipe = null;            // the press being watched, { id, x, y, on, done, stop, y0, from, samples }, or null
     let eatClick = false;        // the click the press ends in presses nothing
     let calling = false;         // the swipe is calling a press off, so its own listeners let that through
 
     // how far the page is scrolled, in whole world px
     function scrolled() {
-      return Math.round((window.scrollY + swipeY) / SCALE);
+      return Math.round(swipeY / SCALE);
     }
 
-    // y css px of the finger's scroll, no further than either end
+    // y css px of the page's scroll, no further than either end
     function clampSwipe(y) {
-      return Math.min(Math.max(y, -window.scrollY), scrollEnd - window.scrollY);
+      return Math.min(Math.max(y, 0), scrollEnd);
     }
 
     // the finger's scroll kept in the page, and gliding on toward where it
@@ -3147,6 +3101,34 @@
       eatClick = false;
       e.stopPropagation();
     }, true);
+
+    // --- the wheel ---------------------------------------------------------------
+    // the wheel scrolls the page itself as a finger does, and the document
+    // stays where it is: safari puts the system's pointer back over the
+    // hand whenever its document comes to its top or leaves it. the page's
+    // one wheel listener, which stops nothing, moves the page 1:1 by each
+    // event's way down, no further than either end, stopping a glide. its
+    // events under RUN ms apart are one run, and a run that starts over the
+    // bottle turns the bottle instead (the ship, above), to its last event.
+    // a wheel held with ctrl is the browser's zoom and moves nothing
+    const WHEEL = {
+      LINE: 16, // css px a line, for a wheel that counts in lines
+      RUN: 200, // ms: the wheel's events under this apart are one run
+    };
+    let wheelAt = -Infinity; // when the wheel was last heard, ms on the page's clock
+    let wheelShip = false;   // the run it is in is the bottle's
+    canvas.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) return;
+      const now = performance.now();
+      if (now - wheelAt >= WHEEL.RUN) {
+        const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+        wheelShip = !!(h && h.ship);
+      }
+      wheelAt = now;
+      const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
+      if (wheelShip) Ship.turn((Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * px * SHIP.WHEEL);
+      else swipeY = swipeTo = clampSwipe(swipeY + e.deltaY * px);
+    }, { passive: true });
 
     // cicada's drag line: dashed, from the grabbed point to the pointer,
     // its dashes shrinking and gaps opening over the last 30 % of the reach
@@ -3318,7 +3300,6 @@
       const sy = scrolled();
       const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y);
       const hit = hoverAt && !overMute && hitAt(hoverAt.x, hoverAt.y);
-      holdWheel(!!(hit && hit.ship));
       for (const s of sections) {
         const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
