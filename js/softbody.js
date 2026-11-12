@@ -484,6 +484,7 @@ class World {
     this.pointerY = null;
     this.nowMs = 0;        // virtual clock: STEP_MS a step
     this.merges = [];      // [{ blob, seams, eaten }] since the last step() call: what ate, its seams and what it ate, as it was
+    this.snaps = 0;        // the pointer's drags pulled too far and let go since the last step() call
     this.spawning = false; // a small blob every spawnMs while true
     this.lastSpawnMs = 0;
     this.acc = 0;
@@ -498,10 +499,11 @@ class World {
   // sets the clock, with half a step in hand: frames that come at the step
   // rate then land mid-step, and their jitter never tips one frame into
   // no step and the next into two. after a stall it catches up a little,
-  // not forever. merges are cleared once per call, so a frame sees every
-  // merge since the last one even when it ran several. returns the count.
+  // not forever. merges and snaps are cleared once per call, so a frame
+  // sees every one since the last even when it ran several. returns the count.
   step(wallNowMs) {
     this.merges = [];
+    this.snaps = 0;
     if (this.lastWallMs === null) { this.lastWallMs = wallNowMs; this.acc = SOFT.STEP_MS / 2; }
     this.acc += wallNowMs - this.lastWallMs;
     this.lastWallMs = wallNowMs;
@@ -538,7 +540,7 @@ class World {
       const dx = p.x - drag.x, dy = p.y - drag.y;
       return Math.sqrt(dx * dx + dy * dy) > SOFT.DRAG.BREAKAWAY;
     };
-    if (this.drag && broken(this.drag)) this.drag = null;
+    if (this.drag && broken(this.drag)) { this.drag = null; this.snaps++; }
     this.held = this.held.filter((d) => !broken(d));
 
     // a locked blob bigger than fits the world eases back to that

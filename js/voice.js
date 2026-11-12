@@ -1,6 +1,7 @@
 // --- the voice -----------------------------------------------------------------
 // the bubble in personal work complains out loud when it is taken hold of,
-// and a moment after it eats a bubble thanks whoever fed it: a short line
+// a moment after it eats a bubble thanks whoever fed it, and when the
+// pointer's string keeps snapping tells them to drag slower: a short line
 // each time, said by monk_mouth, the articulatory voice, air
 // through a tube shaped like a vocal tract, so that every sound is a mouth
 // moving and nothing is recorded. its core, built by tools/monk_mouth-web
@@ -57,6 +58,11 @@ const Voice = {
     { phones: 'B AH1 B AH0 L / T AY2 M', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|ble time' },
     { phones: 'B AH2 B IH0 L IH1 SH AH0 S', midi: 65, range: 6, speed: 0.8, breath: 0.8, text: 'Bub|bi|li|cious' },
   ],
+  // what it says when it is dragged too fast, the same way
+  SLOWER: [
+    { phones: 'Y UH0 R / D R AE2 G IH0 NG / T UW2 / F AE1 S T', midi: 63, range: 5, speed: 0.8, breath: 0.8, text: "You're drag|ging too fast" },
+    { phones: 'D R AE2 G / S L OW1 ER0 / B AH2 B AH0 L B R EY2 N', midi: 63, range: 5, speed: 0.8, breath: 0.8, text: 'Drag slow|er bub|ble|brain' },
+  ],
   THANK_MS: 500, // from the meal to its thanks
   // the master gain: the lines and the thanks above, at the voice above,
   // peak through it at 0.18 to 0.56, each played many times in random
@@ -77,6 +83,7 @@ const Voice = {
   muted: false,  // the master gain is at 0 or easing there
   busy: false,   // a sound has gone to the worklet and is not yet over
   held: null,    // a line waiting for the voice: { line, at }, at in ms
+  due: null,     // a line waiting for the one playing to be over, or null
   said: 0,       // how many lines have gone to the worklet
   line: null,    // the last of them, null if the engine would not take it
   heard: 0,      // how many of its syllables have begun, as heard by now
@@ -153,6 +160,12 @@ const Voice = {
     setTimeout(() => this.say(line), this.THANK_MS);
   },
 
+  // the bubble dragged too fast: one of SLOWER, at random, said once
+  // whatever is playing is over and heard (update)
+  slower() {
+    this.due = this.SLOWER[Math.floor(Math.random() * this.SLOWER.length)];
+  },
+
   // a line spoken: to the worklet; nothing before a gesture or while a line
   // is still playing, and held until the worklet is ready and the context
   // running
@@ -184,7 +197,8 @@ const Voice = {
 
   // once a frame: whatever has come from the worklet that the speaker has
   // reached by now is heard, the syllables begun and the mouth; with
-  // nothing more to come and no line playing, the mouth is in silence
+  // nothing more to come and no line playing, the mouth is in silence and
+  // a line that was due is said
   update() {
     if (!this.ctx) return;
     const now = this.heardAt();
@@ -193,7 +207,14 @@ const Voice = {
       if (m.heard !== undefined) this.heard = m.heard;
       if (m.mouth) this.mouth = m.mouth;
     }
-    if (!this.busy && !this.coming.length) this.mouth = null;
+    if (!this.busy && !this.coming.length) {
+      this.mouth = null;
+      if (this.due) {
+        const line = this.due;
+        this.due = null;
+        this.say(line);
+      }
+    }
   },
 
   // the context's time at the speaker now: the output's own timestamp,
