@@ -4,10 +4,11 @@
 // js/voice-worklet.js plays a block at a time. the voice is made in place
 // in a static buffer, so nothing is ever taken from a heap. phones are
 // written into the text buffer and then spoken, a line with its own notes
-// and breath, and as it plays how many of its syllables have begun is
-// counted from the vowel the voice reads back, and the mouth is read off
-// the voice for the face to follow. the rest are the voice's own live
-// setters, a few fields of its tuning by number, and the block.
+// and breath, or sung, a syllable at a time on a note held. as a line
+// plays how many of its syllables have begun is counted from the vowel the
+// voice reads back, and the mouth is read off the voice for the face to
+// follow. the rest are the voice's own live setters, a few fields of its
+// tuning by number, and the block.
 #include <new>
 #include <stdint.h>
 
@@ -111,6 +112,21 @@ void voice_tune(int field, float value)
     }
     voice_->setTuning(t);
 }
+
+// a sung note, held: struck at a midi note and a velocity, its breath, its
+// vibrato begun; moved to another note, gliding there; the phones in the
+// text buffer sung at the note as it stands, 1 if they were taken, 0 on a
+// bad phone or an overflow, which disturbs nothing; let go, the breath to
+// nothing; and how fast the glide goes, per second (0 jumps)
+void voice_note_on(float midi, float vel) { voice_->noteOn(midi, vel); }
+void voice_pitch(float midi) { voice_->setPitch(midi); }
+int voice_syllable()
+{
+    text_[kText - 1] = 0;
+    return voice_->syllable(text_) ? 1 : 0;
+}
+void voice_note_off() { voice_->noteOff(); }
+void voice_glide(float perSec) { voice_->setGlide(perSec); }
 
 // 1 while a line plays, or the breath has yet to fall to nothing
 int voice_busy() { return voice_->busy() || voice_->state().breath > 0.0f ? 1 : 0; }

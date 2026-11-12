@@ -55,6 +55,8 @@
         <h2>Icons</h2>
         <label>Mute icon</label>
         <div class="strip" id="iconstrip"></div>
+        <label>Monk Mouth's face</label>
+        <div class="strip" id="facestrip"></div>
         <label>Scroll hand</label>
         <div class="strip" id="handstrip"></div>
         <div class="tools">
@@ -94,17 +96,19 @@
 // the item's title, and an item with none shows lorem ipsum (index.html).
 `;
 
-    // the mute button's icons and the scroll hand's frames (js/icons.js):
-    // each rows of '#' ink, 'o' paper and '.' clear, every row as wide, and
-    // every hand frame the same size. the editor shows them above the
-    // fields, the selected one big to paint, and hands every change to the
-    // page beside; ⌘S writes js/icons.js back with js/text.js
-    const ICONS_HEAD = `// the mute button's icons and the scroll hand's frames (index.html),
-// written by tools/text/editor.html (python3 tools/text/serve.py): edit
-// there, not here. each is rows of '#' ink, 'o' paper and '.' clear; sound
-// shows while the page plays, muted while it is muted, and hand's frames
-// play from pointing down, first, to thumbs up, last, as the page comes to
-// its bottom, every frame the same size.
+    // the mute button's icons, monk mouth's face (its eye and its nose) and
+    // the scroll hand's frames (js/icons.js): each rows of '#' ink, 'o'
+    // paper and '.' clear, every row as wide, and every hand frame the same
+    // size. the editor shows them above the fields, the selected one big to
+    // paint, and hands every change to the page beside; ⌘S writes
+    // js/icons.js back with js/text.js
+    const ICONS_HEAD = `// the mute button's icons, monk mouth's face and the scroll hand's frames
+// (index.html), written by tools/text/editor.html (python3
+// tools/text/serve.py): edit there, not here. each is rows of '#' ink, 'o'
+// paper and '.' clear; sound shows while the page plays, muted while it is
+// muted, eye is the face's left eye and, mirrored, its right, nose is its
+// nose, and hand's frames play from pointing down, first, to thumbs up,
+// last, as the page comes to its bottom, every frame the same size.
 `;
 
     const $ = (id) => document.getElementById(id);
@@ -171,12 +175,13 @@
     // --- icons ------------------------------------------------------------------
     const MAX_SIDE = 64;
     const MAX_CELL = 32;  // css px per grid cell in the big view at most; fewer when the icon is wide
-    const THUMB = 3;      // css px per cell in the mute icons' strip
+    const THUMB = 3;      // css px per cell in the mute icons' strip and the face's
     const HAND_THUMB = 1; // and in the hand's, its frames many and large
     const COLOURS = { '#': '#000', 'o': '#fbf6f0', '.': '#2a2a2a' };
-    const iconBox = $('icon'), iconStrip = $('iconstrip'), handStrip = $('handstrip');
+    const iconBox = $('icon'), iconStrip = $('iconstrip'), faceStrip = $('facestrip'), handStrip = $('handstrip');
     const big = $('big'), bctx = big.getContext('2d');
-    const names = Object.keys(icons).filter((k) => k !== 'hand'); // the mute icons
+    const faces = ['eye', 'nose']; // monk mouth's face, in a strip of its own
+    const names = Object.keys(icons).filter((k) => k !== 'hand' && !faces.includes(k)); // the mute icons
     const iconCells = {}, frameCells = [];
     let cur = names[0];
     let selDiv = null; // the outlined strip cell
@@ -184,7 +189,8 @@
     const undoStack = [];
     let clip = null;
 
-    // the selection: a mute icon by its name, or a hand frame by its index
+    // the selection: a mute icon or a feature of the face by its name, or a
+    // hand frame by its index
     function isFrame(c) { return typeof c === 'number'; }
     function rowsOf(c) { return isFrame(c) ? icons.hand[c] : icons[c]; }
     function getRows() { return rowsOf(cur); }
@@ -194,16 +200,18 @@
     function title(c) { return isFrame(c) ? 'frame ' + c : c; }
 
     // the page beside draws the icons as they are, and shows the selected
-    // one: a frame held on its scroll hand, or the hand let go and the page
-    // muted or playing as the icon is. play runs the hand's animation from
-    // the far end to where the page stands. the page may not have these
-    // yet, or still be loading
+    // one: a frame held on its scroll hand, or the hand let go and, for a
+    // mute icon, the page muted or playing as the icon is; a feature of the
+    // face leaves the page's sound as it is. play runs the hand's animation
+    // from the far end to where the page stands. the page may not have
+    // these yet, or still be loading
     function showIcons() { try { page.contentWindow.readIcons(icons); } catch (e) {} }
     function hold(i) { try { page.contentWindow.holdHand(i); } catch (e) {} }
     function play() { try { page.contentWindow.playHand(); } catch (e) {} }
     function showSelected() {
       if (isFrame(cur)) { hold(cur); return; }
       hold(null);
+      if (faces.includes(cur)) return;
       try { page.contentWindow.setMuted(cur === 'muted'); } catch (e) {}
     }
     page.addEventListener('load', () => { showIcons(); showSelected(); });
@@ -264,8 +272,10 @@
       return { div, canvas: cv };
     }
 
+    // the mute icons' strip and the face's
     function buildIconStrip() {
       for (const name of names) { iconCells[name] = stripCell(iconStrip, name, name); drawCell(name); }
+      for (const name of faces) { iconCells[name] = stripCell(faceStrip, name, name); drawCell(name); }
     }
 
     // the hand's strip, built again whenever its frames change in number or size
@@ -275,7 +285,7 @@
       for (let i = 0; i < icons.hand.length; i++) { frameCells[i] = stripCell(handStrip, i, String(i)); drawCell(i); }
     }
 
-    // the selected one's cell outlined, across both strips
+    // the selected one's cell outlined, across every strip
     function outline() {
       if (selDiv) selDiv.classList.remove('sel');
       selDiv = cellOf(cur).div;
@@ -293,7 +303,7 @@
     // ←/→: the previous or next in the selected one's strip, wrapping
     function step(d) {
       if (isFrame(cur)) { const n = icons.hand.length; select((cur + d + n) % n); }
-      else { const i = names.indexOf(cur), n = names.length; select(names[(i + d + n) % n]); }
+      else { const strip = faces.includes(cur) ? faces : names, i = strip.indexOf(cur), n = strip.length; select(strip[(i + d + n) % n]); }
     }
 
     // an edit: redrawn, handed to the page beside, the status said, a
@@ -353,7 +363,7 @@
       iconChanged(true);
     }
 
-    // a copy of the selected frame right after it, or with a mute icon
+    // a copy of the selected frame right after it, or with no frame
     // selected, of the last frame at the end; the copy selected
     function addFrame() {
       const at = isFrame(cur) ? cur : icons.hand.length - 1;

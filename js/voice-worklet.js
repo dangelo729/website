@@ -6,12 +6,14 @@
 // imports, the voice made at its size and set, a second of silent blocks
 // lets its tension land, and then the port says ready. until then the
 // output is silent. what comes in on the port waits for the top of the
-// next block: the voice set again, or a line, its phones spoken by the
-// engine, notes and breath and all. one line at a time: as it plays the
-// port says how many of its syllables have begun ({ t, heard }) each time
-// one more has, and the mouth as the voice has it ({ t, mouth }) every
-// MOUTH_EVERY blocks, t the context's time of the block, and once it is
-// over, its breath fallen to nothing, done; a line the engine would not
+// next block: the voice set again; a line, its phones spoken by the
+// engine, notes and breath and all; or a note sung (js/monk.js), struck
+// with a syllable, moved to other notes, a fresh syllable sung on it, and
+// let go. one line at a time: as it plays the port says how many of its
+// syllables have begun ({ t, heard }) each time one more has. as a line or
+// a note plays the port says the mouth as the voice has it ({ t, mouth })
+// every MOUTH_EVERY blocks, t the context's time of the block, and once it
+// is over, its breath fallen to nothing, done; a line the engine would not
 // take says bad at once.
 
 const RATE = 44100;                  // the wasm's rate, and the context's
@@ -43,7 +45,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
   }
 
   // who is speaking: the size, the three fields of the tuning, the tension
-  // and the wobble
+  // and the wobble, and the glide from note to note where the voice has one
   set(voice) {
     const mm = this.mm;
     mm.voice_sections(voice.sections);
@@ -52,6 +54,7 @@ class VoiceProcessor extends AudioWorkletProcessor {
     mm.voice_tune(2, voice.diction);
     mm.voice_tenseness(voice.tension);
     mm.voice_wobble(voice.wobble);
+    if (voice.glide !== undefined) mm.voice_glide(voice.glide);
   }
 
   // phones into the wasm's text buffer, ascii, cut to fit
@@ -62,10 +65,27 @@ class VoiceProcessor extends AudioWorkletProcessor {
     bytes[n] = 0;
   }
 
-  // a message from the port: the voice set, or a line spoken unless one
-  // is playing
+  // a message from the port: the voice set; a note struck at a velocity
+  // with its syllable, playing from then; the note moved; a fresh syllable
+  // sung on it; the note let go; or a line spoken unless one is playing
   take(m) {
+    const mm = this.mm;
     if (m.type === 'voice') return this.set(m.voice);
+    if (m.type === 'note') {
+      mm.voice_note_on(m.midi, m.vel);
+      this.text(m.phones);
+      mm.voice_syllable();
+      this.playing = true;
+      this.blocks = 0;
+      return;
+    }
+    if (m.type === 'pitch') return mm.voice_pitch(m.midi);
+    if (m.type === 'syllable') {
+      this.text(m.phones);
+      mm.voice_syllable();
+      return;
+    }
+    if (m.type === 'off') return mm.voice_note_off();
     if (this.playing) return;
     this.text(m.phones);
     if (this.mm.voice_speak(m.midi, m.range, m.speed, m.breath)) {

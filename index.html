@@ -44,6 +44,7 @@
   <script src="js/icons.js"></script>
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
+  <script src="js/monk.js"></script>
   <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
@@ -581,7 +582,7 @@
       ] },
       { title: 'Personal work',     photo: false, o: 0, items: [
         { title: 'Cicada' },
-        { title: 'Monk Mouth' },
+        { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Third Dimension' },
         { title: 'Second Dimension' },
         { title: 'Upright' },
@@ -630,9 +631,11 @@
       // line of their own under its text, LINK_SEP between: linkType is
       // the line, and each link { label, url } is laid out with its letters
       // and the box round them (hit). game: it is bubble bob, his bubble
-      // shut his o and open the game (layoutItems)
+      // shut his o and open the game (layoutItems). demo: it holds monk
+      // mouth's face over its ribbon where its logos would go, laid out as
+      // demoAt (the demo, below)
       items: (s.items || []).map((x, i) => ({
-        title: x.title, game: !!x.game, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1114,7 +1117,10 @@
         // of its text, a GUTTER on (and each its dx further) and level with
         // its top, each centred across the column; stacked, or when that would leave the text under
         // LOGO_LEAST ems, LOGO_GAP apart across a row above the text, each
-        // centred on the row's middle and all shrunk alike to fit it
+        // centred on the row's middle and all shrunk alike to fit it. its
+        // demo (DEMO, below) goes first among them, a box of its own size
+        // that never shrinks, taking the column as a logo does or, in the
+        // row, centred across the room the text has
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1124,13 +1130,18 @@
           if (a.h > BOX.LOGO_H * k * bs) { a.h = BOX.LOGO_H * k * bs; a.w = a.h * aspect; }
           colW = Math.max(colW, a.w);
         }
+        if (it.demo) {
+          arts.unshift({ l: {}, demo: true, w: DEMO.W, h: DEMO.H });
+          colW = Math.max(colW, DEMO.W);
+        }
         const beside = arts.length > 0 && !stacked && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
         for (const a of arts) {
-          a.w = Math.max(1, Math.round(a.w * fit));
-          a.h = Math.max(1, Math.round(a.h * fit));
+          const f = a.demo ? 1 : fit;
+          a.w = Math.max(1, Math.round(a.w * f));
+          a.h = Math.max(1, Math.round(a.h * f));
           rowH = Math.max(rowH, a.h);
         }
         // its text, from DROP under its name
@@ -1139,10 +1150,15 @@
         const top = base + BOX.DROP * is;
         let tb = top + 0.75 * bs, tl = tb, logoBottom = top, ly = top, lx = nx;
         it.logosAt = [];
+        it.demoAt = null;
         for (const a of arts) {
-          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : lx);
-          const y = Math.round(beside ? ly : top + (rowH - a.h) / 2), g = ditherLogo(a.art, a.w, a.h);
-          if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
+          if (a.demo) it.demoAt = placeDemo(x, y, seed + 9000 + 10 * i + 5);
+          else {
+            const g = ditherLogo(a.art, a.w, a.h);
+            if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
+          }
           it.right = Math.max(it.right, x + a.w);
           logoBottom = Math.max(logoBottom, y + a.h);
           ly = y + a.h + BOX.LOGO_GAP * bs;
@@ -1369,7 +1385,8 @@
       const home = s === bubbleHome && box.open && box.p === 1;
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
-      // where it has opened to and cut off there, all into pfb over its
+      // where it has opened to and cut off there, its logos and its demo
+      // (drawDemo) with it, all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
@@ -1382,7 +1399,7 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1407,6 +1424,7 @@
             for (const L of k.letters) if (see(L)) L.draw(t, d, pfb, 0, lv);
           }
           for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
+          if (it.demoAt) drawDemo(it, t, d, hover);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1550,8 +1568,10 @@
     // or right of them to the box's edge (bubble bob's only as far as his
     // name, so the game under it is free), a little above and below,
     // { s, it }; one of an item's links, as far as its text has opened to
-    // show it, a little round it, { s, it, link }; a word whose box is not
-    // open, a little round it, { s }; or null
+    // show it, a little round it, { s, it, link }; an item's demo's
+    // ribbon, as far as its text has opened to show it, a little round it
+    // (at least 20 world px tall, for a finger), { s, it, ribbon }; a word
+    // whose box is not open, a little round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
       for (const s of sections) {
@@ -1590,6 +1610,11 @@
               const ky = Math.max(3, (16 - (k.y1 - k.y0)) / 2);
               if (x >= k.x0 - 3 && x <= k.x1 + 3 && iy >= k.y0 - ky && iy <= k.y1 + ky) return { s, it, link };
             }
+            const r = it.demoAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.demoAt.bar : null;
+            if (r) {
+              const ry = Math.max(4, (20 - (r.y1 - r.y0)) / 2);
+              if (x >= r.x0 - 4 && x <= r.x1 + 4 && iy >= r.y0 - ry && iy <= r.y1 + ry) return { s, it, ribbon: true };
+            }
           }
           continue;
         }
@@ -1602,7 +1627,9 @@
     // a click: the mute button mutes the page or gives it its sound back
     // (muteAt, below), the x shuts its box, a link opens its site in a new
     // tab, the slideshow's < shows the slide before and its > or its photo
-    // the one after, an item opens or shuts its text, a word opens its box
+    // the one after, an item opens or shuts its text, a word opens its box;
+    // a demo's ribbon presses nothing here, played while it is held (the
+    // demo, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1615,7 +1642,7 @@
         menu.open = !menu.open;
         if (menu.open) menu.v += SHOP_UI.KICK;
       }
-      else if (h.shop) return;
+      else if (h.shop || h.ribbon) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -1624,8 +1651,8 @@
     // hover: a mouse's pointer over anything a press would press turns it
     // a colour of the tag's while it is there: a word, and its box's
     // outline while the box is not open, the first (Inventor's), anything
-    // in a box, its x, its items and the slideshow's < and > (the > for the
-    // photo too), the second
+    // in a box, its x, its items, a demo's ribbon and the slideshow's < and
+    // > (the > for the photo too), the second
     // (Software Engineer's), and a link the third (Musician's); a finger has
     // no hover. where it is, in world px on the screen, or null; what it is
     // over is worked out afresh each frame, so it follows the page as it
@@ -1680,10 +1707,10 @@
     // sprites on one seed so they wobble as one: its paper, with its ink in
     // it so nothing between the two shows through, then its ink over that,
     // in the first tag colour while a mouse is over it. a press on it, or a
-    // little round it, eases the piano and the voice (js/piano.js,
-    // js/voice.js) to silence or brings them back, and presses nothing under
-    // it. the browser keeps it, so a visitor who muted the page finds it
-    // muted the next time
+    // little round it, eases the piano, the voice and the demo's voice
+    // (js/piano.js, js/voice.js, js/monk.js) to silence or brings them back,
+    // and presses nothing under it. the browser keeps it, so a visitor who
+    // muted the page finds it muted the next time
     const MUTE = {
       GAP: 21,             // world px clear of the right and bottom edges, as the tag is of the right
       SCALE: LETTER_SCALE, // of the icon's px, as the name's letters are of the font's
@@ -1695,11 +1722,12 @@
     let muteArt = {};     // each icon as { paper, ink } letters in the corner, by name
 
     // icons (ICONS, js/icons.js) read again and put in the corner, the
-    // scroll hand's frames beside them
+    // scroll hand's frames beside them, and the demo's face made again
     function readIcons(icons) {
       iconRows = icons;
       placeMute();
       placeHand();
+      makeFace();
     }
 
     // each icon as its two letters, centred so the icon stands MUTE.GAP clear
@@ -1738,9 +1766,150 @@
       muted = on;
       Piano.mute(on);
       Voice.mute(on);
+      Monk.mute(on);
       try { localStorage.setItem(MUTE.KEY, on ? '1' : '0'); } catch (e) {}
     }
     try { if (localStorage.getItem(MUTE.KEY) === '1') setMuted(true); } catch (e) {}
+
+    // --- the demo ----------------------------------------------------------------
+    // monk mouth's item, in personal work, holds a small demo of its voice
+    // (js/monk.js): a box DEMO.W by DEMO.H world px where its logos would
+    // go (layoutItems), with a face floating in it, two eyes, a nose and a
+    // mouth and no head round them, over a ribbon across its bottom. a
+    // primary press on the ribbon, or a little round it, takes it, and
+    // while it is held where the finger is across it is Monk.down, 0 at its
+    // left edge to just short of 1 at its right, as moon_man's sim keeps
+    // its ribbon: the voice sings a degree of its scale for each of its
+    // Monk.DEGREES zones. a lift lets it go, and so does a press up or down
+    // that the page takes for a scroll (the swipe, below); a press that
+    // goes across stays the ribbon's. the eyes and the nose are ICONS.eye
+    // and ICONS.nose (js/icons.js), the right eye the left's rows mirrored,
+    // each drawn as the mute button's icons are, at SCALE, its paper with
+    // its ink in it and then its ink, wobbling on a seed of its own. the
+    // mouth is moon_man's guide loop (its face/mouth_arc.cpp), its radii
+    // doubled: POINTS points round its middle, its half-width from RX_MIN
+    // at a pucker to RX_MAX at a spread and its half-height from RY_MIN
+    // shut to RY_MAX agape, its upper half opening UPPER of its lower, as a
+    // jaw carries the lower lip, and a puckered mouth opened going round,
+    // drawn LINE px from point to point. how open and how wide it
+    // is come from a mouth (js/mouth.js) eased each frame toward the voice
+    // as heard, as the bubble's is. the ribbon is a bar outlined LINE px,
+    // RIBBON_R round its corners, with a tick between each two zones and,
+    // while it is held, a dot MARK px round at the finger, in the items'
+    // hover colour while a mouse is over it
+    const DEMO = {
+      W: 170, H: 120,        // world px, its box
+      SCALE: 2,              // world px to an eye's or the nose's px
+      EYE_X: 24,             // world px across from the box's middle to each eye's
+      EYE_Y: 22,             // world px down from the box's top to the eyes' middles,
+      NOSE_Y: 45,            // to the nose's
+      MOUTH_Y: 68,           // and to the mouth's shut line
+      RX_MIN: 9, RX_MAX: 27, // world px, the mouth's half-width: moon_man's 4.5 to 13.5, doubled
+      RY_MIN: 2, RY_MAX: 18, // and its half-height: moon_man's 1 to 9, doubled
+      UPPER: 0.65,           // of the lower half's height, the upper half's
+      POINTS: 32,            // round the loop
+      LINE: 2,               // world px, the mouth's line: an eye's strokes at SCALE
+      RIBBON_H: 14,          // world px, the ribbon's height, its bottom the box's
+      RIBBON_R: 5,           // world px, its corners' radius
+      TICK_IN: 4,            // world px each tick stops short of the ribbon's top and bottom edges
+      MARK: 3,               // world px, the finger's dot's radius
+    };
+    const demoMouth = new Mouth(); // the demo's mouth, as the voice is heard
+    let faceArt = {};              // the face's eye, its right eye (eyeR) and its nose, each { paper, ink }, by name
+    let ribbon = null;             // the press holding a ribbon, { id, it }: its pointer and the ribbon's item, or null
+
+    // the face's art from the icons: each its ink, and its paper with its
+    // ink in it; an empty one has none
+    function makeFace() {
+      const eye = iconRows.eye || [], rows = { eye, eyeR: eye.map((r) => [...r].reverse().join('')), nose: iconRows.nose || [] };
+      faceArt = {};
+      for (const name in rows) {
+        const ink = Framebuffer.ink(rows[name]), paper = Framebuffer.ink(rows[name].map((r) => r.replace(/o/g, '#')));
+        if (ink.w && ink.h) faceArt[name] = { paper, ink };
+      }
+    }
+    makeFace();
+
+    // a demo's box with its top left at (x, y), world px on the page as
+    // laid out, its seeds from seed on: each eye and the nose a letter with
+    // nothing to draw, for its place and its wobble, the mouth's middle on
+    // its shut line, and the ribbon's box, { eyes, nose, mouth, bar }
+    function placeDemo(x, y, seed) {
+      const D = DEMO, mx = x + D.W / 2;
+      return {
+        eyes: [makeLetter(null, mx - D.EYE_X, y + D.EYE_Y, seed, D.SCALE), makeLetter(null, mx + D.EYE_X, y + D.EYE_Y, seed + 1, D.SCALE)],
+        nose: makeLetter(null, mx, y + D.NOSE_Y, seed + 2, D.SCALE),
+        mouth: { x: mx, y: y + D.MOUTH_Y },
+        bar: { x0: x, y0: y + D.H - D.RIBBON_H, x1: x + D.W, y1: y + D.H },
+      };
+    }
+
+    // item it's demo, d world px down from where it was laid out, into pfb:
+    // the eyes and the nose, each at its wobble's pose, its paper then its
+    // ink; the mouth's loop, as open and as wide as the demo's mouth is;
+    // and the ribbon in whole px, as the logos are, its ticks and, while it
+    // is held, the finger's dot, in the items' hover colour while hover is
+    // on it
+    function drawDemo(it, t, d, hover) {
+      const D = DEMO, a = it.demoAt, v = hover && hover.it === it && hover.ribbon ? HOVER_ITEM : 1;
+      const feature = (L, g) => {
+        if (!g) return;
+        const p = L.pose(t);
+        pfb.sprite(g.paper, p.x, p.y + d, p.s, p.a, 0);
+        pfb.sprite(g.ink, p.x, p.y + d, p.s, p.a, 1);
+      };
+      feature(a.eyes[0], faceArt.eye);
+      feature(a.eyes[1], faceArt.eyeR);
+      feature(a.nose, faceArt.nose);
+      // the loop's radii, the height eased halfway toward 0.85 of the width
+      // as far as the mouth is puckered and open (moon_man's rounding cue),
+      // and its points from its right end round, clockwise on screen, the
+      // upper half's heights UPPER of the lower's
+      const open = demoMouth.open, wide = demoMouth.wide, cx = a.mouth.x, cy = a.mouth.y + d;
+      const rx = D.RX_MIN + (D.RX_MAX - D.RX_MIN) * wide, round = (1 - wide) * Math.min(open, 1);
+      let ry = D.RY_MIN + (D.RY_MAX - D.RY_MIN) * open;
+      ry += (0.85 * rx - ry) * 0.5 * round;
+      let px = cx + rx, py = cy;
+      for (let i = 1; i <= D.POINTS; i++) {
+        const th = 2 * Math.PI * i / D.POINTS, sn = Math.sin(th);
+        const x = cx + rx * Math.cos(th), y = cy + (sn > 0 ? ry : D.UPPER * ry) * sn;
+        pfb.line(px, py, x, y, 1, D.LINE);
+        px = x;
+        py = y;
+      }
+      // each tick LINE px wide, centred on the line between two zones
+      const b = a.bar, dy = Math.round(d), y0 = b.y0 + dy, y1 = b.y1 + dy;
+      pfb.roundRect(b.x0, y0, b.x1, y1, D.RIBBON_R, null, v, BOX.LINE);
+      for (let k = 1; k < Monk.DEGREES; k++) {
+        const x = Math.round(b.x0 + (b.x1 - b.x0) * k / Monk.DEGREES) - 1;
+        pfb.line(x, y0 + D.TICK_IN, x, y1 - 1 - D.TICK_IN, v, BOX.LINE);
+      }
+      if (Monk.down !== null) pfb.fillCircle(b.x0 + (b.x1 - b.x0) * Monk.down, (y0 + y1) / 2, D.MARK, v);
+    }
+
+    // world x on the screen across the held ribbon, as Monk.down
+    function ribbonTo(x) {
+      const b = ribbon.it.demoAt && ribbon.it.demoAt.bar;
+      if (b) Monk.down = Math.min(Math.max((x - b.x0) / (b.x1 - b.x0), 0), 0.995);
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || e.button !== 0) return;
+      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!h || !h.ribbon) return;
+      ribbon = { id: e.pointerId, it: h.it };
+      ribbonTo(p.x);
+    });
+    canvas.addEventListener('pointermove', (e) => { if (ribbon && e.pointerId === ribbon.id) ribbonTo(worldPointer(e).x); });
+    // the click a lifted ribbon's press ends in presses nothing, wherever
+    // the pointer has got to, as a drag's does (the drag, below)
+    const ribbonLift = (e) => {
+      if (!ribbon || e.pointerId !== ribbon.id) return;
+      ribbon = null;
+      Monk.down = null;
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', ribbonLift);
+    canvas.addEventListener('pointercancel', ribbonLift);
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -2713,7 +2882,8 @@
 
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
-    // framebuffer. first the bubble's world, its face, the tag's bubbles and the
+    // framebuffer. first the bubble's world, its face, the demo's voice and
+    // its mouth, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
     // under them are pushed down, and each box's skin is stepped after
     // where its box has got to, warbled; then the bits are cleared, the words and
@@ -2750,6 +2920,8 @@
         h.cursor.update(dt);
       }
       Voice.update();
+      Monk.update(now);
+      demoMouth.update(Monk.mouth, dt);
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
