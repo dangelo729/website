@@ -7,6 +7,8 @@
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
+    /* no system cursor over the document either, as over the canvas */
+    html, body { cursor: none; }
     /* the document scrolls, only to move the about text: #scroll gives it
        its height and the canvas stays fixed over the window. no bar, no
        bounce past either end */
@@ -46,6 +48,7 @@
   <script src="js/voice.js"></script>
   <script src="js/monk.js"></script>
   <script src="js/moon.js"></script>
+  <script src="js/ship.js"></script>
   <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
@@ -584,7 +587,7 @@
       { title: 'Personal work',     photo: false, o: 0, items: [
         { title: 'Cicada' },
         { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
-        { title: 'Third Dimension' },
+        { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
         { title: 'Second Dimension' },
         { title: 'Upright' },
         { title: 'This website!' },
@@ -634,9 +637,10 @@
       // and the box round them (hit). game: it is bubble bob, his bubble
       // shut his o and open the game (layoutItems). demo: it holds monk
       // mouth's menu, its face and its ribbon where its logos would go,
-      // laid out as demoAt (the demo, below)
+      // laid out as demoAt (the demo, below). ship: it holds the ship in a
+      // bottle there, laid out as shipAt (the ship, below)
       items: (s.items || []).map((x, i) => ({
-        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1122,7 +1126,8 @@
         // demo (DEMO, below) goes first among them, a box DEMO.W wide and
         // as tall as demoH has it at the text's size, that never shrinks,
         // taking the column as a logo does or, in the row, centred across
-        // the room the text has
+        // the room the text has; and so does its ship (SHIP, below), a box
+        // SHIP.W by SHIP.H
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1135,6 +1140,10 @@
         if (it.demo) {
           arts.unshift({ l: {}, demo: true, w: DEMO.W, h: demoH(bs) });
           colW = Math.max(colW, DEMO.W);
+        }
+        if (it.ship) {
+          arts.unshift({ l: {}, demo: true, ship: true, w: SHIP.W, h: SHIP.H });
+          colW = Math.max(colW, SHIP.W);
         }
         const beside = arts.length > 0 && !stacked && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
@@ -1153,10 +1162,12 @@
         let tb = top + 0.75 * bs, tl = tb, logoBottom = top, ly = top, lx = nx;
         it.logosAt = [];
         it.demoAt = null;
+        it.shipAt = null;
         for (const a of arts) {
           const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
-          if (a.demo) it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
+          if (a.ship) it.shipAt = placeShip(x, y, seed + 9000 + 10 * i + 5);
+          else if (a.demo) it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
           else {
             const g = ditherLogo(a.art, a.w, a.h);
             if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
@@ -1387,8 +1398,8 @@
       const home = s === bubbleHome && box.open && box.p === 1;
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
-      // where it has opened to and cut off there, its logos and its demo
-      // (drawDemo) with it, all into pfb over its
+      // where it has opened to and cut off there, its logos, its demo
+      // (drawDemo) and its ship (drawShip) with it, all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
@@ -1401,7 +1412,7 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1427,6 +1438,7 @@
           }
           for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
           if (it.demoAt) drawDemo(it, t, d, hover);
+          if (it.shipAt) drawShip(it, t, d);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1580,8 +1592,10 @@
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; an item's demo's
     // ribbon, as far as its text has opened to show it, a little round it
-    // (at least 20 world px tall, for a finger), { s, it, ribbon }; a word
-    // whose box is not open, a little round it, { s }; or null
+    // (at least 20 world px tall, for a finger), { s, it, ribbon }; an
+    // item's ship's box, once the ship is in, as far as its text has opened
+    // to show it, { s, it, ship }; a word whose box is not open, a little
+    // round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
       for (const s of sections) {
@@ -1636,6 +1650,8 @@
               const ry = Math.max(4, (20 - (r.y1 - r.y0)) / 2);
               if (x >= r.x0 - 4 && x <= r.x1 + 4 && iy >= r.y0 - ry && iy <= r.y1 + ry) return { s, it, ribbon: true };
             }
+            const sb = it.shipAt && Ship.ready && it.p > 0 && iy <= it.clip + it.p * it.span ? it.shipAt.box : null;
+            if (sb && x >= sb.x0 && x <= sb.x1 && iy >= sb.y0 && iy <= sb.y1) return { s, it, ship: true };
           }
           continue;
         }
@@ -1654,7 +1670,7 @@
     // either menu's header opens it, kicked toward open, or shuts it; a
     // demo's ribbon and its menu's sliders press nothing here, played while
     // they are held (the demo, below), and nor does the rest of an open
-    // menu
+    // menu, nor a ship, turned while it is held (the ship, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1668,7 +1684,7 @@
         h.menu.open = !h.menu.open;
         if (h.menu.open) h.menu.v += SHOP_UI.KICK;
       }
-      else if (h.shop || h.ribbon || h.settings) return;
+      else if (h.shop || h.ribbon || h.settings || h.ship) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -1909,9 +1925,11 @@
     const demoHome = sections.find((s) => s.items.some((it) => it.demo)) || null; // the section whose box holds the demo
     const demoItem = demoHome ? demoHome.items.find((it) => it.demo) : null;      // monk mouth, the item it is in
 
-    // the face's wasm fetched, and handed its eye and its nose
+    // the face's wasm fetched, and handed its eye and its nose; and the
+    // ship's (the ship, below)
     Moon.load(window);
     Moon.art(iconRows.eye || [], iconRows.nose || []);
+    Ship.load(window);
 
     // the menu's text size at the item's text size bs, by bubble bob's
     // menu's rule (shopNow), and the height of its button and of each of
@@ -2136,6 +2154,119 @@
     };
     canvas.addEventListener('pointerup', letGo);
     canvas.addEventListener('pointercancel', letGo);
+
+    // --- the ship ----------------------------------------------------------------
+    // third dimension's item, in personal work, holds the ship in a bottle
+    // (js/ship.js): a box SHIP.W by SHIP.H world px where its logos would
+    // go (layoutItems), the picture filling it at Ship.SCALE. it is drawn
+    // as the face's features are, its ink alone, from a whole px, wobbling
+    // on a seed of its own, so it sways, bobs, breathes and tilts as a
+    // letter does. it is stepped each frame while third dimension is at
+    // least partly open in a box out of its o and its box is on the screen
+    // (the frame, below). a primary press on the box takes hold of the
+    // bottle, and while it is held each move across turns it DRAG radians a
+    // world px, its near side going the way the pointer goes; a lift lets
+    // it go, and so does a press up or down that the page takes for a
+    // scroll (the swipe, below), and the click it ends in presses nothing.
+    // the wheel turns it too, WHEEL radians a css px, across or down,
+    // whichever is more, but only in a run of the wheel's events, each
+    // under RUN ms after the last, that starts over the box: from its first
+    // event the run is the bottle's and never scrolls the page, and a run
+    // that starts anywhere else scrolls the page to its end, whatever comes
+    // under the pointer. while the run is the bottle's the document is kept
+    // from scrolling by its overflow, and the page's only wheel listener,
+    // which stops nothing, is on the canvas turning the bottle (holdWheel).
+    // a listener that stops the scroll itself is no use here: the page has
+    // no bounce past its ends (overscroll-behavior), and with it webkit
+    // scrolls the page no more while such a listener is on, nor after it
+    // has stopped one scroll and been taken off
+    const SHIP = {
+      W: 170, H: 100, // world px, its box: the picture at Ship.SCALE, the whole bottle inside it however it is turned
+      DRAG: 0.015,    // radians a world px across turns the bottle while it is held
+      WHEEL: 0.005,   // radians a css px of wheel turns it
+      LINE: 16,       // css px a line, for a wheel that counts in lines
+      RUN: 200,       // ms: the wheel's events under this apart are one run, and the page scrolling again inside it is still scrolling
+    };
+    let turning = null;  // the press holding the bottle, { id, x }: its pointer and where it was across last, world px on the screen; or null
+    let wheelHeld = false;   // the wheel is the bottle's: the document is kept from scrolling and the bottle's listener is on the canvas
+    let wheelAt = -Infinity; // when it last heard the wheel, ms on the page's clock
+    let pageY = 0, pageAt = -Infinity; // where the document was scrolled to when a frame last looked, css px, and when it last found it moved
+    const shipHome = sections.find((s) => s.items.some((it) => it.ship)) || null; // the section whose box holds the ship
+    const shipItem = shipHome ? shipHome.items.find((it) => it.ship) : null;       // third dimension, the item it is in
+
+    // a ship's box with its top left at (x, y), world px on the page as
+    // laid out, its wobble seeded from seed: the box, and a letter with
+    // nothing to draw at its middle, at scale 1 so its pose's scale is its
+    // breathe alone, { box, letter }
+    function placeShip(x, y, seed) {
+      return { box: { x0: x, y0: y, x1: x + SHIP.W, y1: y + SHIP.H }, letter: makeLetter(null, x + SHIP.W / 2, y + SHIP.H / 2, seed, 1) };
+    }
+
+    // item it's ship, d world px down from where it was laid out, into pfb,
+    // once it is in: the picture's ink with its middle on the box's, moved
+    // by the wobble's sway and bob, at Ship.SCALE by its breathe and turned
+    // by its tilt
+    function drawShip(it, t, d) {
+      if (!Ship.ready) return;
+      const p = it.shipAt.letter.pose(t);
+      pfb.sprite(Ship.picture, p.x, p.y + Math.round(d), Ship.SCALE * p.s, p.a, 1);
+    }
+
+    // where the box of the ship's item is on the screen against the
+    // window's rows: whether any of it is in them
+    function shipSeen() {
+      const b = shipItem.shipAt && shipItem.shipAt.box;
+      if (!b) return false;
+      const y = shipItem.shift + shipHome.off - scrolled();
+      return b.y1 + y > 0 && b.y0 + y < H;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || e.button !== 0) return;
+      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (h && h.ship) turning = { id: e.pointerId, x: p.x };
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!turning || e.pointerId !== turning.id) return;
+      const x = worldPointer(e).x;
+      Ship.turn((turning.x - x) * SHIP.DRAG);
+      turning.x = x;
+    });
+    // the click a lifted press on the bottle ends in presses nothing,
+    // wherever the pointer has got to, as the ribbon's does
+    const shipGo = (e) => {
+      if (!turning || e.pointerId !== turning.id) return;
+      turning = null;
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', shipGo);
+    canvas.addEventListener('pointercancel', shipGo);
+    // the bottle's wheel listener: the bottle turned
+    function shipWheel(e) {
+      wheelAt = performance.now();
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const px = e.deltaMode === 1 ? SHIP.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
+      Ship.turn(d * px * SHIP.WHEEL);
+    }
+    // the wheel made the bottle's or handed back to the page, each frame,
+    // between its runs alone: the bottle's when the pointer is over the
+    // bottle (over) and the page has stood still RUN ms, the page's when
+    // the pointer is not and the listener has heard nothing for RUN ms, so
+    // a run is the bottle's or the page's from its first event to its
+    // last. the bottle's: the document's overflow hidden, so it stays where
+    // it is scrolled to, and the listener on the canvas
+    function holdWheel(over) {
+      const now = performance.now();
+      if (window.scrollY !== pageY) {
+        pageY = window.scrollY;
+        pageAt = now;
+      }
+      if (over === wheelHeld || now - (wheelHeld ? wheelAt : pageAt) < SHIP.RUN) return;
+      wheelHeld = over;
+      document.documentElement.style.overflow = over ? 'hidden' : '';
+      if (over) canvas.addEventListener('wheel', shipWheel, { passive: true });
+      else canvas.removeEventListener('wheel', shipWheel);
+    }
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -3112,7 +3243,7 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, the demo's voice,
-    // its face, its dots and its menu, the tag's bubbles and the
+    // its face, its dots and its menu, the ship, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
     // under them are pushed down, and each box's skin is stepped after
     // where its box has got to, warbled, and the upgrades' menu with its
@@ -3156,6 +3287,9 @@
       // the demo's face to the voice as heard, while monk mouth is at least
       // partly open in a box out of its o
       if (Moon.ready && demoItem && demoHome.box.shown && demoItem.p > 0) Moon.step(Monk.state, dt);
+      // the ship on, while third dimension is at least partly open in a
+      // box out of its o and its box is on the screen
+      if (Ship.ready && shipItem && shipHome.box.shown && shipItem.p > 0 && shipSeen()) Ship.step(dt);
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
@@ -3184,6 +3318,7 @@
       const sy = scrolled();
       const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y);
       const hit = hoverAt && !overMute && hitAt(hoverAt.x, hoverAt.y);
+      holdWheel(!!(hit && hit.ship));
       for (const s of sections) {
         const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
