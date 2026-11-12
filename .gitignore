@@ -2,6 +2,7 @@ tools/daedalus-web/build/
 tools/upright-web/build/
 tools/monk_mouth-web/build/
 tools/moon_man-web/build/
+tools/the_ship-web/build/
 .DS_Store
 *PLAN*.md
 CLAUDE.md

@@ -28,7 +28,10 @@ const TEXT = {
       "A singing voice for the Teensy 4.1. It makes sound by simulating air moving through a tube shaped like a vocal tract, so nothing is recorded: you move a tongue, lips and lungs, and the voice is whatever comes out.",
       "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here: drag the slider to hear it sing."
     ],
-    "Third Dimension": [],
+    "Third Dimension": [
+      "A small 3D renderer for microcontrollers and the tiny screens they drive. Hand it a model and it frames it, lights it and draws it: shaded, in flat bands like a cartoon, as a wireframe, or as an outline with the hidden lines removed, like a pen drawing.",
+      "Most of those screens can only turn a pixel on or off, so the shading is made of dither patterns, with ten to choose from. The mouth on Monk Mouth's face is drawn with it, and so is the ship in the bottle here: drag it, or scroll over it, to turn it."
+    ],
     "Second Dimension": [],
     "Upright": [],
     "This website!": []
