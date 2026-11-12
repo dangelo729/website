@@ -936,7 +936,6 @@
         for (const s of laid) if (s.box.full) s.skin = new Skin(boxAt(s, s.box.p));
       }
       settle();
-      setScroll();
     }
 
     // a section's open box round its word at size, edge in from either
@@ -1256,14 +1255,18 @@
     // how far the page scrolls: until the last word, and its box while it
     // is shown, is ABOUT.END above the window's bottom edge, pushed down
     // by every box shown above it as far as each will open; not at all
-    // when it is there already
+    // when it is there already. it is worked out each frame (the frame,
+    // below), so the page's end comes up with a box or an item as it
+    // shuts and a page scrolled past it is carried up with it
     function setScroll() {
       let push = 0, end = 0;
       for (const s of sections) {
         if (!s.ink) continue;
         // as far as its items will open, or are open while they shut
         const y1 = s.items.length ? s.rest + s.items.reduce((a, it) => a + Math.max(it.p, it.open ? 1 : 0) * it.ext, 0) : s.box.full && s.box.full.y1;
-        if (s.box.shown && s.box.full) push += Math.max(0, y1 - s.ink.y1);
+        // and as far as its box will open, or is open while it shuts
+        const b = s.box;
+        if (b.shown && b.full) push += Math.max(0, (b.open ? y1 : b.shut.y1 + (y1 - b.shut.y1) * b.p) - s.ink.y1);
         end = s.ink.y1 + push;
       }
       scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
@@ -1279,13 +1282,11 @@
         box.p = 0;
         box.v = 0;
       }
-      setScroll();
     }
 
     // a press on an item: its text accordions out under it, or back
     function toggleItem(s, it) {
       it.open = !it.open;
-      setScroll();
     }
 
     // the slide a section's slideshow shows, its photo dithered to fill the
@@ -1324,10 +1325,8 @@
     // turning FLIP times as fast
     function stepItems(s, dt) {
       for (const it of s.items) {
-        const was = it.p;
         it.p = ease(it.p, it.open, dt, it.ext);
         it.turn = ease(it.turn, it.open, dt, 4 * BOX.ITEM * BOX.LEAST, BOX.FLIP);
-        if (was > 0 && it.p === 0) setScroll();
       }
     }
 
@@ -1355,7 +1354,6 @@
       if (box.p === 0 && !box.open) {
         box.shown = false;
         box.v = 0;
-        setScroll();
       }
     }
 
@@ -3227,7 +3225,7 @@
     // framebuffer. first the bubble's world, its face, the demo's voice,
     // its face, its dots and its menu, the ship, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
-    // under them are pushed down, and each box's skin is stepped after
+    // under them are pushed down, the page's end is worked out, and each box's skin is stepped after
     // where its box has got to, warbled, and the upgrades' menu with its
     // skin; then the bits are cleared, the words and
     // their boxes drawn scrolled, a shut box in its word's o's place with
@@ -3285,6 +3283,7 @@
         grow(s);
       }
       settle();
+      setScroll();
       for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
       // each item's skin after its bubble while its box is out of the o
       for (const s of sections) if (s.box.shown) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
