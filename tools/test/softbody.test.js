@@ -110,6 +110,7 @@ function settledWorld(x = 100, y = 100, steps = 600) {
   world.pointer(p.x + SOFT.DRAG.BREAKAWAY + 10, 100);
   world.tick();
   check('breakaway: past ' + SOFT.DRAG.BREAKAWAY + ' px lets go', world.drag === null);
+  check('breakaway: counted as a snap', world.snaps === 1, world.snaps);
 }
 {
   // an unlocked blob has nothing holding it back, so the same force carries it

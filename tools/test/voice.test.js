@@ -12,12 +12,14 @@
 // plays (the line, its syllables begun and its mouth, each taken up once
 // the context's time at the speaker reaches it, and when it ended), that a
 // meal sends
-// one of the thanks THANK_MS later, that the voice goes with the node, and
+// one of the thanks THANK_MS later, that a drag too fast has one of the
+// drag slower lines wait for the line playing to be over and then sends
+// it, that the voice goes with the node, and
 // that a voice drawn at random has every setting inside its RANDOM and goes
 // to the worklet.
 // then loads js/voice-worklet.js with the real
 // monk_mouth/monk_mouth.wasm and checks it renders: silent until a sound,
-// every line and every thanks sounds, says each of its syllables as it
+// every line, every thanks and every drag slower line sounds, says each of its syllables as it
 // begins, in turn, and the mouth every three blocks, each at its block's
 // time, says done and stays inside full scale
 // through the master gain, as every line does at every corner of RANDOM,
@@ -83,10 +85,11 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
   const lineOk = (l) => typeof l.phones === 'string' && ['midi', 'range', 'speed', 'breath'].every((k) => typeof l[k] === 'number');
   check('lines, each phones, midi, range, speed and breath', Voice.LINES.length > 0 && Voice.LINES.every(lineOk));
   check('thanks, the same', Voice.THANKS.length > 0 && Voice.THANKS.every(lineOk));
+  check('drag slower lines, the same', Voice.SLOWER.length > 0 && Voice.SLOWER.every(lineOk));
   const vowels = (l) => l.phones.trim().split(/\s+/).filter((t) => /\d$/.test(t)).length;
   const syllables = (l) => typeof l.text === 'string' ? l.text.trim().split(/[\s|]+/).length : -1;
-  const counts = [...Voice.LINES, ...Voice.THANKS].filter((l) => syllables(l) !== vowels(l));
-  check('every line and thanks has its text, a syllable for each vowel', counts.length === 0, counts.map((l) => l.text).join(', '));
+  const counts = [...Voice.LINES, ...Voice.THANKS, ...Voice.SLOWER].filter((l) => syllables(l) !== vowels(l));
+  check('every line, thanks and drag slower line has its text, a syllable for each vowel', counts.length === 0, counts.map((l) => l.text).join(', '));
 
   // --- before a gesture ----------------------------------------------------------
   Voice.listen(win);
@@ -193,6 +196,25 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
     node.port.onmessage({ data: 'done' });
   }
   check('meals pick every thanks', thanked.size === Voice.THANKS.length, thanked.size + ' of ' + Voice.THANKS.length);
+  const isSlower = isIn(Voice.SLOWER);
+  Voice.complain();
+  const playing = made.posted.length;
+  Voice.slower();
+  Voice.update();
+  check('dragged too fast while a line plays: nothing more is sent, the line due', made.posted.length === playing && Voice.due !== null);
+  node.port.onmessage({ data: 'done' });
+  Voice.update();
+  check('and once it is over, one of the drag slower lines', made.posted.length === playing + 1 && isSlower(made.posted[playing]) && Voice.due === null,
+    made.posted[playing] && made.posted[playing].phones);
+  node.port.onmessage({ data: 'done' });
+  const slowed = new Set();
+  for (let i = 0; i < 200; i++) {
+    Voice.slower();
+    Voice.update();
+    slowed.add(made.posted[made.posted.length - 1].phones);
+    node.port.onmessage({ data: 'done' });
+  }
+  check('drags too fast pick every drag slower line', slowed.size === Voice.SLOWER.length, slowed.size + ' of ' + Voice.SLOWER.length);
   Voice.set(Object.assign({}, V, { sections: 19 }));
   const last = made.posted[made.posted.length - 1];
   check('the voice set again goes to the worklet', last.type === 'voice' && last.voice.sections === 19);
@@ -247,7 +269,7 @@ const sounds = () => made.posted.filter((m) => m.type === 'line');
 
   let loudest = 0;
   const line = (l) => ({ type: 'line', phones: l.phones, midi: l.midi, range: l.range, speed: l.speed, breath: l.breath });
-  for (const [what, l] of [...Voice.LINES.map((l) => ['line', l]), ...Voice.THANKS.map((l) => ['thanks', l])]) {
+  for (const [what, l] of [...Voice.LINES.map((l) => ['line', l]), ...Voice.THANKS.map((l) => ['thanks', l]), ...Voice.SLOWER.map((l) => ['slower', l])]) {
     const m = line(l), r = play(m);
     loudest = Math.max(loudest, r.peak);
     check(what + ' ' + m.phones + ' sounds and is done, inside full scale',
