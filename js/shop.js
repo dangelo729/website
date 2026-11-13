@@ -2,7 +2,8 @@
 // what the bubbles in Personal work's box buy (index.html): every bubble the
 // bubble eats pays by its size, LEAST for the smallest its world spawns
 // (js/softbody.js's SPAWN) to MOST for the largest, in step with its
-// radius, and on past MOST for one grown bigger by eating others. drag
+// radius, and on past MOST for any bigger; one that has eaten others pays
+// what it and they would have paid apart (index.html keeps the sums). drag
 // strength makes the bubble's world pull a held skin STEP times as hard a
 // level, compounding, for PRICE times GROWTH to the level, so each level
 // costs a little more for the same tenth more pull. hands buys one of
