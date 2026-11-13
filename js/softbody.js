@@ -474,7 +474,7 @@ class World {
   constructor(w, h) {
     this.w = w; this.h = h;
     this.blobs = [];
-    this.drag = null;      // the pointer's: { blob, points: [{ point, force }], x, y }
+    this.drag = null;      // the pointer's: { blob, points: [{ point, force }], x, y, since }, since the nowMs it took hold
     this.held = [];        // the hands' drags, each as the pointer's
     this.hands = [];       // what holds them (js/hands.js), each stepped every tick before the blobs
     this.dragForce = SOFT.DRAG.FORCE; // the pull on a held point, of its way to its drag each iteration
@@ -484,7 +484,7 @@ class World {
     this.pointerY = null;
     this.nowMs = 0;        // virtual clock: STEP_MS a step
     this.merges = [];      // [{ blob, seams, eaten }] since the last step() call: what ate, its seams and what it ate, as it was
-    this.snaps = 0;        // the pointer's drags pulled too far and let go since the last step() call
+    this.snaps = [];       // the pointer's drags pulled too far and let go since the last step() call: how many ms each had held
     this.spawning = false; // a small blob every spawnMs while true
     this.lastSpawnMs = 0;
     this.acc = 0;
@@ -503,7 +503,7 @@ class World {
   // sees every one since the last even when it ran several. returns the count.
   step(wallNowMs) {
     this.merges = [];
-    this.snaps = 0;
+    this.snaps = [];
     if (this.lastWallMs === null) { this.lastWallMs = wallNowMs; this.acc = SOFT.STEP_MS / 2; }
     this.acc += wallNowMs - this.lastWallMs;
     this.lastWallMs = wallNowMs;
@@ -540,7 +540,7 @@ class World {
       const dx = p.x - drag.x, dy = p.y - drag.y;
       return Math.sqrt(dx * dx + dy * dy) > SOFT.DRAG.BREAKAWAY;
     };
-    if (this.drag && broken(this.drag)) { this.drag = null; this.snaps++; }
+    if (this.drag && broken(this.drag)) { this.snaps.push(this.nowMs - this.drag.since); this.drag = null; }
     this.held = this.held.filter((d) => !broken(d));
 
     // a locked blob bigger than fits the world eases back to that
@@ -585,7 +585,7 @@ class World {
       if (c.dist < min) { min = c.dist; blob = b; index = c.index; }
     }
     if (min < SOFT.DRAG.GRAB && index !== -1) {
-      this.drag = { blob, points: blob.neighbors(index, 2), x, y };
+      this.drag = { blob, points: blob.neighbors(index, 2), x, y, since: this.nowMs };
       return true;
     }
     return false;

@@ -3013,9 +3013,11 @@
     }
     let pointerAt = null, grabbed = false; // the pointer, world px on the screen, or null; whether the last press took hold
     // the pointer's string in the bubble's world snapping TIMES times
-    // inside WITHIN ms is a drag too fast: the bubble says to drag slower
-    // (js/voice.js) and the count starts again
-    const SNAP = { TIMES: 3, WITHIN: 10000 };
+    // inside WITHIN ms, each before it had held QUICK ms, is a drag too
+    // fast: the bubble says to drag slower (js/voice.js) and the count
+    // starts again. a string that held QUICK ms or more first is let go
+    // of by a slip, not by someone yet to find how it pulls, and does not count
+    const SNAP = { TIMES: 3, WITHIN: 10000, QUICK: 1000 };
     let snapped = []; // when each snap still inside WITHIN came, the frame's ms, oldest first
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
@@ -3326,7 +3328,7 @@
         Piano.strike(Math.floor(Math.random() * Piano.NOTES.length));
         Voice.thank();
       }
-      for (let i = 0; i < world.snaps; i++) snapped.push(now);
+      for (let i = 0; i < world.snaps.length; i++) if (world.snaps[i] < SNAP.QUICK) snapped.push(now);
       while (snapped.length && now - snapped[0] > SNAP.WITHIN) snapped.shift();
       if (snapped.length >= SNAP.TIMES) { snapped = []; Voice.slower(); }
       bps = shop.rate(now);
