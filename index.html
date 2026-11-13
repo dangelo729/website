@@ -3425,15 +3425,15 @@
     // browser's own scroll calls it off (a pointercancel and a
     // pointerleave), and from there the page moves 1:1 with the finger, no
     // further than either end. let go moving, it glides on the way it was
-    // going, as far as the finger's speed over its last FLICK ms carries
-    // it, by the house approach, GLIDE of the way left each 60 hz frame (a
+    // going, as far as the finger's speed as it left carries it, by the
+    // house approach, GLIDE of the way left each 60 hz frame (a
     // flick slowing as ios's scroll does, 0.998 of its speed a ms). a press
     // that goes across first is the page's to the end. a press while it
     // glides stops it and is the swipe's alone, its events and its click
     // going no further: up or down, it swipes on from where it stopped it
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
-      FLICK: 100,                            // ms of the finger's last moves its speed is taken over
+      FLICK: 100,                            // ms of the finger's last moves its speed is read from
       STILL: 60,                             // ms a finger held still before lifting that leaves no glide
       GLIDE: 1 - Math.pow(0.998, 1000 / 60), // of the way left to glide, each 60 hz frame
     };
@@ -3510,17 +3510,37 @@
       eatClick = true;
       e.stopPropagation();
     }, true);
-    // a swipe let go: the finger's speed v, css px a second, over its last
-    // FLICK ms, none if it was held still STILL ms first, and the glide's
-    // end v / k on, k the house approach's rate a second, so the glide
-    // starts at the finger's speed
+    // the finger's speed at the last of its moves s, each { t, y }, css px
+    // a second: a parabola fitted through them by least squares and read
+    // at the last, so a finger still speeding up as it leaves is taken at
+    // that speed and not at its average. moves at fewer than three times
+    // are taken straight from the first to the last
+    function flickSpeed(s) {
+      const a = s[0], b = s[s.length - 1];
+      if (b.t === a.t) return 0;
+      if (new Set(s.map((p) => p.t)).size < 3) return (b.y - a.y) / (b.t - a.t) * 1000;
+      // the sums of the normal equations, in seconds and px from the last move
+      let n = 0, x1 = 0, x2 = 0, x3 = 0, x4 = 0, y0 = 0, y1 = 0, y2 = 0;
+      for (let i = 0; i < s.length; i++) {
+        const x = (s[i].t - b.t) / 1000, y = s[i].y - b.y, xx = x * x;
+        n += 1; x1 += x; x2 += xx; x3 += xx * x; x4 += xx * xx;
+        y0 += y; y1 += x * y; y2 += xx * y;
+      }
+      // the slope at the last move, by cramer's rule
+      const det = n * (x2 * x4 - x3 * x3) - x1 * (x1 * x4 - x3 * x2) + x2 * (x1 * x3 - x2 * x2);
+      return (n * (y1 * x4 - x3 * y2) - y0 * (x1 * x4 - x3 * x2) + x2 * (x1 * y2 - y1 * x2)) / det;
+    }
+
+    // a swipe let go: the finger's speed v as it left (flickSpeed), from
+    // its last FLICK ms of moves, none if it was held still STILL ms first,
+    // and the glide's end v / k on, k the house approach's rate a second,
+    // so the glide starts at the finger's speed
     function swipeLift(e) {
       if (calling || !swipe || e.pointerId !== swipe.id) return;
       if (swipe.stop || swipe.on) e.stopPropagation();
       if (swipe.on && e.type === 'pointerup') {
         const s = swipe.samples.filter((p) => e.timeStamp - p.t <= SWIPE.FLICK);
-        const a = s[0], b = s[s.length - 1];
-        const v = s.length < 2 || e.timeStamp - b.t > SWIPE.STILL || b.t === a.t ? 0 : (b.y - a.y) / (b.t - a.t) * 1000;
+        const v = s.length < 2 || e.timeStamp - s[s.length - 1].t > SWIPE.STILL ? 0 : flickSpeed(s);
         const k = -60 * Math.log(1 - SWIPE.GLIDE);
         swipeTo = clampSwipe(swipeY + v / k);
       }
