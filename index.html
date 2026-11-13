@@ -2738,6 +2738,12 @@
       STEP: 2,                              // px between a button's outline's points, as the box's skin stands
     };
     const shop = new Shop();
+    // what each bubble in the world pays when the bubble eats it: its own
+    // reward (Shop.reward) at the size it is first seen at, and a bubble
+    // that eats another takes on what that one pays too, so a merged bubble
+    // pays what its parts would have paid apart (the frame, below)
+    const worth = new WeakMap();
+    const worthOf = (b) => worth.has(b) ? worth.get(b) : Shop.reward(b.radius);
     let bps = 0;                 // the shop's rate, as of this frame
     const helpers = [];          // each hand bought, { hand, cursor }
     const HAND_REACH = 20;       // world px
@@ -3340,13 +3346,17 @@
       lastNow = now;
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
       if (bubble) world.spawning = playing();
+      // each bubble's worth at its size before it can eat anything
+      for (const b of world.blobs) if (!worth.has(b)) worth.set(b, Shop.reward(b.radius));
       world.step(now);
-      // the bubble, having eaten, strikes one of the piano's keys at random
-      // at once (js/piano.js) and a moment later thanks whoever fed him
-      // (js/voice.js)
+      // a bubble that ate another takes on its worth, before the bubble
+      // eats either; the bubble, having eaten, earns each one's worth,
+      // strikes one of the piano's keys at random at once (js/piano.js) and
+      // a moment later thanks whoever fed him (js/voice.js)
+      for (const m of world.merges) if (m.blob !== bubble) worth.set(m.blob, worthOf(m.blob) + worthOf(m.eaten));
       const fed = bubble ? world.merges.filter((m) => m.blob === bubble) : [];
       if (fed.length) {
-        for (const m of fed) shop.earn(Shop.reward(m.eaten.radius) * shop.value(), now);
+        for (const m of fed) shop.earn(worthOf(m.eaten) * shop.value(), now);
         Piano.strike(Math.floor(Math.random() * Piano.DEGREES));
         Voice.thank();
       }
