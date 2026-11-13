@@ -7,10 +7,10 @@
 // skin for a hand to drag, so a blob grown heavy by eating others is
 // towed by as many hands as it has bubbles in it, and one short of hands
 // struggles and breaks its holds. a hand with nothing in hand is given
-// the blob that pays most for the time it takes to fetch, the pointer's
-// and any whose crew all hold it already left out, the nearest hand
-// getting each, the way to the one it is already after counted STICK
-// times shorter. it comes up to APPROACH px off that blob's skin on its own side and, within
+// the oldest blob still wanting hands, however far off or small, the
+// pointer's and any whose crew all hold it already left out, the nearest
+// hand getting each, the way to the one it is already after counted
+// STICK times shorter. it comes up to APPROACH px off that blob's skin on its own side and, within
 // REACH more, takes hold of the nearest point no other hold shares a
 // point with, and its neighbours, as the pointer does (World.hold), so a
 // crew holds side by side; then it heads for the centre blob with the
@@ -53,15 +53,15 @@ class Hand {
   // once a tick, before any hand steps: the hands share out the blobs.
   // a hand that lost its hold lets go, and one whose blob was eaten
   // forgets it. a hand still holding keeps its blob; every other is given
-  // one by what it pays for the time: the blob's worth (Shop.reward)
-  // shared among its crew, over the steps to come up to it at a free
-  // hand's top speed and tow it to the centre blob's skin at a towing
-  // one's, the way to its own blob counted STICK times shorter. a blob
-  // has a place for each
-  // of its crew not holding it already. the best pair of a hand and a
-  // place goes first, then the best of the rest, and so on, so the
-  // nearest hand gets each blob and no hand waits while a place it could
-  // fill is open. a hand left over has none
+  // one. a blob has a place for each of its crew not holding it already,
+  // and the oldest blobs' places are the ones filled, as many as there
+  // are free hands, so a blob far out or small is fetched in its turn
+  // and never passed over for newer ones nearer. world.blobs is oldest
+  // first, a merge keeping the older's place. the nearest pair of a hand
+  // and a place goes first, then the nearest of the rest, and so on, the
+  // way to its own blob counted STICK times shorter, so the nearest hand
+  // gets each blob and no hand waits while a place it could fill is
+  // open. a hand left over has none
   static plan(world) {
     const H = HANDS, hands = world.hands, blobs = world.blobs, centre = blobs[0];
     const free = [];
@@ -77,43 +77,42 @@ class Hand {
     }
     if (!centre || !free.length) return;
 
-    // each open blob's places, middle, tow and pay a hand, once
-    const keep = H.DAMPING / (1 - H.DAMPING);
-    const fast = Math.min(H.TOP, H.ACCEL * keep);
-    const slow = Math.min(H.TOP, H.TOW * Math.sqrt(world.dragForce / SOFT.DRAG.FORCE) * keep);
-    const c = centre.getCenter(), open = [];
-    for (let i = 1; i < blobs.length; i++) {
+    // the oldest open blobs, each with its places and middle, until there
+    // are as many places as free hands
+    const open = [];
+    let left = free.length;
+    for (let i = 1; i < blobs.length && left > 0; i++) {
       const b = blobs[i];
       if (b.locked || (world.drag && world.drag.blob === b)) continue;
-      const crew = Hand.crew(b);
-      let places = crew;
+      let places = Hand.crew(b);
       for (let j = 0; j < hands.length; j++) if (hands[j].drag && hands[j].drag.blob === b) places--;
       if (places <= 0) continue;
+      places = Math.min(places, left);
+      left -= places;
       const m = b.getCenter();
-      const tow = Math.max(0, Math.hypot(m.x - c.x, m.y - c.y) - centre.radius - b.radius) / slow;
-      open.push({ blob: b, x: m.x, y: m.y, places, tow, pay: Shop.reward(b.radius) / crew });
+      open.push({ blob: b, x: m.x, y: m.y, places });
     }
 
-    // what each free hand would earn a step on each, then the best pairs
-    // in turn, a hand out once it has one and a blob once it is full
-    const n = open.length, rate = new Float64Array(free.length * n);
+    // how near each free hand is to each, then the nearest pairs in turn,
+    // a hand out once it has one and a blob once it is full
+    const n = open.length, near = new Float64Array(free.length * n);
     for (let i = 0; i < free.length; i++) {
       const h = free[i];
       for (let j = 0; j < n; j++) {
         const o = open[j];
-        const come = Math.max(0, Math.hypot(o.x - h.x, o.y - h.y) - o.blob.radius - H.APPROACH) / fast;
-        rate[i * n + j] = o.pay / (come / (h.target === o.blob ? H.STICK : 1) + o.tow + 1);
+        const come = Math.max(0, Math.hypot(o.x - h.x, o.y - h.y) - o.blob.radius - H.APPROACH);
+        near[i * n + j] = 1 / (come / (h.target === o.blob ? H.STICK : 1) + 1);
       }
       h.target = null;
     }
     for (let k = 0; k < free.length; k++) {
       let best = -1, most = 0;
-      for (let q = 0; q < rate.length; q++) if (rate[q] > most) { most = rate[q]; best = q; }
+      for (let q = 0; q < near.length; q++) if (near[q] > most) { most = near[q]; best = q; }
       if (best < 0) break;
       const i = Math.floor(best / n), j = best % n;
       free[i].target = open[j].blob;
-      for (let q = 0; q < n; q++) rate[i * n + q] = 0;
-      if (--open[j].places === 0) for (let p = 0; p < free.length; p++) rate[p * n + j] = 0;
+      for (let q = 0; q < n; q++) near[i * n + q] = 0;
+      if (--open[j].places === 0) for (let p = 0; p < free.length; p++) near[p * n + j] = 0;
     }
   }
 

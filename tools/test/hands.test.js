@@ -7,7 +7,8 @@
 // the pointer does, tows it in and has it eaten; a hold that breaks lets
 // go and the hand comes back; two hands go after two blobs, not the same
 // one; a blob goes to the hand nearest it, which takes it over from one
-// far off; a bigger blob pays more for the time, a far one less; a blob
+// far off; the oldest blobs go first, however far off or small, and a
+// hand sticks with one far out as newer ones turn up nearer; a blob
 // takes a hand for every spawn in it, so a crew tows a heavy
 // one together, holding side by side, faster than one hand that keeps
 // losing its hold; a blob the pointer holds is left alone; an idle hand
@@ -121,16 +122,38 @@ const secs = (k) => (k / 60).toFixed(1) + ' s';
   v.tick();
   check('a hand much nearer takes a blob over from one far off', h2.target === x && h1.target === null);
 
-  // as near, the bigger pays more; a big one far out loses to a small one
-  // by the bubble
-  const u = room(), small = u.spawn(8, 900, 80), big = u.spawn(28, 900, 220), hand = new Hand(900, 150, 0);
+  // the oldest first, whatever its size or however far: a small one far
+  // out before a big one by the hand, and a big one as soon as a small
+  const u = room(), wide = u.spawn(8, 1150, 150), close = u.spawn(28, 700, 150), hand = new Hand(640, 150, 0);
   u.hands.push(hand);
   u.tick();
-  check('of two as near, the bigger', hand.target === big);
-  const t = room(), close = t.spawn(8, 700, 150), wide = t.spawn(28, 1150, 150), other = new Hand(640, 150, 0);
+  check('the oldest first: a small one far out before a big one by the hand', hand.target === wide && close);
+  const t = room(), small = t.spawn(8, 900, 80), big = t.spawn(28, 900, 220), other = new Hand(900, 150, 0);
   t.hands.push(other);
   t.tick();
-  check('a small one by the bubble before a big one far out', other.target === close && wide);
+  check('the oldest first: of two as near, the small one before the big', other.target === small && big);
+
+  // two hands, three blobs: the two oldest are taken, the nearest hand
+  // to each, and the newest waits, though it is by them both
+  const s = room(), first = s.spawn(10, 60, 40), second = s.spawn(10, 1120, 250), third = s.spawn(10, 400, 150);
+  const left = new Hand(80, 60, 0), right = new Hand(1100, 230, 1);
+  s.hands.push(left, right);
+  s.tick();
+  check('two hands, three blobs: the two oldest, the nearest hand to each', left.target === first && right.target === second && third);
+
+  // a hand after one far out keeps after it as newer ones spawn nearer
+  // and fetches it
+  const r = room(), out = r.spawn(10, 1150, 30), keen = new Hand(560, 70, 0);
+  r.hands.push(keen);
+  r.tick();
+  let kept = true, fetched = -1;
+  for (let k = 0; k < 60 * 60 && fetched < 0; k++) {
+    if (k % 30 === 0 && r.blobs.length < 8) r.spawn(8, 450 + (k % 90), 60);
+    r.tick();
+    if (!keen.drag && keen.target !== out && r.blobs.includes(out)) kept = false;
+    if (!r.blobs.includes(out)) fetched = k;
+  }
+  check('a hand keeps after one far out as newer ones spawn nearer, and fetches it', kept && fetched > 0, fetched > 0 ? 'eaten at ' + secs(fetched) : 'never eaten');
 }
 
 // --- a crew for a heavy blob ---------------------------------------------------------
