@@ -30,10 +30,11 @@ OUT   := ../../upright/upright.wasm
 FLAGS    := -std=c++17 -O2 -w -ffp-contract=off -D SALOON_SIM
 CPPFLAGS := -I$(SAL)/src -I$(SAL)/include -I$(UP)/src -I$(UP)/extras/host -I$(SIM)/arduino -I$(SIM)
 
-# no entry, no runtime: the three functions and the memory are the exports,
+# no entry, no runtime: the glue's functions and the memory are the exports,
 # the memory fixed, so the page's worklet needs nothing of emscripten's
+EXPORTS := _upright_init,_upright_strike,_upright_on,_upright_off,_upright_pedal,_upright_knobs,_upright_render
 LDFLAGS := -O2 -sSTANDALONE_WASM=1 --no-entry -sFILESYSTEM=0 -sINITIAL_MEMORY=4mb \
-           -sEXPORTED_FUNCTIONS=_upright_init,_upright_strike,_upright_render
+           -sEXPORTED_FUNCTIONS=$(EXPORTS)
 
 UP_CPP := $(wildcard $(UP)/src/core/*.cpp)
 SRC    := $(SIM)/sim/piano_rig.cpp $(SAL)/src/audio/piano_knobs.cpp web_main.cpp

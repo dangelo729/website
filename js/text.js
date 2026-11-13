@@ -36,7 +36,10 @@ const TEXT = {
       "The 2D sibling of Third Dimension: a small library for posing pixel art on microcontrollers and the tiny screens they drive. Draw a character in pieces, pin the pieces together like a paper puppet, and it turns and draws them at any angle. It can also aim an arm at a point.",
       "Daedalus here is posed and drawn with it: his head and his four arms, a mallet in each hand. Bring your cursor within reach of an arm, or press near him, and he'll take a swing at it."
     ],
-    "Upright": [],
+    "Upright": [
+      "A piano for the Teensy 4.1. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through, so nothing is recorded: you set the strings, the hammers and the body, and the piano is whatever comes out. A grand, a toy piano, a Rhodes and a Wurlitzer are all the same model with different numbers.",
+      "Every piano note on this page is played on it: the letters of my name up top, Daedalus's mallets and the keys here. Tap them, or play them on your keyboard: A to ; are the notes, Z and X change the octave and space is the pedal. Open the settings to change the piano itself."
+    ],
     "This website!": []
   },
   "Contact": [
