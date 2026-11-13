@@ -13,7 +13,8 @@
 // the step it strikes (the head jolts that step, and the shoulder with it,
 // under an arm aimed from where it was), and again and again while it
 // stays, each of those after a
-// windup, and the arm goes home when it leaves; a pointer
+// windup, and the arm goes home when it leaves; every step says which arms
+// struck in it (struck), a bit an arm, and none when none did; a pointer
 // that comes and goes inside a tenth of a second is swung at once, where
 // it was; one that keeps moving is struck where it was, behind it; one on
 // his head, out of every arm's reach, or in an arm's reach but on the far
@@ -92,15 +93,20 @@ const tip = (i) => [Daedalus.mm.body_tip_x(i), Daedalus.mm.body_tip_y(i)];
 const far = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 // the page's pointer put on canvas (x, y): world px from the picture's middle
 const pointAt = (x, y) => Daedalus.point((x - W / 2 + 0.5) * Daedalus.SCALE, (y - H / 2 + 0.5) * Daedalus.SCALE);
+// how many of a step's arms struck
+const bits = (m) => [0, 1, 2, 3].reduce((n, i) => n + (m >> i & 1), 0);
+let told = true; // every step so far has said as many arms struck as did
 // secs of steps, with what each step's strikes were: the steps a strike
-// came on, each { at, tips }, the step's number and every mallet's face
+// came on, each { at, n, tips, struck }, the step's number, how many
+// strikes, every mallet's face and the arms the step said struck
 function hold(secs, each) {
   const hits = [];
   for (let k = 0; k < Math.round(secs / DT); k++) {
     if (each) each(k * DT);
     const was = strikes();
     Daedalus.step(DT);
-    if (strikes() !== was) hits.push({ at: k, n: strikes() - was, tips: [0, 1, 2, 3].map(tip) });
+    told = told && bits(Daedalus.struck) === strikes() - was;
+    if (strikes() !== was) hits.push({ at: k, n: strikes() - was, tips: [0, 1, 2, 3].map(tip), struck: Daedalus.struck });
   }
   return hits;
 }
@@ -164,6 +170,7 @@ function hold(secs, each) {
   const gaps = hits.slice(1).map((h, k) => (h.at - hits[k].at) * DT);
   check('each of those after a windup', gaps.length > 0 && Math.min(...gaps) >= STAY + WIND - DT, 'from ' + Math.min(...gaps).toFixed(2) + ' to ' + Math.max(...gaps).toFixed(2) + ' s apart');
   check('and by that arm alone', [1, 2, 3].every((i) => far(tip(i), REST[i]) < 4));
+  check('each step it strikes says so: his upper left arm\'s bit, and no other', hits.length > 0 && hits.every((h) => h.struck === 1), hits.map((h) => h.struck).join(' '));
   Daedalus.pointOff();
   const left = strikes();
   hold(3, look);
@@ -198,7 +205,7 @@ function hold(secs, each) {
     Daedalus.step(DT);
     look();
     for (let i = 0; i < ARMS; i++) {
-      if (!(Daedalus.mm.body_struck() & (1 << i))) continue;
+      if (!(Daedalus.struck & (1 << i))) continue;
       const q = tip(i);
       let best = null;
       trail.forEach((p, ago) => { if (!best || far(q, p) < best.near) best = { ago, near: far(q, p), off: far(q, at) }; });
@@ -230,7 +237,7 @@ function hold(secs, each) {
   for (let k = 0; k < 3 / DT; k++) {
     Daedalus.step(DT);
     look();
-    for (let i = 0; i < ARMS; i++) if (Daedalus.mm.body_struck() & (1 << i)) sides[i]++;
+    for (let i = 0; i < ARMS; i++) if (Daedalus.struck & (1 << i)) sides[i]++;
   }
   check('and is struck by the arms on its side alone', sides[0] > 0 && sides[2] > 0 && sides[1] === 0 && sides[3] === 0, sides.join(', ') + ' strikes an arm');
   Daedalus.pointOff();
@@ -239,6 +246,7 @@ function hold(secs, each) {
   Daedalus.point(NaN, 0);
   hold(1, look);
   check('a point that is not a number does nothing', strikes() === was && home() < 4);
+  check('every step so far said the arms that struck in it, a bit an arm, and none when none did', told);
 
   // --- the reach --------------------------------------------------------------------------
   // the pointer led round each shoulder at the reach's end, 10 degrees a
