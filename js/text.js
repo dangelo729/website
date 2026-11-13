@@ -32,7 +32,10 @@ const TEXT = {
       "A small 3D renderer for microcontrollers and the tiny screens they drive. Hand it a model and it frames it, lights it and draws it: shaded, in flat bands like a cartoon, as a wireframe, or as an outline with the hidden lines removed, like a pen drawing.",
       "Most of those screens can only turn a pixel on or off, so the shading is made of dither patterns, with ten to choose from. The mouth on Monk Mouth's face is drawn with it, and so is the ship in the bottle here: drag it, or scroll over it, to turn it."
     ],
-    "Second Dimension": [],
+    "Second Dimension": [
+      "The 2D sibling of Third Dimension: a small library for posing pixel art on microcontrollers and the tiny screens they drive. Draw a character in pieces, pin the pieces together like a paper puppet, and it turns and draws them at any angle. It can also aim an arm at a point.",
+      "Daedalus here is posed and drawn with it: his head and his four arms, a mallet in each hand. Bring your cursor within reach of an arm, or press near him, and he'll take a swing at it."
+    ],
     "Upright": [],
     "This website!": []
   },
