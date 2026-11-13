@@ -45,6 +45,7 @@
   <script src="js/monk.js"></script>
   <script src="js/moon.js"></script>
   <script src="js/ship.js"></script>
+  <script src="js/daedalus.js"></script>
   <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
@@ -582,7 +583,7 @@
         { title: 'Cicada' },
         { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
-        { title: 'Second Dimension' },
+        { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
         { title: 'Upright' },
         { title: 'This website!' },
       ] },
@@ -632,9 +633,11 @@
       // shut his o and open the game (layoutItems). demo: it holds monk
       // mouth's menu, its face and its ribbon where its logos would go,
       // laid out as demoAt (the demo, below). ship: it holds the ship in a
-      // bottle there, laid out as shipAt (the ship, below)
+      // bottle there, laid out as shipAt (the ship, below). daedalus: it
+      // holds daedalus over its text, laid out as daedalusAt (daedalus's
+      // body, below)
       items: (s.items || []).map((x, i) => ({
-        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, daedalus: !!x.daedalus, daedalusAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1120,7 +1123,10 @@
         // as tall as demoH has it at the text's size, that never shrinks,
         // taking the column as a logo does or, in the row, centred across
         // the room the text has; and so does its ship (SHIP, below), a box
-        // SHIP.W by SHIP.H
+        // SHIP.W by SHIP.H. daedalus (DAEDALUS, below), a box DAEDALUS.W by
+        // DAEDALUS.H that never shrinks either, always goes in the row
+        // above the text, centred across the text's measure, or across the
+        // room the text has when that is narrower than he is
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1138,7 +1144,11 @@
           arts.unshift({ l: {}, demo: true, ship: true, w: SHIP.W, h: SHIP.H });
           colW = Math.max(colW, SHIP.W);
         }
-        const beside = arts.length > 0 && !stacked && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        if (it.daedalus) {
+          arts.unshift({ l: {}, demo: true, daedalus: true, w: DAEDALUS.W, h: DAEDALUS.H });
+          colW = Math.max(colW, DAEDALUS.W);
+        }
+        const beside = arts.length > 0 && !stacked && !it.daedalus && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
@@ -1156,10 +1166,12 @@
         it.logosAt = [];
         it.demoAt = null;
         it.shipAt = null;
+        it.daedalusAt = null;
         for (const a of arts) {
-          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.daedalus && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
-          if (a.ship) it.shipAt = placeShip(x, y, seed + 9000 + 10 * i + 5);
+          if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
+          else if (a.ship) it.shipAt = placeShip(x, y, seed + 9000 + 10 * i + 5);
           else if (a.demo) it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
           else {
             const g = ditherLogo(a.art, a.w, a.h);
@@ -1390,7 +1402,8 @@
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, its logos, its demo
-      // (drawDemo) and its ship (drawShip) with it, all into pfb over its
+      // (drawDemo), its ship (drawShip) and its daedalus (drawDaedalus)
+      // with it, all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
@@ -1430,6 +1443,7 @@
           for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
           if (it.demoAt) drawDemo(it, t, d, hover);
           if (it.shipAt) drawShip(it, t, d);
+          if (it.daedalusAt) drawDaedalus(it, t, d);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1917,10 +1931,11 @@
     const demoItem = demoHome ? demoHome.items.find((it) => it.demo) : null;      // monk mouth, the item it is in
 
     // the face's wasm fetched, and handed its eye and its nose; and the
-    // ship's (the ship, below)
+    // ship's (the ship, below) and daedalus's (daedalus's body, below)
     Moon.load(window);
     Moon.art(iconRows.eye || [], iconRows.nose || []);
     Ship.load(window);
+    Daedalus.load(window);
 
     // the menu's text size at the item's text size bs, by bubble bob's
     // menu's rule (shopNow), and the height of its button and of each of
@@ -2221,6 +2236,65 @@
     };
     canvas.addEventListener('pointerup', shipGo);
     canvas.addEventListener('pointercancel', shipGo);
+
+    // --- daedalus's body ---------------------------------------------------------
+    // second dimension's item, in personal work, holds daedalus
+    // (js/daedalus.js): a box DAEDALUS.W by DAEDALUS.H world px over its
+    // text (layoutItems), the picture's middle on the box's, at
+    // Daedalus.SCALE: the box is the picture's rows and the middle 122 of
+    // its 128 columns, everything his arms can reach, so it is no wider
+    // than a narrow phone has room for. he is drawn as the ship is, his ink alone, from a whole px, wobbling on a
+    // seed of his own, so he sways, bobs, breathes and tilts as a letter
+    // does. he is stepped each frame while second dimension is at least
+    // partly open in a box out of its o and his box is on the screen (the
+    // frame, below), and each of those frames he is told where the page's
+    // pointer is against his picture as it was laid out, or that there is
+    // none (pointDaedalus): a mouse wherever it is over the page, a finger
+    // while it is down and the page has not taken it for a scroll (the
+    // swipe, below). his arms swing at it when it comes in their reach, so
+    // nothing is pressed and nothing is held: a press on his box presses
+    // nothing
+    const DAEDALUS = {
+      W: 244, H: 264, // world px, his box: the middle 122 of the picture's columns by its 132 rows, at Daedalus.SCALE
+    };
+    const daedalusHome = sections.find((s) => s.items.some((it) => it.daedalus)) || null; // the section whose box holds daedalus
+    const daedalusItem = daedalusHome ? daedalusHome.items.find((it) => it.daedalus) : null; // second dimension, the item he is in
+
+    // daedalus's box with its top left at (x, y), world px on the page as
+    // laid out, its wobble seeded from seed: the box, and a letter with
+    // nothing to draw at its middle, at scale 1 so its pose's scale is its
+    // breathe alone, { box, letter }
+    function placeDaedalus(x, y, seed) {
+      return { box: { x0: x, y0: y, x1: x + DAEDALUS.W, y1: y + DAEDALUS.H }, letter: makeLetter(null, x + DAEDALUS.W / 2, y + DAEDALUS.H / 2, seed, 1) };
+    }
+
+    // item it's daedalus, d world px down from where it was laid out, into
+    // pfb, once he is in: the picture's ink with its middle on the box's,
+    // moved by the wobble's sway and bob, at Daedalus.SCALE by its breathe
+    // and turned by its tilt
+    function drawDaedalus(it, t, d) {
+      if (!Daedalus.ready) return;
+      const p = it.daedalusAt.letter.pose(t);
+      pfb.sprite(Daedalus.picture, p.x, p.y + Math.round(d), Daedalus.SCALE * p.s, p.a, 1);
+    }
+
+    // where the box of daedalus's item is on the screen against the
+    // window's rows: whether any of it is in them
+    function daedalusSeen() {
+      const b = daedalusItem.daedalusAt && daedalusItem.daedalusAt.box;
+      if (!b) return false;
+      const y = daedalusItem.shift + daedalusHome.off - scrolled();
+      return b.y1 + y > 0 && b.y0 + y < H;
+    }
+
+    // daedalus told where the page's pointer is, world px from his box's
+    // middle where it is on the screen, or that it has none
+    function pointDaedalus() {
+      const b = daedalusItem.daedalusAt.box;
+      if (!pointerAt) { Daedalus.pointOff(); return; }
+      const y = daedalusItem.shift + daedalusHome.off - scrolled();
+      Daedalus.point(pointerAt.x - (b.x0 + b.x1) / 2, pointerAt.y - (b.y0 + b.y1) / 2 - y);
+    }
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -3223,7 +3297,7 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, the demo's voice,
-    // its face, its dots and its menu, the ship, the tag's bubbles and the
+    // its face, its dots and its menu, the ship, daedalus, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
     // under them are pushed down, the page's end is worked out, and each box's skin is stepped after
     // where its box has got to, warbled, and the upgrades' menu with its
@@ -3270,6 +3344,13 @@
       // the ship on, while third dimension is at least partly open in a
       // box out of its o and its box is on the screen
       if (Ship.ready && shipItem && shipHome.box.shown && shipItem.p > 0 && shipSeen()) Ship.step(dt);
+      // daedalus on, after the pointer, while second dimension is at
+      // least partly open in a box out of its o and his box is on the
+      // screen
+      if (Daedalus.ready && daedalusItem && daedalusHome.box.shown && daedalusItem.p > 0 && daedalusSeen()) {
+        pointDaedalus();
+        Daedalus.step(dt);
+      }
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
