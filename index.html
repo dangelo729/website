@@ -3423,21 +3423,26 @@
     // mouse) that goes SWIPE.SLOP css px, more up or down than across, is a
     // swipe: everything else the press was doing is called off as the
     // browser's own scroll calls it off (a pointercancel and a
-    // pointerleave), and from there the page moves 1:1 with the finger, no
-    // further than either end. let go moving, it glides on the way it was
+    // pointerleave), and from there the finger moves where the page is
+    // going (swipeTo) 1:1, no further than either end. the page itself
+    // (swipeY) follows it each frame by the house approach, FOLLOW of the
+    // way left each 60 hz frame, so it moves evenly however unevenly the
+    // finger's moves come in. let go moving, it glides on the way it was
     // going, as far as the finger's speed over its last FLICK ms carries
-    // it, by the house approach, GLIDE of the way left each 60 hz frame (a
-    // flick slowing as ios's scroll does, 0.998 of its speed a ms). a press
-    // that goes across first is the page's to the end. a press while it
-    // glides stops it and is the swipe's alone, its events and its click
-    // going no further: up or down, it swipes on from where it stopped it
+    // it, GLIDE of the way left each 60 hz frame (a flick slowing as ios's
+    // scroll does, 0.998 of its speed a ms). a press that goes across first
+    // is the page's to the end. a press while it glides stops it and is
+    // the swipe's alone, its events and its click going no further: up or
+    // down, it swipes on from where it stopped it
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is taken over
       STILL: 60,                             // ms a finger held still before lifting that leaves no glide
+      FOLLOW: 0.5,                           // of the way left to where the finger or the wheel has it going, each 60 hz frame
       GLIDE: 1 - Math.pow(0.998, 1000 / 60), // of the way left to glide, each 60 hz frame
     };
-    let swipeY = 0, swipeTo = 0; // css px the page is scrolled, and where it glides to
+    let swipeY = 0, swipeTo = 0; // css px the page is scrolled, and where it is going
+    let gliding = false;         // it glides on from a flick, at GLIDE; otherwise it follows at FOLLOW
     let swipe = null;            // the press being watched, { id, x, y, on, done, stop, y0, from, samples }, or null
     let eatClick = false;        // the click the press ends in presses nothing
     let calling = false;         // the swipe is calling a press off, so its own listeners let that through
@@ -3452,13 +3457,17 @@
       return Math.min(Math.max(y, 0), scrollEnd);
     }
 
-    // the finger's scroll kept in the page, and gliding on toward where it
-    // was flicked while no finger holds it
+    // the page kept in its ends, and on toward where it is going: at GLIDE
+    // while it glides from a flick, at FOLLOW otherwise
     function stepSwipe(dt) {
       swipeY = clampSwipe(swipeY);
       swipeTo = clampSwipe(swipeTo);
-      if ((swipe && swipe.on) || swipeTo === swipeY) return;
-      swipeY += (swipeTo - swipeY) * (1 - Math.pow(1 - SWIPE.GLIDE, 60 * dt));
+      if (swipeTo === swipeY) {
+        gliding = false;
+        return;
+      }
+      const rate = gliding ? SWIPE.GLIDE : SWIPE.FOLLOW;
+      swipeY += (swipeTo - swipeY) * (1 - Math.pow(1 - rate, 60 * dt));
       if (Math.abs(swipeTo - swipeY) < 0.5) swipeY = swipeTo;
     }
 
@@ -3468,10 +3477,14 @@
       if (calling) return;
       eatClick = false;
       if (e.pointerType === 'mouse' || !e.isPrimary) return;
-      const stop = Math.abs(swipeTo - swipeY) > SWIPE.SLOP;
+      const stop = gliding && Math.abs(swipeTo - swipeY) > SWIPE.SLOP;
       swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, done: false, stop, y0: 0, from: 0, samples: [] };
-      swipeTo = swipeY;
-      // a press while it glides stops it, and nothing else hears it
+      // a press while it glides stops it where it is, and while it was
+      // still moving nothing else hears the press
+      if (gliding) {
+        swipeTo = swipeY;
+        gliding = false;
+      }
       if (stop) {
         e.stopPropagation();
         eatClick = true;
@@ -3481,8 +3494,8 @@
       if (calling || !swipe || e.pointerId !== swipe.id) return;
       if (swipe.on) {
         e.stopPropagation();
-        swipeY = swipeTo = clampSwipe(swipe.from - (e.clientY - swipe.y0));
-        swipe.samples.push({ t: e.timeStamp, y: swipeY });
+        swipeTo = clampSwipe(swipe.from - (e.clientY - swipe.y0));
+        swipe.samples.push({ t: e.timeStamp, y: swipeTo });
         while (swipe.samples.length > 2 && e.timeStamp - swipe.samples[0].t > SWIPE.FLICK) swipe.samples.shift();
         return;
       }
@@ -3505,15 +3518,16 @@
       // anchored where it takes over, so the page does not jump by the slop
       swipe.on = true;
       swipe.y0 = e.clientY;
-      swipe.from = swipeY;
-      swipe.samples = [{ t: e.timeStamp, y: swipeY }];
+      swipe.from = swipeTo;
+      swipe.samples = [{ t: e.timeStamp, y: swipeTo }];
       eatClick = true;
       e.stopPropagation();
     }, true);
     // a swipe let go: the finger's speed v, css px a second, over its last
-    // FLICK ms, none if it was held still STILL ms first, and the glide's
-    // end v / k on, k the house approach's rate a second, so the glide
-    // starts at the finger's speed
+    // FLICK ms, none if it was held still STILL ms first. moving, the page
+    // glides on to v / k past where it is, k GLIDE's rate a second, so the
+    // glide starts at the finger's speed; held still, it follows on to
+    // where the finger left it
     function swipeLift(e) {
       if (calling || !swipe || e.pointerId !== swipe.id) return;
       if (swipe.stop || swipe.on) e.stopPropagation();
@@ -3522,7 +3536,10 @@
         const a = s[0], b = s[s.length - 1];
         const v = s.length < 2 || e.timeStamp - b.t > SWIPE.STILL || b.t === a.t ? 0 : (b.y - a.y) / (b.t - a.t) * 1000;
         const k = -60 * Math.log(1 - SWIPE.GLIDE);
-        swipeTo = clampSwipe(swipeY + v / k);
+        if (v) {
+          swipeTo = clampSwipe(swipeY + v / k);
+          gliding = true;
+        }
       }
       swipe = null;
     }
@@ -3538,8 +3555,10 @@
     // the wheel scrolls the page itself as a finger does, and the document
     // stays where it is: safari puts the system's pointer back over the
     // hand whenever its document comes to its top or leaves it. the page's
-    // one wheel listener, which stops nothing, moves the page 1:1 by each
-    // event's way down, no further than either end, stopping a glide. its
+    // one wheel listener, which stops nothing, moves where the page is
+    // going 1:1 by each event's way down, no further than either end,
+    // stopping a glide, and the page follows it at FOLLOW as it does a
+    // finger (the swipe, above). its
     // events under RUN ms apart are one run, and a run that starts over the
     // bottle turns the bottle instead (the ship, above), to its last event.
     // a wheel held with ctrl is the browser's zoom and moves nothing
@@ -3559,7 +3578,11 @@
       wheelAt = now;
       const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
       if (wheelShip) Ship.turn((Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * px * SHIP.WHEEL);
-      else swipeY = swipeTo = clampSwipe(swipeY + e.deltaY * px);
+      else {
+        if (gliding) swipeTo = swipeY;
+        gliding = false;
+        swipeTo = clampSwipe(swipeTo + e.deltaY * px);
+      }
     }, { passive: true });
 
     // cicada's drag line: dashed, from the grabbed point to the pointer,
