@@ -14,7 +14,7 @@
 // far it is turned. it is drawn at SCALE world px a pixel.
 
 const Ship = {
-  SCALE: 1, // world px a picture px
+  SCALE: 1.1, // world px a picture px
   WASM: 'the_ship/the_ship.wasm',
 
   ready: false,   // the wasm is in and the picture is its

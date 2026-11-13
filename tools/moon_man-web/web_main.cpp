@@ -3,7 +3,8 @@
 // a time on the page. the voice's state comes in each step and moon_man's
 // own models read it, as his sing scene feeds them: the mouth
 // (face/mouth_model: the jaw, the lips' spread, the tongue) and the gaze
-// (face/gaze_model: the head's turn). the mouth is his real 3d mouth, the
+// (face/gaze_model: the head's turn), and over the gaze, in silence, a
+// small idle glance of the glue's own. the mouth is his real 3d mouth, the
 // lips' tube, the tongue and the mouth's dark back (face/mouth_tube_geom,
 // face/tongue_geom), posed on the turned head and rendered by
 // third_dimension in his outline look, the rig's numbers and its posing
@@ -23,6 +24,7 @@
 #include <TD_MonoTarget.h>
 #include <TD_Scene.h>
 
+#include "core/util.h"
 #include "face/gaze_model.h"
 #include "face/mouth_model.h"
 #include "face/mouth_tube_geom.h"
@@ -57,6 +59,19 @@ constexpr float kTongueShow       = 0.02f;
 
 // the gaze's cone, as face/gaze_model.cpp has it: the head never turns past it
 constexpr float kGazeConeRad = 0.35f;
+
+// --- the idle glance (tune by eye) --------------------------------------------------
+// on top of the gaze, while the voice is silent, the head glances a little
+// of its own: every kIdleMinSec to kIdleMaxSec somewhere new inside
+// kIdleConeRad, uniform over the disc as the gaze picks, eased toward at
+// kIdleRate, the gaze's own rate, so it is a glance at a note made small.
+// while the voice sounds it eases home, and the first after comes
+// kIdleMinSec to kIdleMaxSec after the voice falls silent. the two together
+// are held to the gaze's cone
+constexpr float kIdleConeRad = 0.12f;
+constexpr float kIdleMinSec  = 1.0f;
+constexpr float kIdleMaxSec  = 3.0f;
+constexpr float kIdleRate    = 8.0f;
 
 // --- the sprites' seats (tune by eye) ---------------------------------------------
 // how far in front of the head's centre each flat sprite stands, face px at
@@ -174,6 +189,25 @@ MouthModel    mouth_;
 GazeModel     gaze_;
 float         state_[kStateHead + wp::kMaxSections];
 float         scale_ = 1.0f; // canvas px a sprite px, at rest
+
+// the idle glance: its look and where it eases to, radians, the time till
+// its next, and its picker (xorshift32, as the gaze's); and the head's turn
+// as drawn, the gaze's and the idle glance's together
+float    idleYaw_ = 0.0f, idlePitch_ = 0.0f, idleToYaw_ = 0.0f, idleToPitch_ = 0.0f, idleWait_ = 0.0f;
+uint32_t idleRng_ = 0x1D1EFACEu;
+float    yaw_ = 0.0f, pitch_ = 0.0f;
+
+// the idle glance's picker, [0, 1)
+float idleRand()
+{
+    idleRng_ ^= idleRng_ << 13;
+    idleRng_ ^= idleRng_ >> 17;
+    idleRng_ ^= idleRng_ << 5;
+    return (float)(idleRng_ >> 8) * (1.0f / 16777216.0f);
+}
+
+// the time till the next idle glance
+float idleWait() { return kIdleMinSec + (kIdleMaxSec - kIdleMinSec) * idleRand(); }
 
 // carry o, pinned at seat `at`, with the head turned (yaw, pitch) about its
 // centre, on the view axis kFaceBack behind the z = 0 plane: the seat turns
@@ -353,6 +387,8 @@ void moon_init(float spriteScale, int seed)
     lips.y = 0.5f * (float)kLipsH - kLipsCY;
 
     gaze_.seed((uint32_t)seed);
+    idleRng_  = ((uint32_t)seed ^ 0x9E3779B9u) != 0 ? (uint32_t)seed ^ 0x9E3779B9u : 0x1D1EFACEu;
+    idleWait_ = idleWait();
     scale_ = spriteScale > 0.0f ? spriteScale : 1.0f;
     for (int i = 0; i < kArts; i++) {
         art_[i].sprite = {0, 0, 0, 0, art_[i].ink, art_[i].mask};
@@ -369,7 +405,8 @@ float* moon_state() { return state_; }
 // tube), into the mouth's and the gaze's models; the mouth's arc built
 // round the origin and stretched to the face's proportions there, the lips
 // filled on it, the tongue draped over the lower lip when it shows; and
-// the frame drawn at the gaze's turn
+// the frame drawn at the gaze's turn and the idle glance's, held to the
+// gaze's cone
 void moon_step(float dt, int sounding)
 {
     if (!(dt > 0.0f)) dt = 0.0f;
@@ -390,6 +427,24 @@ void moon_step(float dt, int sounding)
     }
     mouth_.update(s, state_ + kStateHead, n, dt);
     gaze_.update(s, dt);
+    if (sounding) {
+        idleToYaw_ = idleToPitch_ = 0.0f;
+        idleWait_ = idleWait();
+    } else if ((idleWait_ -= dt) <= 0.0f) {
+        const float r = kIdleConeRad * sqrtf(idleRand()), a = idleRand() * 2.0f * (float)M_PI;
+        idleToYaw_   = r * cosf(a);
+        idleToPitch_ = r * sinf(a);
+        idleWait_    = idleWait();
+    }
+    idleYaw_   = approach(idleYaw_, idleToYaw_, kIdleRate, dt);
+    idlePitch_ = approach(idlePitch_, idleToPitch_, kIdleRate, dt);
+    yaw_   = gaze_.yaw() + idleYaw_;
+    pitch_ = gaze_.pitch() + idlePitch_;
+    const float off = sqrtf(yaw_ * yaw_ + pitch_ * pitch_);
+    if (off > kGazeConeRad) {
+        yaw_   *= kGazeConeRad / off;
+        pitch_ *= kGazeConeRad / off;
+    }
 
     MouthLoop arc;
     mouthLoopPoints(mouth_.params(), 0.0f, 0.0f, arc);
@@ -401,7 +456,7 @@ void moon_step(float dt, int sounding)
     const float out = mouth_.params().tongue01;
     tongue_.setVisible(out > kTongueShow);
     if (tongue_.visible()) tongueGeomFill(kMouthTubeFace, mouthTubeLowerLip(kMouthTubeFace), out);
-    draw(gaze_.yaw(), gaze_.pitch());
+    draw(yaw_, pitch_);
 }
 
 // the rows buffer: an art's rows, a byte a sprite px, 0 clear, 1 paper, 2
@@ -448,7 +503,7 @@ float    moon_y(int f) { return feature(f).y; }
 
 // the head's turn this frame, radians: positive yaw turns his face to the
 // screen's left, positive pitch looks up
-float moon_yaw() { return gaze_.yaw(); }
-float moon_pitch() { return gaze_.pitch(); }
+float moon_yaw() { return yaw_; }
+float moon_pitch() { return pitch_; }
 
 } // extern "C"

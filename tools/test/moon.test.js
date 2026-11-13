@@ -13,7 +13,10 @@
 // it, moves the way the turn says, the lips furthest, then the nose, then
 // the eyes, as far as each stands out from the head; an L brings the
 // tongue out over the lower lip, below its inner edge; silence brings the
-// gaze home and shuts the mouth; and art handed in again shows at the next
+// gaze home but for the idle glance, and shuts the mouth; a vowel held on
+// holds the head still, with no idle glance while it sings; silent, the
+// head keeps glancing a little, never past the idle glance's cone; and art
+// handed in again shows at the next
 // step. the voice's states are made here, their tube an open vowel's as
 // monk_mouth's voice holds it (22 sections, AA at midi 57). prints each
 // feature's canvas and where it sits, and what a step costs. exits 1 on
@@ -61,6 +64,7 @@ function sung(ph, slot) {
   return s;
 }
 const DT = 1 / 60;
+const IDLE = 0.12; // radians, the idle glance's cone, as tools/moon_man-web/web_main.cpp has it
 // secs of frames, each fed state
 const hold = (state, secs) => { for (let i = 0; i < Math.round(secs / DT); i++) Moon.step(state, DT); };
 
@@ -206,12 +210,39 @@ const NOSE = [
   check('an L brings the tongue out over the lower lip: new ink at the mouth\'s middle below the lip\'s inner edge',
     inner >= 0 && below > 0, 'inner edge at row ' + inner + ', bottom at ' + bottom + ', ' + below + ' px of tongue between');
 
+  // --- singing, no idle glance -------------------------------------------------------
+  // a vowel held on, one gaze for the whole of it: settled for a second,
+  // then looked at every half second for 4 s, the head holds still
+  hold(sung(PH.AA, false), 1);
+  const held = [Moon.mm.moon_yaw(), Moon.mm.moon_pitch()];
+  let drift = 0;
+  for (let i = 0; i < 8; i++) {
+    hold(sung(PH.AA, false), 0.5);
+    drift = Math.max(drift, Math.hypot(Moon.mm.moon_yaw() - held[0], Moon.mm.moon_pitch() - held[1]));
+  }
+  check('while it sings there is no idle glance: a vowel held 4 s holds the head still', drift < 1e-3, 'it moved ' + drift.toExponential(1) + ' rad');
+
   // --- silence ---------------------------------------------------------------------
   hold(null, 1.5);
   const after = lit(lips.paper);
-  check('silence brings the gaze home', Math.abs(Moon.mm.moon_yaw()) < 1e-3 && Math.abs(Moon.mm.moon_pitch()) < 1e-3 && Math.abs(nose.x) < 0.05,
-    'yaw ' + Moon.mm.moon_yaw().toExponential(1) + ', pitch ' + Moon.mm.moon_pitch().toExponential(1));
+  const off = () => Math.hypot(Moon.mm.moon_yaw(), Moon.mm.moon_pitch());
+  check('silence brings the gaze home but for the idle glance: the head turned no further than its cone', off() <= IDLE + 1e-3,
+    'yaw ' + Moon.mm.moon_yaw().toFixed(3) + ', pitch ' + Moon.mm.moon_pitch().toFixed(3));
   check('and shuts the mouth', after.y1 - after.y0 <= shut.y1 - shut.y0 + 1, (after.y1 - after.y0 + 1) + ' px tall');
+
+  // --- the idle glance ---------------------------------------------------------------
+  // silent for 12 s, looked at every half second: the head moves to a new
+  // look again and again, and never further than the idle glance's cone
+  let looks = 0, most = 0, was = [Moon.mm.moon_yaw(), Moon.mm.moon_pitch()];
+  for (let i = 0; i < 24; i++) {
+    hold(null, 0.5);
+    const is = [Moon.mm.moon_yaw(), Moon.mm.moon_pitch()];
+    if (Math.hypot(is[0] - was[0], is[1] - was[1]) > 0.01) looks++;
+    most = Math.max(most, off());
+    was = is;
+  }
+  check('silent, the head keeps glancing a little', looks >= 4, looks + ' new looks in 12 s');
+  check('never past the idle glance\'s cone', most > 0.02 && most <= IDLE + 1e-3, 'the most ' + most.toFixed(3) + ' rad');
 
   // --- art again ----------------------------------------------------------------------
   const EYE2 = ['##oo', '#..o', 'oo##'];
