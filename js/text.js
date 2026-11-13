@@ -45,6 +45,12 @@ const TEXT = {
       "The demos above are the real libraries, compiled to WebAssembly: the same code that runs on a microcontroller."
     ]
   },
+  "Doodles": {
+    "Graffiti Wall": [
+      "A wall anyone can draw on. Pick a colour and a brush and draw: everyone else looking at it sees your lines as you make them, and they stay for whoever comes next.",
+      "Where the wall is bigger than its window, drag with two fingers, or scroll over it, to move around."
+    ]
+  },
   "Contact": [
     "Feel free to reach out!",
     "peterdangelo729@gmail.com",

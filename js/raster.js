@@ -519,12 +519,14 @@ Framebuffer.prototype.clearRows = function (y0, y1) {
 
 // a bitmap { px, w, h } of v's, its top left at integer (x, y), every
 // pixel written: an opaque picture in the page's colours. what is on the
-// framebuffer of each row is copied across whole
-Framebuffer.prototype.blitPixels = function (g, x, y) {
-  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + g.w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + g.h);
+// framebuffer of each row is copied across whole. given a window of it,
+// w x h from its integer (sx, sy) and all inside it, only that part goes
+// down, its top left at (x, y)
+Framebuffer.prototype.blitPixels = function (g, x, y, sx = 0, sy = 0, w = g.w, h = g.h) {
+  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
   if (x1 <= x0) return;
   for (let py = y0; py < y1; py++) {
-    const from = (py - y) * g.w + x0 - x;
+    const from = (sy + py - y) * g.w + sx + x0 - x;
     this.bits.set(g.px.subarray(from, from + x1 - x0), py * this.w + x0);
   }
 };
