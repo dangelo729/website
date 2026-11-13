@@ -3425,19 +3425,23 @@
     // browser's own scroll calls it off (a pointercancel and a
     // pointerleave), and from there the page moves 1:1 with the finger, no
     // further than either end. let go moving, it glides on the way it was
-    // going, as far as the finger's speed as it left carries it, by the
-    // house approach, GLIDE of the way left each 60 hz frame (a
-    // flick slowing as ios's scroll does, 0.998 of its speed a ms). a press
-    // that goes across first is the page's to the end. a press while it
-    // glides stops it and is the swipe's alone, its events and its click
-    // going no further: up or down, it swipes on from where it stopped it
+    // going, toward where the finger's speed as it left would carry it, by
+    // the house approach, GLIDE of the way left each 60 hz frame (a
+    // flick slowing as ios's scroll does, 0.998 of its speed a ms). that
+    // may be past the page's end: the glide leaves at the finger's speed
+    // however little page is left, and stops at the end when it gets
+    // there. a press that goes across first is the page's to the end. a
+    // press while it glides stops it and is the swipe's alone, its events
+    // and its click going no further: up or down, it swipes on from where
+    // it stopped it
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is read from
+      WEIGH: [0.6, 0.35, 0.05],              // what the speeds between the finger's last four moves count for, oldest first, as ios's scroll view weighs them
       STILL: 60,                             // ms a finger held still before lifting that leaves no glide
       GLIDE: 1 - Math.pow(0.998, 1000 / 60), // of the way left to glide, each 60 hz frame
     };
-    let swipeY = 0, swipeTo = 0; // css px the page is scrolled, and where it glides to
+    let swipeY = 0, swipeTo = 0; // css px the page is scrolled, and where it glides to, which may be past either end
     let swipe = null;            // the press being watched, { id, x, y, on, done, stop, y0, from, samples }, or null
     let eatClick = false;        // the click the press ends in presses nothing
     let calling = false;         // the swipe is calling a press off, so its own listeners let that through
@@ -3453,13 +3457,15 @@
     }
 
     // the finger's scroll kept in the page, and gliding on toward where it
-    // was flicked while no finger holds it
+    // was flicked while no finger holds it. the page itself goes no
+    // further than either end, and a glide that comes to one is over
     function stepSwipe(dt) {
       swipeY = clampSwipe(swipeY);
-      swipeTo = clampSwipe(swipeTo);
       if ((swipe && swipe.on) || swipeTo === swipeY) return;
-      swipeY += (swipeTo - swipeY) * (1 - Math.pow(1 - SWIPE.GLIDE, 60 * dt));
-      if (Math.abs(swipeTo - swipeY) < 0.5) swipeY = swipeTo;
+      let y = swipeY + (swipeTo - swipeY) * (1 - Math.pow(1 - SWIPE.GLIDE, 60 * dt));
+      if (Math.abs(swipeTo - y) < 0.5) y = swipeTo;
+      swipeY = clampSwipe(y);
+      if (swipeY !== y) swipeTo = swipeY;
     }
 
     // on the window, capturing, so a press is heard before the canvas's
@@ -3510,31 +3516,26 @@
       eatClick = true;
       e.stopPropagation();
     }, true);
-    // the finger's speed at the last of its moves s, each { t, y }, css px
-    // a second: a parabola fitted through them by least squares and read
-    // at the last, so a finger still speeding up as it leaves is taken at
-    // that speed and not at its average. moves at fewer than three times
-    // are taken straight from the first to the last
+    // the finger's speed as it left, css px a second, from the last of its
+    // moves s, each { t, y }: the speeds between its last four, weighed
+    // SWIPE.WEIGH, the last move counting for least, so a finger still
+    // speeding up is not taken at its average, nor one that slows as it
+    // lifts at its last move. fewer than four moves are taken straight
+    // from the first to the last
     function flickSpeed(s) {
-      const a = s[0], b = s[s.length - 1];
-      if (b.t === a.t) return 0;
-      if (new Set(s.map((p) => p.t)).size < 3) return (b.y - a.y) / (b.t - a.t) * 1000;
-      // the sums of the normal equations, in seconds and px from the last move
-      let n = 0, x1 = 0, x2 = 0, x3 = 0, x4 = 0, y0 = 0, y1 = 0, y2 = 0;
-      for (let i = 0; i < s.length; i++) {
-        const x = (s[i].t - b.t) / 1000, y = s[i].y - b.y, xx = x * x;
-        n += 1; x1 += x; x2 += xx; x3 += xx * x; x4 += xx * xx;
-        y0 += y; y1 += x * y; y2 += xx * y;
-      }
-      // the slope at the last move, by cramer's rule
-      const det = n * (x2 * x4 - x3 * x3) - x1 * (x1 * x4 - x3 * x2) + x2 * (x1 * x3 - x2 * x2);
-      return (n * (y1 * x4 - x3 * y2) - y0 * (x1 * x4 - x3 * x2) + x2 * (x1 * y2 - y1 * x2)) / det;
+      const speed = (a, b) => b.t > a.t ? (b.y - a.y) / (b.t - a.t) * 1000 : 0;
+      const n = s.length - 1;
+      if (n < 3) return speed(s[0], s[n]);
+      let v = 0;
+      for (let i = 0; i < 3; i++) v += SWIPE.WEIGH[i] * speed(s[n - 3 + i], s[n - 2 + i]);
+      return v;
     }
 
     // a swipe let go: the finger's speed v as it left (flickSpeed), from
     // its last FLICK ms of moves, none if it was held still STILL ms first,
-    // and the glide's end v / k on, k the house approach's rate a second,
-    // so the glide starts at the finger's speed
+    // and the glide's end v / k on, past the page's end or not, k the
+    // house approach's rate a second, so the glide starts at the finger's
+    // speed
     function swipeLift(e) {
       if (calling || !swipe || e.pointerId !== swipe.id) return;
       if (swipe.stop || swipe.on) e.stopPropagation();
@@ -3542,7 +3543,7 @@
         const s = swipe.samples.filter((p) => e.timeStamp - p.t <= SWIPE.FLICK);
         const v = s.length < 2 || e.timeStamp - s[s.length - 1].t > SWIPE.STILL ? 0 : flickSpeed(s);
         const k = -60 * Math.log(1 - SWIPE.GLIDE);
-        swipeTo = clampSwipe(swipeY + v / k);
+        swipeTo = swipeY + v / k;
       }
       swipe = null;
     }
