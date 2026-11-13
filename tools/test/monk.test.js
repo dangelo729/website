@@ -1,11 +1,12 @@
 // node tools/test/monk.test.js
 //
-// loads js/voice.js and js/monk.js the way the page does, classic scripts,
-// in one vm context, and hands the voice a fake window as
+// loads js/scale.js, js/voice.js and js/monk.js the way the page does,
+// classic scripts, in one vm context, and hands the voice a fake window as
 // tools/test/voice.test.js does: its AudioContext counts what is made, its
 // worklet nodes record their options and every message posted to them,
-// and its fetch and addModule answer at once. checks the scale (each
-// mode's eight degrees from a few keys and every octave) and the ribbon's
+// and its fetch and addModule answer at once. the page's scale is set to
+// c3 ionian for all of it but the loudness. checks the ribbon's eight
+// degrees in it, the root to its octave, and the ribbon's
 // degrees, plain and held past their zones, the random ranges, that the
 // singer makes nothing before a press, that a voice drawn before its node
 // is made goes with the node, that its node is made in the voice's context
@@ -44,8 +45,10 @@ function check(name, ok, detail) {
 
 // --- the scripts ---------------------------------------------------------------
 const ctx = vm.createContext({ setTimeout });
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'scale.js'), 'utf8'), ctx, { filename: 'js/scale.js' });
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'voice.js'), 'utf8'), ctx, { filename: 'js/voice.js' });
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'monk.js'), 'utf8'), ctx, { filename: 'js/monk.js' });
+const Scale = vm.runInContext('Scale', ctx);
 const Voice = vm.runInContext('Voice', ctx);
 const Monk = vm.runInContext('Monk', ctx);
 
@@ -88,34 +91,13 @@ const isSyllable = (phones) => {
 
 (async () => {
   // --- the scale ---------------------------------------------------------------------
+  // c3 ionian, the scale every note below is in
   const D = Monk.DEGREES;
-  const STEPS = [
-    ['ionian', '0,2,4,5,7,9,11'], ['dorian', '0,2,3,5,7,9,10'], ['phrygian', '0,1,3,5,7,8,10'], ['lydian', '0,2,4,6,7,9,11'],
-    ['mixolydian', '0,2,4,5,7,9,10'], ['aeolian', '0,2,3,5,7,8,10'], ['locrian', '0,1,3,5,6,8,10'],
-  ];
-  check('the seven modes in order, each its seven steps over the root',
-    Monk.MODES.length === 7 && STEPS.every(([name, steps], i) => Monk.MODES[i].name === name && Monk.MODES[i].steps.join() === steps));
-  check('twelve keys up from c, five octaves', Monk.KEYS.join() === 'C,C#,D,D#,E,F,F#,G,G#,A,A#,B' && Monk.OCTAVES.join() === '1,2,3,4,5');
-  const notes = () => Array.from({ length: D }, (_, d) => Monk.midi(d)).join();
-  check('set to c3 ionian at first: eight degrees, c3 .. c4', Monk.mode === 0 && Monk.key === 0 && Monk.octave === 2 && D === 8 && notes() === '48,50,52,53,55,57,59,60');
-  const wrong = [];
-  for (let m = 0; m < 7; m++) {
-    for (const k of [0, 2, 9, 11]) {
-      for (let o = 0; o < 5; o++) {
-        Monk.mode = m;
-        Monk.key = k;
-        Monk.octave = o;
-        const root = 12 * (o + 2) + k;
-        const want = STEPS[m][1].split(',').map((x) => root + Number(x)).concat(root + 12).join();
-        if (notes() !== want) wrong.push(STEPS[m][0] + ' ' + Monk.KEYS[k] + (o + 1) + ': ' + notes());
-      }
-    }
-  }
-  check('every mode\'s eight degrees from four keys and every octave, the root at 12 * (octave + 1) + key, the last an octave over it', wrong.length === 0, wrong.slice(0, 3).join('; '));
-  const at = (m, k, o) => { Monk.mode = m; Monk.key = k; Monk.octave = o; return notes(); };
-  check('a1 aeolian, d#4 lydian and b5 locrian, by hand',
-    at(5, 9, 0) === '33,35,36,38,40,41,43,45' && at(3, 3, 3) === '63,65,67,69,70,72,74,75' && at(6, 11, 4) === '83,84,86,88,89,91,93,95');
-  at(0, 0, 2);
+  Scale.mode = 0;
+  Scale.key = 0;
+  Scale.octave = 2;
+  check('the ribbon\'s eight degrees are the page\'s scale\'s, its root to its octave: c3 .. c4',
+    D === 8 && Array.from({ length: D }, (_, d) => Scale.midi(d)).join() === '48,50,52,53,55,57,59,60');
 
   // --- the degrees -----------------------------------------------------------------
   check('a fresh press: the zone that holds it, the ribbon\'s ends inside it',
@@ -259,7 +241,7 @@ const isSyllable = (phones) => {
 
   // --- the scale changed mid-note --------------------------------------------------
   const sentAt = node.posted.length;
-  Monk.octave = 3;
+  Scale.octave = 3;
   Monk.update(now += 16);
   check('an octave changed while a note is held sends its new note at once', node.posted.length === sentAt + 1 && node.posted[sentAt].type === 'pitch' && node.posted[sentAt].midi === 72 && Monk.deg === 7);
   now += Monk.MIN_STRIKE_MS;
@@ -270,7 +252,7 @@ const isSyllable = (phones) => {
   now += Monk.MIN_STRIKE_MS;
   Monk.update(now);
   const modeAt = node.posted.length;
-  Monk.mode = 5;
+  Scale.mode = 5;
   Monk.update(now += 16);
   now += Monk.MIN_STRIKE_MS;
   Monk.update(now);
@@ -278,15 +260,15 @@ const isSyllable = (phones) => {
     node.posted.length === modeAt + 2 && node.posted[modeAt].type === 'pitch' && node.posted[modeAt].midi === 63 && node.posted[modeAt + 1].type === 'syllable',
     node.posted.slice(modeAt).map((m) => m.type + ' ' + (m.midi || m.phones)).join(', '));
   const keyAt = node.posted.length;
-  Monk.key = 2;
+  Scale.key = 2;
   Monk.update(now += 16);
-  Monk.key = 0;
+  Scale.key = 0;
   Monk.update(now += 16);
   now += Monk.MIN_STRIKE_MS;
   Monk.update(now);
   check('a key changed and back inside the floor sends both notes and strikes nothing', node.posted.length === keyAt + 2 && node.posted.slice(keyAt).every((m) => m.type === 'pitch'));
-  Monk.mode = 0;
-  Monk.octave = 2;
+  Scale.mode = 0;
+  Scale.octave = 2;
   Monk.down = null;
   Monk.update(now += 16);
 
@@ -372,7 +354,7 @@ const isSyllable = (phones) => {
   p.port.onmessage({ data: { type: 'note', midi: 48, vel: Monk.VEL, phones: 'M AA' } });
   let peak = render(20), blocks = 20;
   for (let d = 1; d < D; d++) {
-    p.port.onmessage({ data: { type: 'pitch', midi: Monk.midi(d) } });
+    p.port.onmessage({ data: { type: 'pitch', midi: Scale.midi(d) } });
     p.port.onmessage({ data: { type: 'syllable', phones: Monk.CONSONANTS[d] + ' ' + Monk.VOWELS[d] } });
     peak = Math.max(peak, render(Math.round(0.1 / BLOCK)));
     blocks += Math.round(0.1 / BLOCK);
@@ -388,10 +370,10 @@ const isSyllable = (phones) => {
   for (let d = 0; d < D; d++) {
     for (const c of Monk.CONSONANTS) {
       for (const v of Monk.VOWELS) {
-        const s = sing(Monk.midi(d), c + ' ' + v, hold);
+        const s = sing(Scale.midi(d), c + ' ' + v, hold);
         allDone = allDone && s.done && s.peak > 0.01;
-        if (s.peak < lo) { lo = s.peak; loAt = Monk.midi(d) + ' ' + c + ' ' + v; }
-        if (s.peak > hi) { hi = s.peak; hiAt = Monk.midi(d) + ' ' + c + ' ' + v; }
+        if (s.peak < lo) { lo = s.peak; loAt = Scale.midi(d) + ' ' + c + ' ' + v; }
+        if (s.peak > hi) { hi = s.peak; hiAt = Scale.midi(d) + ' ' + c + ' ' + v; }
         render(20);
       }
     }
@@ -414,15 +396,15 @@ const isSyllable = (phones) => {
     render(Math.round(0.5 / BLOCK));
     raw = 0;
     let top = 0, least = Infinity, done = true;
-    for (let o = 0; o < Monk.OCTAVES.length; o++) {
+    for (let o = 0; o < Scale.OCTAVES.length; o++) {
       for (let n = 0; n < 2; n++) {
-        Monk.octave = o;
-        Monk.key = any(12);
-        Monk.mode = any(7);
+        Scale.octave = o;
+        Scale.key = any(12);
+        Scale.mode = any(7);
         said.length = 0;
-        p.port.onmessage({ data: { type: 'note', midi: Monk.midi(any(D)), vel: Monk.VEL, phones: Monk.syllable() } });
+        p.port.onmessage({ data: { type: 'note', midi: Scale.midi(any(D)), vel: Monk.VEL, phones: Monk.syllable() } });
         let peak = render(Math.round(0.5 / BLOCK));
-        p.port.onmessage({ data: { type: 'pitch', midi: Monk.midi(any(D)) } });
+        p.port.onmessage({ data: { type: 'pitch', midi: Scale.midi(any(D)) } });
         peak = Math.max(peak, render(Math.round(Monk.MIN_STRIKE_MS / 1000 / BLOCK)));
         p.port.onmessage({ data: { type: 'syllable', phones: Monk.syllable() } });
         peak = Math.max(peak, render(Math.round(0.4 / BLOCK)));
@@ -459,9 +441,9 @@ const isSyllable = (phones) => {
     if (r.top > top) { top = r.top; topAt = name; }
     if (r.least < least) { least = r.least; leastAt = name; }
   }
-  Monk.mode = 0;
-  Monk.key = 0;
-  Monk.octave = 2;
+  Scale.mode = 0;
+  Scale.key = 0;
+  Scale.octave = 2;
   check('the singer\'s own voice from every octave peaks no higher than 0.95 through the master', mine.top <= 0.95 && mine.done,
     mine.top.toFixed(3) + ', ' + mine.raw.toFixed(3) + ' before the ceiling');
   check('every corner of the six settings that set a voice\'s level, and 64 voices drawn, from every octave: each sounds, is done, and peaks no higher than 0.95 through the master',
