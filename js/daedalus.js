@@ -19,7 +19,7 @@
 // px a pixel.
 
 const Daedalus = {
-  SCALE: 2, // world px a picture px
+  SCALE: 2.2, // world px a picture px
   WASM: 'daedalus/body.wasm',
 
   ready: false,   // the wasm is in and the picture is its

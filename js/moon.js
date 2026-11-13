@@ -3,7 +3,8 @@
 // its lips, its tongue and its dark back, shaped from the voice's raw state
 // by moon_man's own mouth model and drawn by third_dimension in his outline
 // look, on a head his own gaze model turns, glancing somewhere new at each
-// syllable's onset and coming home in silence; and the eyes and the nose,
+// syllable's onset and coming home in silence, where it glances a little
+// every second or few (tools/moon_man-web); and the eyes and the nose,
 // flat sprites painted by hand, each on a seat of its own on that head and
 // angled to follow its turn by second_dimension's blit, the right eye the
 // left eye's art mirrored. all of it is moon_man/moon_man.wasm, built by

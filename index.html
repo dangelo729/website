@@ -1848,7 +1848,8 @@
     // mouth is at least partly open in a box out of its o (the frame,
     // below), and each of its features is a paper bitmap and an ink bitmap
     // whose middle sits at its own place from the head's centre, HEAD_X
-    // across and HEAD_Y down from the top left of the face's part. each is
+    // across and HEAD_Y down from the top left of the face's part, the
+    // whole face FACE times moon_man's own size. each is
     // drawn as the mute button's icons are, its paper and then its ink,
     // wobbling on a seed of its own, so each one sways, bobs, breathes and
     // tilts as a letter does. the ribbon is a bar (RIBBON) outlined
@@ -1858,7 +1859,7 @@
     // sings: there at once at a press, and from line to line as the degree
     // changes by the house approach, SNAP of the way left each 60 hz frame
     // (stepDots). the ribbon is in the links' hover colour while a mouse is
-    // over it. until the ribbon has been pressed a small hand stands left
+    // over it or a press holds it. until the ribbon has been pressed a small hand stands left
     // of it, outside the box, pointing at its left end: the scroll hand's
     // first frame, which points down (the scroll hand, below), turned a
     // quarter to point right, at its scale and drawn as it is, its paper
@@ -1899,15 +1900,16 @@
     // apart (qfb) and copied through its skin into the item's (pfb), over
     // the face and under the ribbon, so it covers the face while it is open
     const DEMO = {
-      W: 170, H: 128, // world px, its box's width, and the height of the face's part and the ribbon, under the menu's button and GAP (demoH)
+      W: 187, H: 140, // world px, its box's width, and the height of the face's part and the ribbon, under the menu's button and GAP (demoH)
       GAP: 6,         // world px from the menu's button to the face's part
-      HEAD_X: 85,     // world px across from the face's part's left to the head's centre, its middle,
-      HEAD_Y: 34,     // and down from its top: the features reach about 34 either side of it, 30 above it and 70 below at the most a tilt takes them
+      HEAD_X: 93.5,   // world px across from the face's part's left to the head's centre, its middle,
+      HEAD_Y: 37,     // and down from its top: the features reach about 37 either side of it, 33 above it and 77 below at the most a tilt takes them
+      FACE: 1.1,      // the face's size, of moon_man's own: its features' places and scales
       FEATURES: 4,    // the face's features, a wobble each: its lips, its nose and its two eyes (Moon.features)
       // world px, a bar's height, its corners' radius, how far each tick
       // stops short of its top and bottom edges, and its dot's radius: the
       // ribbon's, its bottom the box's, and a slider's, centred down its row
-      RIBBON: { H: 14, R: 5, TICK_IN: 4, MARK: 3 },
+      RIBBON: { H: 15, R: 5.5, TICK_IN: 4, MARK: 3 },
       SLIDER: { H: 10, R: 4, TICK_IN: 3, MARK: 2 },
       SNAP: 0.3,      // of the way left to its line a dot goes, each 60 hz frame
       HAND: { GAP: 2, BOB: 3, HZ: 0.8, DOWN: 2 }, // the hand pointing at the ribbon: world px from its tip to the ribbon's left at the nearest and how far it bobs back from there, its bobs a second, and how far its middle stands under the ribbon's so its finger is level with it
@@ -2029,21 +2031,21 @@
     // item it's demo, d world px down from where it was laid out, into pfb,
     // in whole px, as the logos are: once the face is in (Moon.ready), each
     // of its features in its order, its paper then its ink, with its middle
-    // at the head's centre and its own place from there, to the nearest
-    // px so its strokes keep their width wherever the head has turned it,
-    // moved by its wobble's sway and bob, at its own scale by its wobble's
-    // breathe, and turned by its wobble's tilt; the hand pointing at the
-    // ribbon, until the ribbon has been pressed, turned a quarter back
-    // from pointing down, its tip GAP and its bob left of the ribbon; the
-    // menu over the face (drawSettings); and the ribbon (drawBar), its dot where it has got
-    // to (dotAt) while it is held, in the links' hover colour while hover
-    // is on it
+    // at the head's centre and its own place from there at FACE, moved by
+    // its wobble's sway and bob, at its own scale times FACE by its
+    // wobble's breathe, and turned by its wobble's tilt; the hand pointing
+    // at the ribbon, until the ribbon has been pressed, turned a quarter
+    // back from pointing down, its tip GAP and its bob left of the ribbon;
+    // the menu over the face (drawSettings); and the ribbon (drawBar), its
+    // dot where it has got to (dotAt) while it is held, in the links' hover
+    // colour while hover is on it or a press holds it
     function drawDemo(it, t, d, hover) {
-      const a = it.demoAt, dy = Math.round(d), v = hover && hover.it === it && hover.ribbon ? HOVER_LINK : 1;
+      const D = DEMO, a = it.demoAt, dy = Math.round(d), held = holding && holding.i === null && holding.it === it;
+      const v = held || (hover && hover.it === it && hover.ribbon) ? HOVER_LINK : 1;
       if (Moon.ready) {
         const feats = Moon.features;
         for (let i = 0; i < feats.length && i < a.face.length; i++) {
-          const f = feats[i], p = a.face[i].pose(t), x = p.x + Math.round(f.x), y = p.y + Math.round(f.y) + dy, s = f.scale * p.s;
+          const f = feats[i], p = a.face[i].pose(t), x = p.x + D.FACE * f.x, y = p.y + D.FACE * f.y + dy, s = D.FACE * f.scale * p.s;
           pfb.sprite(f.paper, x, y, s, p.a, 0);
           pfb.sprite(f.ink, x, y, s, p.a, 1);
         }
@@ -2187,7 +2189,7 @@
     // that starts anywhere else scrolls the page to its end, whatever comes
     // under the pointer (the wheel, below)
     const SHIP = {
-      W: 170, H: 100, // world px, its box: the picture at Ship.SCALE, the whole bottle inside it however it is turned
+      W: 187, H: 110, // world px, its box: the picture at Ship.SCALE, the whole bottle inside it however it is turned
       DRAG: 0.015,    // radians a world px across turns the bottle while it is held
       WHEEL: 0.005,   // radians a css px of wheel turns it
     };
@@ -2263,7 +2265,7 @@
     // the name's are, each arm's its own degree of the page's scale
     // (DEGREES)
     const DAEDALUS = {
-      W: 244, H: 264, // world px, his box: the middle 122 of the picture's columns by its 132 rows, at Daedalus.SCALE
+      W: 268, H: 290, // world px, his box: the middle 122 of the picture's columns by its 132 rows, at Daedalus.SCALE, to the nearest px
       // the degree of the page's scale each arm's strike plays, in
       // Daedalus.struck's order: his upper left arm's the fifth, his upper
       // right's the seventh, his lower left's the root and his lower
