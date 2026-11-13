@@ -1,12 +1,13 @@
 // node tools/test/piano.test.js
 //
-// loads js/piano.js the way the page does, a classic script, in a vm
-// context, and hands it a fake window: its listeners are recorded, its
-// AudioContext counts what is made, its worklet node records its options
-// and every message posted to it, and its fetch and addModule answer at
-// once. checks the notes, that nothing is made before a gesture, that a
-// strike before the worklet is ready or while the context sleeps is
-// silent, that a strike sends its note and nothing else, and that the
+// loads js/scale.js and js/piano.js the way the page does, classic
+// scripts, in one vm context, and hands the piano a fake window: its
+// listeners are recorded, its AudioContext counts what is made, its
+// worklet node records its options and every message posted to it, and
+// its fetch and addModule answer at once. checks the keys, that nothing
+// is made before a gesture, that a strike before the worklet is ready or
+// while the context sleeps is silent, that a strike sends its degree's
+// note in the scale as it is set then and nothing else, and that the
 // knobs go to the worklet once. then loads js/piano-worklet.js with the
 // real upright/upright.wasm and checks it renders: silent until a strike,
 // a strike sounds. exits 1 on failure.
@@ -23,9 +24,11 @@ function check(name, ok, detail) {
   if (!ok) failures++;
 }
 
-// --- the script --------------------------------------------------------------
+// --- the scripts -------------------------------------------------------------
 const ctx = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'scale.js'), 'utf8'), ctx, { filename: 'js/scale.js' });
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', 'piano.js'), 'utf8'), ctx, { filename: 'js/piano.js' });
+const Scale = vm.runInContext('Scale', ctx);
 const Piano = vm.runInContext('Piano', ctx);
 
 // --- the fake window -----------------------------------------------------------
@@ -59,12 +62,8 @@ const win = {
 const settle = () => new Promise((ok) => setImmediate(ok));
 
 (async () => {
-  // --- the notes and the knobs ---------------------------------------------------
-  const N = Array.from(Piano.NOTES), steps = N.slice(1).map((m, i) => m - N[i]);
-  const lydian = [2, 2, 2, 1, 2, 2, 1];
-  check('thirteen notes, one per letter of the name', N.length === 13, N.length);
-  check('from c4', N[0] === 60);
-  check('c lydian: steps 2 2 2 1 2 2 1 over and over', steps.every((s, i) => s === lydian[i % 7]), steps.join(' '));
+  // --- the keys and the knobs ----------------------------------------------------
+  check('thirteen keys, one per letter of the name', Piano.DEGREES === 13, Piano.DEGREES);
   check('five knobs, each in -1 .. 1', Piano.KNOBS.length === 5 && Piano.KNOBS.every((k) => k >= -1 && k <= 1), Piano.KNOBS.join(' '));
 
   // --- before a gesture ----------------------------------------------------------
@@ -97,7 +96,22 @@ const settle = () => new Promise((ok) => setImmediate(ok));
   node.port.onmessage({ data: 'ready' });
   Piano.strike(0);
   Piano.strike(12);
-  check('a strike sends its note, and nothing else is sent', made.posted.join() === '60,81', made.posted.join());
+  check('a strike sends its degree\'s note, and nothing else is sent', made.posted.join() === '60,81', made.posted.join());
+  made.posted.length = 0;
+  for (let d = 0; d < Piano.DEGREES; d++) Piano.strike(d);
+  check('its keys in the scale the page starts in: c lydian up from c4', made.posted.join() === '60,62,64,66,67,69,71,72,74,76,78,79,81', made.posted.join());
+  made.posted.length = 0;
+  Scale.mode = 5;
+  Scale.key = 9;
+  Scale.octave = 1;
+  for (let d = 0; d < Piano.DEGREES; d++) Piano.strike(d);
+  check('the scale set again is in the next strike: a aeolian up from a2', made.posted.join() === '45,47,48,50,52,53,55,57,59,60,62,64,65', made.posted.join());
+  Scale.mode = 3;
+  Scale.key = 0;
+  Scale.octave = 3;
+  made.posted.length = 0;
+  Piano.strike(0);
+  Piano.strike(12);
   check('the knobs went once, with the node, never on the port', made.nodes.length === 1 && made.posted.every((m) => typeof m === 'number'));
   Piano.ctx.state = 'interrupted';
   Piano.strike(1);

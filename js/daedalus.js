@@ -7,7 +7,8 @@
 // swings at it at once and strikes where it was, and while it stays winds
 // up beside it and swings again, so a pointer that keeps moving is missed.
 // the page says where its pointer is (point) or that it has none
-// (pointOff).
+// (pointOff), and reads the arms that struck in each step (struck), to
+// play each strike a note.
 // all of it is daedalus/body.wasm, built by tools/daedalus_body-web, run
 // on the main thread a step a frame. the wasm is checked with the server
 // before any copy is used, as the ship's is (js/ship.js), and instantiated
@@ -26,6 +27,7 @@ const Daedalus = {
   asked: false,   // the wasm has been fetched for
   mm: null,       // its exports, once in
   buffer: null,   // its memory's buffer the view is on
+  struck: 0,      // the arms that struck in the last step, a bit an arm: 1 his upper left's, 2 his upper right's, 4 his lower left's, 8 his lower right's
 
   // the wasm fetched and instantiated, once: made, its first frame drawn,
   // and its picture viewed. a body that could not be made is never ready
@@ -67,14 +69,15 @@ const Daedalus = {
     if (this.ready) this.mm.body_point_off();
   },
 
-  // one frame, dtS seconds on; and, since the picture has been drawn
-  // again, the flatness js/raster.js keeps with a bitmap dropped, to be
-  // worked out again
+  // one frame, dtS seconds on, and the arms that struck in it; and, since
+  // the picture has been drawn again, the flatness js/raster.js keeps with
+  // a bitmap dropped, to be worked out again
   step(dtS) {
     if (!this.ready) return;
     const mm = this.mm;
     if (mm.memory.buffer !== this.buffer) this.view();
     mm.body_step(dtS);
+    this.struck = mm.body_struck();
     this.picture.flat = null;
   },
 };

@@ -40,6 +40,7 @@
   <script src="js/logos.js"></script>
   <script src="js/text.js"></script>
   <script src="js/icons.js"></script>
+  <script src="js/scale.js"></script>
   <script src="js/piano.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/monk.js"></script>
@@ -1715,8 +1716,10 @@
     canvas.addEventListener('pointerleave', () => { hoverAt = null; });
 
     // --- the name's keys ---------------------------------------------------------
-    // the name is a row of piano keys (js/piano.js), a note a letter: the
-    // pointer coming onto a letter's key strikes it, and the letter is
+    // the name is a row of piano keys (js/piano.js), a letter a degree of
+    // the page's scale (js/scale.js) up from its root at the p, the scale
+    // monk mouth's settings set (the demo, below): the pointer coming
+    // onto a letter's key strikes it, and the letter is
     // drawn in its colour while the pointer is on it, a mouse over it or a
     // finger down on it. a strike rings its plink out whatever the pointer
     // does next: the piano lets the key go once it has rung. moving within
@@ -1832,8 +1835,9 @@
     // box's bottom. a primary press on the ribbon, or a little round it,
     // takes it, and while it is held where the finger is across it is
     // Monk.down, 0 at its left edge to just short of 1 at its right, as
-    // moon_man's sim keeps its ribbon: the voice sings a degree of its
-    // scale for each of its Monk.DEGREES zones. a lift lets it go, and so
+    // moon_man's sim keeps its ribbon: the voice sings a degree of the
+    // page's scale (js/scale.js) for each of its Monk.DEGREES zones. a
+    // lift lets it go, and so
     // does a press up or down that the page takes for a scroll (the swipe,
     // below); a press that goes across stays the ribbon's. the face is
     // moon_man's (js/moon.js): its mouth shaped in 3d from the voice's raw
@@ -1882,8 +1886,10 @@
     // widest words any slider says, and APART right of each are its words
     // for the value in use. a primary press on a bar takes it as a press on
     // the ribbon takes the ribbon, and while it is held the value is the
-    // zone the pointer is in across the bar, set on the singer (Monk[key])
-    // as it changes; the click it ends in presses nothing. the button,
+    // zone the pointer is in across the bar, set on the page's scale
+    // (Scale[key]) as it changes, so the singer, the name's keys and
+    // daedalus's mallets each play their next note in it; the click it
+    // ends in presses nothing. the button,
     // BUTTON, as wide as the rows, is drawn and pressed as his are, and
     // gives the singer a new voice (Monk.randomize). under a mouse the
     // menu's outline, its caret and its title are in the links' hover
@@ -1906,9 +1912,9 @@
       SNAP: 0.3,      // of the way left to its line a dot goes, each 60 hz frame
       HAND: { GAP: 2, BOB: 3, HZ: 0.8, DOWN: 2 }, // the hand pointing at the ribbon: world px from its tip to the ribbon's left at the nearest and how far it bobs back from there, its bobs a second, and how far its middle stands under the ribbon's so its finger is level with it
       TITLE: 'settings', BUTTON: 'randomize voice', // what the menu's header says, and its button
-      // the menu's sliders, top to bottom: the singer's value each sets
-      // (Monk[key]), the list of its values there (Monk[list]) and the
-      // words it says for one of them
+      // the menu's sliders, top to bottom: the page's scale's value each
+      // sets (Scale[key]), the list of its values there (Scale[list]) and
+      // the words it says for one of them
       SLIDERS: [
         { key: 'mode', list: 'MODES', say: (m) => m.name },
         { key: 'key', list: 'KEYS', say: (k) => 'key ' + k },
@@ -2000,7 +2006,7 @@
       };
       // the rows under it
       const margin = Math.round(U.MARGIN * size), row = Math.round(U.ROW * size), x0 = x + margin, x1 = x + D.W - margin;
-      const lines = D.SLIDERS.map((sl) => Monk[sl.list].map((v) => type(sl.say(v))));
+      const lines = D.SLIDERS.map((sl) => Scale[sl.list].map((v) => type(sl.say(v))));
       const bw = Math.floor(x1 - x0 - apart - Math.max(...lines.flat().map(wide)));
       let ry = shut.y1;
       const sliders = lines.map((ts, i) => {
@@ -2086,7 +2092,7 @@
         for (const sl of ui.sliders) {
           const sv = on && on.slider === sl ? HOVER : 1;
           drawBar(qfb, sl.bar, dy, sl.n, slideAt[sl.i], sv, DEMO.SLIDER);
-          for (const L of sl.says[Monk[DEMO.SLIDERS[sl.i].key]]) L.draw(t, dy, qfb, 0, sv);
+          for (const L of sl.says[Scale[DEMO.SLIDERS[sl.i].key]]) L.draw(t, dy, qfb, 0, sv);
         }
         const b = ui.button, bv = on && on.randomize ? HOVER : 1, n = b.ring.length;
         for (let i = 0; i < n; i++) {
@@ -2118,7 +2124,7 @@
     function stepDots(dt) {
       for (let i = 0; i < DEMO.SLIDERS.length; i++) {
         const sl = DEMO.SLIDERS[i];
-        slideAt[i] = dotTo(slideAt[i], (Monk[sl.key] + 0.5) / Monk[sl.list].length, dt);
+        slideAt[i] = dotTo(slideAt[i], (Scale[sl.key] + 0.5) / Scale[sl.list].length, dt);
       }
       if (Monk.down === null) { dotAt = null; return; }
       dotAt = dotTo(dotAt, ((Monk.deg < 0 ? Monk.zone(Monk.down) : Monk.deg) + 0.5) / Monk.DEGREES, dt);
@@ -2126,7 +2132,7 @@
 
     // world x on the screen across what is held: across the ribbon, as
     // Monk.down; across a slider's bar, the zone it is in as the slider's
-    // value, set on the singer when it changes
+    // value, set on the page's scale when it changes
     function holdTo(x) {
       const a = holding.it.demoAt;
       if (!a) return;
@@ -2137,7 +2143,7 @@
       }
       const sl = a.menu.sliders[holding.i], b = sl.bar, key = DEMO.SLIDERS[holding.i].key;
       const v = Math.min(sl.n - 1, Math.max(0, Math.floor((x - b.x0) / (b.x1 - b.x0) * sl.n)));
-      if (Monk[key] !== v) Monk[key] = v;
+      if (Scale[key] !== v) Scale[key] = v;
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
@@ -2253,9 +2259,17 @@
     // while it is down and the page has not taken it for a scroll (the
     // swipe, below). his arms swing at it when it comes in their reach, so
     // nothing is pressed and nothing is held: a press on his box presses
-    // nothing
+    // nothing. each strike is a key struck on the piano (js/piano.js), as
+    // the name's are, each arm's its own degree of the page's scale
+    // (DEGREES)
     const DAEDALUS = {
       W: 244, H: 264, // world px, his box: the middle 122 of the picture's columns by its 132 rows, at Daedalus.SCALE
+      // the degree of the page's scale each arm's strike plays, in
+      // Daedalus.struck's order: his upper left arm's the fifth, his upper
+      // right's the seventh, his lower left's the root and his lower
+      // right's the third, the mode's i, iii, v and vii with the lower
+      // arms its lower two
+      DEGREES: [4, 6, 0, 2],
     };
     const daedalusHome = sections.find((s) => s.items.some((it) => it.daedalus)) || null; // the section whose box holds daedalus
     const daedalusItem = daedalusHome ? daedalusHome.items.find((it) => it.daedalus) : null; // second dimension, the item he is in
@@ -2294,6 +2308,12 @@
       if (!pointerAt) { Daedalus.pointOff(); return; }
       const y = daedalusItem.shift + daedalusHome.off - scrolled();
       Daedalus.point(pointerAt.x - (b.x0 + b.x1) / 2, pointerAt.y - (b.y0 + b.y1) / 2 - y);
+    }
+
+    // the piano struck for each of daedalus's arms that struck in his last
+    // step, at the arm's degree
+    function ringDaedalus() {
+      for (let i = 0; i < DAEDALUS.DEGREES.length; i++) if (Daedalus.struck >> i & 1) Piano.strike(DAEDALUS.DEGREES[i]);
     }
 
     // --- the scroll hand ---------------------------------------------------------
@@ -3319,13 +3339,13 @@
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
       if (bubble) world.spawning = playing();
       world.step(now);
-      // the bubble, having eaten, strikes one of the name's notes at random
+      // the bubble, having eaten, strikes one of the piano's keys at random
       // at once (js/piano.js) and a moment later thanks whoever fed him
       // (js/voice.js)
       const fed = bubble ? world.merges.filter((m) => m.blob === bubble) : [];
       if (fed.length) {
         for (const m of fed) shop.earn(Shop.reward(m.eaten.radius) * shop.value(), now);
-        Piano.strike(Math.floor(Math.random() * Piano.NOTES.length));
+        Piano.strike(Math.floor(Math.random() * Piano.DEGREES));
         Voice.thank();
       }
       for (let i = 0; i < world.snaps.length; i++) if (world.snaps[i] < SNAP.QUICK) snapped.push(now);
@@ -3346,12 +3366,13 @@
       // the ship on, while third dimension is at least partly open in a
       // box out of its o and its box is on the screen
       if (Ship.ready && shipItem && shipHome.box.shown && shipItem.p > 0 && shipSeen()) Ship.step(dt);
-      // daedalus on, after the pointer, while second dimension is at
-      // least partly open in a box out of its o and his box is on the
-      // screen
+      // daedalus on, after the pointer, and his strikes rung, while second
+      // dimension is at least partly open in a box out of its o and his
+      // box is on the screen
       if (Daedalus.ready && daedalusItem && daedalusHome.box.shown && daedalusItem.p > 0 && daedalusSeen()) {
         pointDaedalus();
         Daedalus.step(dt);
+        ringDaedalus();
       }
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);

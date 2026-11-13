@@ -1,33 +1,38 @@
 // --- the piano ---------------------------------------------------------------
-// the name across the top of index.html as a row of piano keys, a note a
-// letter, played on upright, the physically modelled piano, exactly as
-// saloon plays it at five knobs of its own: saloon's twin of its piano rig
-// over upright's core, built by tools/upright-web into upright/upright.wasm,
-// runs live in an audio worklet (js/piano-worklet.js) at upright's 44.1
-// khz, mono, through one master gain. a browser holds sound back until the
-// visitor's first gesture, so nothing is made before one: the first
-// pointerdown, pointerup, touchend, click or keydown makes the audio context
-// inside its handler, a press among them so that a drag that feeds the
-// bubble (index.html) is heard, and a touch's end wakes it, as ios wants;
-// it loads the worklet and fetches the wasm, whose
-// bytes go to the worklet to be compiled there; any gesture wakes the
-// context if it is not running. a key is only ever struck: it rings its
-// plink out and the wasm lets it go once it has rung. a strike before the
-// worklet is ready, or while the context is not running, is silent, never
-// queued.
+// the page's piano, a key for each of DEGREES degrees of the page's scale
+// (js/scale.js) up from its root: the name across the top of index.html is
+// a row of them, a key a letter, daedalus's mallets strike four of them and
+// the bubble one at random. it is upright, the physically modelled piano,
+// exactly as saloon plays it at five knobs of its own: saloon's twin of its
+// piano rig over upright's core, built by tools/upright-web into
+// upright/upright.wasm, runs live in an audio worklet (js/piano-worklet.js)
+// at upright's 44.1 khz, mono, through one master gain. a browser holds
+// sound back until the visitor's first gesture, so nothing is made before
+// one: the first pointerdown, pointerup, touchend, click or keydown makes
+// the audio context inside its handler, a press among them so that a drag
+// that feeds the bubble (index.html) is heard, and a touch's end wakes it,
+// as ios wants; it loads the worklet and fetches the wasm, whose bytes go
+// to the worklet to be compiled there; any gesture wakes the context if it
+// is not running. a key is only ever struck: its note is its degree's in
+// the scale as it is set at the strike, it rings its plink out and the
+// wasm lets it go once it has rung. a strike before the worklet is ready,
+// or while the context is not running, is silent, never queued.
 
 const Piano = {
-  // c lydian up from c4, one per letter of the name, p to o
-  NOTES: [60, 62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79, 81],
+  DEGREES: 13,   // its keys, the scale's degrees up from the root: one per letter of the name, p to o
   // saloon's five knobs in its order, each -1 .. 1: instrument (string,
   // tine, reed), tone (dark, bright), size (toy, hall), detune (one, wide),
   // damper (heavy, light)
   KNOBS: [0.73, -1, -0.59, 0.55, -0.76],
   VELOCITY: 100, // every strike's, saloon's default
-  // the master gain: a key alone peaks through it at 0.46 at most, and
-  // sweeps along the name, keys 20 to 100 ms apart, at 0.75
-  // (tools/upright-web's make measure measures it); the worklet never
-  // strikes two keys closer than 20 ms, so nothing louder reaches it
+  // the master gain: a key alone, any key of any scale, peaks through it
+  // at 0.46 at most, and sweeps along the name, keys 20 to 100 ms apart,
+  // at 0.75 in the scale the page starts in and at 0.87 at most in any
+  // mode from c4 or c5; the worklet never strikes two keys closer than 20
+  // ms, so nothing louder reaches it there. from a lower octave the keys
+  // ring longer and a fast sweep piles them up: 20 ms a key passes full
+  // scale from c1, c2 and c3, and 40 ms a key from c2
+  // (tools/upright-web's make measure measures all of it)
   MASTER: 1.25,
   MUTE_S: 0.03, // s, the time constant the master gain eases to silence and back by (mute)
   WORKLET: 'js/piano-worklet.js',
@@ -80,11 +85,11 @@ const Piano = {
     if (this.out) this.out.gain.setTargetAtTime(on ? 0 : this.MASTER, this.ctx.currentTime, this.MUTE_S);
   },
 
-  // letter i's key struck; nothing until the worklet is ready, nor while
-  // the context is not running, which would hold the strike and sound it
-  // when it wakes
-  strike(i) {
+  // degree deg's key struck, its note the scale's as it is set now; nothing
+  // until the worklet is ready, nor while the context is not running, which
+  // would hold the strike and sound it when it wakes
+  strike(deg) {
     if (!this.ready || this.ctx.state !== 'running') return;
-    this.node.port.postMessage(this.NOTES[i]);
+    this.node.port.postMessage(Scale.midi(deg));
   },
 };

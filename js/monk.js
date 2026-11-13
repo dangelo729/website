@@ -1,8 +1,9 @@
 // --- the monk ------------------------------------------------------------------
 // monk mouth in personal work sings: a face the voice moves (js/moon.js),
 // and a ribbon under it. a press on the ribbon sings a note, the ribbon's
-// length cut into DEGREES degrees of a scale, one of MODES on one of KEYS
-// in one of OCTAVES, the three the page sets (mode, key, octave), and each
+// length cut into DEGREES degrees of the page's scale (js/scale.js) up
+// from its root, the scale monk mouth's settings set and the piano plays
+// in too, and each
 // attack and each note it moves to sings a fresh syllable, a consonant and
 // a vowel drawn at random. it is moon_man's ribbon (its scene_sing): a
 // fresh press takes the degree whose zone holds the finger; while it
@@ -30,18 +31,6 @@
 
 const Monk = {
   DEGREES: 8,                    // degrees along the ribbon, the scale's root to its octave
-  // the seven diatonic modes, each its seven degrees in semitones over the root
-  MODES: [
-    { name: 'ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
-    { name: 'dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
-    { name: 'phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
-    { name: 'lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
-    { name: 'mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
-    { name: 'aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
-    { name: 'locrian', steps: [0, 1, 3, 5, 6, 8, 10] },
-  ],
-  KEYS: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], // the root, semitones over c
-  OCTAVES: [1, 2, 3, 4, 5],      // the root's octave: the ribbon's first degree is midi 12 * (octave + 1) + key
   HYST: 0.15,                    // of a zone, how far the degree being sung holds past its zone either side
   MIN_STRIKE_MS: 90,             // ms, the least time from one syllable to the next
   VEL: 0.8,                      // the note's velocity, its breath
@@ -77,9 +66,6 @@ const Monk = {
   CEILING: 0.9,
   MUTE_S: 0.03, // s, the time constant the master gain eases to silence and back by (mute)
 
-  mode: 0,        // the scale's mode, an index into MODES; the page sets it
-  key: 0,         // its root, an index into KEYS; the page sets it
-  octave: 2,      // the root's octave, an index into OCTAVES; the page sets it
   down: null,     // where the finger is on the ribbon, 0 .. 1, or null; the page sets it
   deg: -1,        // the degree being sung, 0 .. DEGREES - 1, or -1
   state: null,    // the voice's raw state as heard by now, a Float32Array, or null in silence
@@ -152,7 +138,7 @@ const Monk = {
   // syllable
   attack(now) {
     this.deg = this.zone(this.down);
-    this.note = this.midi(this.deg);
+    this.note = Scale.midi(this.deg);
     this.struck = this.note;
     this.struckAt = now;
     this.crossed = false;
@@ -165,7 +151,7 @@ const Monk = {
   // as it is by then, unless that is the note last struck
   sing(now) {
     this.deg = this.hold(this.down, this.deg);
-    const note = this.midi(this.deg);
+    const note = Scale.midi(this.deg);
     if (note !== this.note) {
       this.note = note;
       this.crossed = true;
@@ -196,11 +182,6 @@ const Monk = {
     const w = 1 / this.DEGREES;
     if (pos >= (owner - this.HYST) * w && pos <= (owner + 1 + this.HYST) * w) return owner;
     return this.zone(pos);
-  },
-
-  // a degree's midi note in the scale as it is set now
-  midi(deg) {
-    return 12 * (this.OCTAVES[this.octave] + 1) + this.key + 12 * Math.floor(deg / 7) + this.MODES[this.mode].steps[deg % 7];
   },
 
   // a consonant and a vowel, at random, as phones

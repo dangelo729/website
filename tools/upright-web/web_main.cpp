@@ -16,8 +16,10 @@ constexpr int   kFrames = 128;      // a block: upright's control block and a wo
 constexpr float kRate   = 44100.0f; // upright's rate, and the page's audio context's
 
 // a key's release, in seconds after its last strike: a held key at the
-// page's knobs falls 60 db under its peak in 0.63 s at c4, the name's
-// longest, and 0.21 s at a5 (make measure), so the damper lands on silence
+// page's knobs falls 60 db under its peak in 0.63 s at c4, the longest of
+// the name's in the scale the page starts in, and 0.21 s at a5 (make
+// measure), so there the damper lands on silence; a key from a lower
+// octave rings longer, 1.6 s at c1 and c2, and the damper cuts it short
 constexpr float kRing       = 0.7f;
 constexpr int   kRingBlocks = (int)(kRing * kRate / kFrames + 0.5f);
 
