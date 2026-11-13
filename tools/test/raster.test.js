@@ -837,6 +837,24 @@ const between = (a, b) => a + (b - a) * rand();
   }
   check(blitOk, 'blitPixels is a set() of every pixel, clipped at every edge, 400 places ' + bad);
   check(restOk, 'spritePixels at rest on whole pixels is blitPixels, clipped at every edge, 400 places ' + bad);
+
+  // a window of a bitmap lands as that part cut out and blitted whole
+  // would, clipped at every edge
+  let partOk = true, partBad = '';
+  for (let n = 0; n < 400; n++) {
+    const w = 1 + Math.floor(rand() * 20), h = 1 + Math.floor(rand() * 16);
+    const g = { px: Uint8Array.from({ length: w * h }, () => Math.floor(rand() * 40)), w, h };
+    const pw = 1 + Math.floor(rand() * w), ph = 1 + Math.floor(rand() * h);
+    const sx = Math.floor(rand() * (w - pw + 1)), sy = Math.floor(rand() * (h - ph + 1));
+    const cut = { px: Uint8Array.from({ length: pw * ph }, (_, i) => g.px[(sy + Math.floor(i / pw)) * w + sx + i % pw]), w: pw, h: ph };
+    const [x, y] = n < places.length ? places[n] : [Math.floor(between(-pw - 2, W + 2)), Math.floor(between(-ph - 2, H + 2))];
+    const part = new Framebuffer(W, H), whole = new Framebuffer(W, H);
+    part.bits.fill(99); whole.bits.fill(99);
+    part.blitPixels(g, x, y, sx, sy, pw, ph);
+    whole.blitPixels(cut, x, y);
+    if (!part.bits.every((b, i) => b === whole.bits[i])) { partOk = false; partBad = partBad || pw + 'x' + ph + ' of ' + w + 'x' + h + ' from ' + sx + ',' + sy + ' at ' + x + ',' + y; }
+  }
+  check(partOk, 'blitPixels of a window is that part blitted whole, clipped at every edge, 400 places ' + partBad);
 }
 
 // medianCut, its boxes' spans worked out once each, cuts as one that

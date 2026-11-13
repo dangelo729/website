@@ -1,0 +1,17 @@
+# the graffiti wall's server: see the Makefile
+name = "wall"
+main = "worker.js"
+compatibility_date = "2026-11-13"
+
+[[durable_objects.bindings]]
+name = "WALL"
+class_name = "WallRoom"
+
+# sqlite-backed, as the free plan requires
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WallRoom"]
+
+# the origins a socket may be opened from
+[vars]
+ORIGINS = "https://dangelo729.github.io,https://peter-dangelo.com,https://www.peter-dangelo.com"

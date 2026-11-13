@@ -5,6 +5,10 @@ tools/moon_man-web/build/
 tools/the_ship-web/build/
 tools/daedalus_body-web/build/
 tools/saloon_keys-web/build/
+tools/wall-server/build/
 .DS_Store
 *PLAN*.md
 CLAUDE.md
+tools/wall-server/.wrangler/
+tools/wall-server/.dev.vars
+tools/wall-server/.admin-token
