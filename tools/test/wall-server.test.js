@@ -172,7 +172,7 @@ async function main() {
   await wait(50);
   check('a stroke is acked to its sender and not sent back to it', r1.heard.length === 2 && r1.heard[1].join() === WALL.ACK + ',1', r1.heard.slice(1).map((h) => h.slice(0, 4).join()).join(' '));
   check('and relayed to everyone else', differ(A.truth, want) < 0 && differ(B.truth, want) < 0 && differ(C.truth, want) < 0);
-  r1.s.send(Uint8Array.of(WALL.STROKE, 99, 4, 1, 0, 0, 0, 0));
+  r1.s.send(Uint8Array.of(WALL.STROKE, WALL.COLOURS.length, 4, 1, 0, 0, 0, 0));
   await until(() => r1.code !== null);
   check('a malformed stroke closes its socket with 1008', r1.code === 1008, r1.code);
   const r2 = await raw();

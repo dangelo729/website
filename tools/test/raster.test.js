@@ -400,6 +400,23 @@ const between = (a, b) => a + (b - a) * rand();
   check(same(px.map(String), [Framebuffer.INK, 0xFFB0B649, 0xFF9A97B5, Framebuffer.PAPER].map(String)), 'present: each byte as its colour: ' + px.map((v) => v.toString(16)).join(' '));
   const d = new Uint8Array(new Uint32Array([pal[teal]]).buffer);
   check(d[0] === 0x49 && d[1] === 0xB6 && d[2] === 0xB0 && d[3] === 255, 'colour: its bytes are r, g, b, a as a canvas reads them');
+  // more colours than a byte counts: the 300th is drawn, copied and presented as itself
+  let far = 0;
+  for (let i = 0; pal.length <= 300; i++) far = Framebuffer.colour('#' + (0x101010 + 7 * i).toString(16));
+  check(far > 255 && pal.length > 256, 'colour: the palette takes more than 256');
+  const a = new Framebuffer(4, 2), b = new Framebuffer(4, 2);
+  a.set(1, 0, far);
+  check(a.get(1, 0) === far, 'a v past 255 is set and got whole: ' + a.get(1, 0));
+  b.fillPolygon([{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 1 }, { x: 0, y: 1 }], a);
+  check(b.get(1, 0) === far, 'and copied whole through a ring from another framebuffer');
+  b.clear();
+  b.blitPixels({ px: Uint16Array.of(far, 1, 0, far), w: 2, h: 2 }, 1, 0);
+  check(b.get(1, 0) === far && b.get(2, 1) === far && b.get(2, 0) === 1, 'and blitted whole from a picture');
+  b.present({ putImageData(img) { px = Array.from(new Uint32Array(img.data.buffer)); } });
+  check(px[1] === pal[far] && px[6] === pal[far], 'and presented as its colour');
+  const dithered = Framebuffer.ditherColour([255, 0, 0, 0, 0, 255], 2, 1, [[255, 0, 0], [0, 0, 255]]);
+  dithered.px[1] = far;
+  check(dithered.px[0] === 0 && dithered.px[1] === far, 'a dithered picture holds a v past 255 in place of an index');
 }
 
 // --- sprites
@@ -855,6 +872,29 @@ const between = (a, b) => a + (b - a) * rand();
     if (!part.bits.every((b, i) => b === whole.bits[i])) { partOk = false; partBad = partBad || pw + 'x' + ph + ' of ' + w + 'x' + h + ' from ' + sx + ',' + sy + ' at ' + x + ',' + y; }
   }
   check(partOk, 'blitPixels of a window is that part blitted whole, clipped at every edge, 400 places ' + partBad);
+  // blitMapped through tables that count up from a window's corner is
+  // blitPixels of that window; through any tables it is a set() of each
+  // pixel from where they point, its 0s left alone when it goes over
+  let mapOk = true, mapBad = '';
+  for (let n = 0; n < 400; n++) {
+    const w = 1 + Math.floor(rand() * 20), h = 1 + Math.floor(rand() * 16);
+    const g = { px: Uint16Array.from({ length: w * h }, () => Math.floor(rand() * 4) ? Math.floor(rand() * 400) : 0), w, h };
+    const pw = 1 + Math.floor(rand() * 24), ph = 1 + Math.floor(rand() * 20), c0 = Math.floor(rand() * 5), r0 = Math.floor(rand() * 5);
+    const window = n % 2 === 0 && pw <= w && ph <= h, sx = window ? Math.floor(rand() * (w - pw + 1)) : 0, sy = window ? Math.floor(rand() * (h - ph + 1)) : 0;
+    const cols = Int32Array.from({ length: c0 + pw }, (_, i) => window ? sx + i - c0 : Math.floor(rand() * w));
+    const rows = Int32Array.from({ length: r0 + ph }, (_, j) => window ? sy + j - r0 : Math.floor(rand() * h));
+    const [x, y] = n < places.length ? places[n] : [Math.floor(between(-pw - 2, W + 2)), Math.floor(between(-ph - 2, H + 2))];
+    const over = n % 3 === 0, got = new Framebuffer(W, H), want = new Framebuffer(W, H);
+    got.bits.fill(99); want.bits.fill(99);
+    got.blitMapped(g, x, y, pw, ph, cols, c0, rows, r0, over);
+    if (window && !over) want.blitPixels(g, x, y, sx, sy, pw, ph);
+    else for (let j = 0; j < ph; j++) for (let i = 0; i < pw; i++) {
+      const v = g.px[rows[r0 + j] * w + cols[c0 + i]];
+      if (v || !over) want.set(x + i, y + j, v);
+    }
+    if (!got.bits.every((b, i) => b === want.bits[i])) { mapOk = false; mapBad = mapBad || pw + 'x' + ph + ' of ' + w + 'x' + h + ' at ' + x + ',' + y + (over ? ' over' : ''); }
+  }
+  check(mapOk, 'blitMapped is blitPixels of a window, or a set() of each pixel its tables point at, over or not, clipped at every edge, 400 places ' + mapBad);
 }
 
 // medianCut, its boxes' spans worked out once each, cuts as one that

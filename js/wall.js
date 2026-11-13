@@ -13,7 +13,7 @@
 //   ACK       1 when the sender's oldest stroke not yet acked was painted, 0 refused
 // an instance is the page's replica of it and its link: truth, the wall in
 // the server's order, and shown, truth with the visitor's own ink not yet
-// acked over it, both in the page's bytes through a lut. the pen paints
+// acked over it, both in the page's colours through a lut. the pen paints
 // shown at once and sends its points in batches, BATCH ms apart or MOST
 // points at a time; an ack paints the oldest batch onto truth or, refused,
 // takes it off shown. ink is spent by the px of brush across times the px
@@ -24,8 +24,37 @@
 
 const WALL = {
   W: 1344, H: 576,
+  // the sixteen a visitor picks, then the colours they mix to (js/mix.js): each the even mix of two
+  // before it, the one farthest from all before it (tools/mix/list.js). a colour's place in the list is
+  // what the wall's bytes hold, so the list is only ever added to, at its end
   COLOURS: ['#fbf6f0', '#000000', '#49B6B0', '#B8B693', '#B5979A', '#D9534A', '#E8913A', '#EDC84A',
-            '#6FAE5B', '#2F6B4F', '#3F7FBF', '#2B3A67', '#7E5AA8', '#E58FB0', '#8A5A3C', '#8C8C8C'],
+            '#6FAE5B', '#2F6B4F', '#3F7FBF', '#2B3A67', '#7E5AA8', '#E58FB0', '#8A5A3C', '#8C8C8C',
+            '#c7a95e', '#6eb0da', '#eb867c', '#96565f', '#3f6164', '#af8ecd', '#4e4a33', '#7cad86',
+            '#d29a74', '#817753', '#f1bcd2', '#55874e', '#51859e', '#8fa051', '#a2d18f', '#afce67',
+            '#505d79', '#685859', '#5f897b', '#846b98', '#ec9362', '#f5e17c', '#f3ca94', '#b59ec2',
+            '#efb354', '#b46e61', '#bababa', '#d2cc82', '#839cd3', '#f2a79e', '#70cc87', '#978045',
+            '#89afa3', '#86a5b3', '#5068b2', '#887587', '#95786d', '#3d444d', '#885874', '#af7d9a',
+            '#626c5c', '#5cb2c7', '#68805c', '#6678a4', '#83cb61', '#f2c3a8', '#b19575', '#8c9d69',
+            '#cf6952', '#a4b9e0', '#aa7848', '#8f9880', '#a5cbad', '#f0ae6e', '#d8d6bf', '#425b8f',
+            '#2d453d', '#c2bf5c', '#4e9274', '#c58286', '#df6641', '#465e3b', '#6f4f3e', '#7e89a2',
+            '#7bd6d2', '#95c7d2', '#8ad4a4', '#e4dfa9', '#61723b', '#63b07b', '#8178bf', '#b0a66e',
+            '#acbd82', '#687076', '#bfe0ae', '#d4b552', '#c69081', '#ca7d58', '#d0afa3', '#e57e45',
+            '#a49944', '#7aa667', '#b68a45', '#cde190', '#4d7e84', '#619fa3', '#65bd9c', '#ab5553',
+            '#d79fa8', '#afafc3', '#f4d386', '#ef9d81', '#433b35', '#976bac', '#906870', '#7c7f3a',
+            '#83673b', '#625f37', '#d0b58c', '#303d5a', '#e1c7c7', '#5ca192', '#90d680', '#5599cf',
+            '#8ed6be', '#ac7a5e', '#f7dbb2', '#746556', '#3e6657', '#aea08f', '#a9a0d6', '#db914b',
+            '#8785ba', '#505752', '#acbc6c', '#c19c68', '#71596f', '#f8ea9e', '#f3b68e', '#aacec7',
+            '#615f88', '#97675a', '#6e8c42', '#486d7f', '#708993', '#95c270', '#918b59', '#a9b4a1',
+            '#6d5c95', '#a15642', '#cca5bc', '#b489b6', '#7498bd', '#d39b46', '#99ad87', '#827e6e',
+            '#bdcde7', '#a58da2', '#b8b064', '#807272', '#9598bd', '#61be60', '#7aa246', '#89b951',
+            '#7abeb7', '#ab6843', '#be773e', '#ca6d3f', '#71977a', '#cb6963', '#7c948e', '#5a9a56',
+            '#3c7c52', '#d79460', '#f2bfb8', '#827b9e', '#4782ac', '#a48258', '#d3d769', '#96be89',
+            '#f6d6c2', '#8c5144', '#7c5553', '#917157', '#5971ac', '#679669', '#455541', '#e3b464',
+            '#564e5f', '#c2bbe1', '#c8c38d', '#d4b87c', '#d0856f', '#4f7446', '#de6560', '#a66d7e',
+            '#b6696e', '#9f9e76', '#ae7c76', '#91c9e5', '#98a5a5', '#3e806f', '#375465', '#68a0b9',
+            '#d8a98f', '#a4ad4e', '#989754', '#7cb89f', '#b8cb9f', '#f6d2df', '#de8e89', '#cab4c2',
+            '#7fbf78', '#e88368', '#647b76', '#374e74', '#466990', '#89afcc', '#b45546', '#705d3f',
+            '#b7953f', '#eca7c3', '#6b6a7e', '#a9bcc9', '#f2c665', '#deaf72', '#cbbeb0', '#ab838f'],
   SIZES: [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], // brush diameters, px
   MOST: 64,               // points a stroke message holds at most
   BATCH: 50,              // ms between sends while the pen is down
@@ -39,12 +68,12 @@ const WALL = {
 class Wall {
   constructor(lut) {
     if (!lut) {
-      lut = new Uint8Array(16);
-      for (let i = 0; i < 16; i++) lut[i] = i;
+      lut = new Uint8Array(WALL.COLOURS.length);
+      for (let i = 0; i < lut.length; i++) lut[i] = i;
     }
-    this.lut = lut;                                         // a wall colour index to the page's byte
-    this.truth = new Uint8Array(WALL.W * WALL.H).fill(lut[0]); // the wall in the server's order
-    this.shown = new Uint8Array(WALL.W * WALL.H).fill(lut[0]); // truth with own ink not yet acked over it
+    this.lut = lut;                                                 // a wall colour index to the page's v
+    this.truth = new lut.constructor(WALL.W * WALL.H).fill(lut[0]); // the wall in the server's order, as wide a pixel as the lut's
+    this.shown = new lut.constructor(WALL.W * WALL.H).fill(lut[0]); // truth with own ink not yet acked over it
     this.live = false;    // a snapshot has come on the current socket
     this.url = null;
     this.wanted = false;  // connected, or to be
