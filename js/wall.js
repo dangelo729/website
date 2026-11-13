@@ -26,7 +26,7 @@ const WALL = {
   W: 1344, H: 576,
   COLOURS: ['#fbf6f0', '#000000', '#49B6B0', '#B8B693', '#B5979A', '#D9534A', '#E8913A', '#EDC84A',
             '#6FAE5B', '#2F6B4F', '#3F7FBF', '#2B3A67', '#7E5AA8', '#E58FB0', '#8A5A3C', '#8C8C8C'],
-  SIZES: [2, 4, 8, 16],   // brush diameters, px
+  SIZES: [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], // brush diameters, px
   MOST: 64,               // points a stroke message holds at most
   BATCH: 50,              // ms between sends while the pen is down
   INK: 120000,            // a full pen, in px of brush width times px of travel

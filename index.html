@@ -453,8 +453,8 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // Doodles' box holds items as the work boxes do: graffiti wall, an
-    // item as theirs are, the wall over its text (the wall, below), and
+    // Doodles' box holds items as the work boxes do, two of them: graffiti
+    // wall, whose bubble opens into the wall itself (the wall, below), and
     // bubble bob, whose o is the bubble's (below), a ring BOB of
     // Doodles' o across and up, sitting on the baseline and bigger than
     // the name round it. it is his item's bubble shut, so his item has no
@@ -642,9 +642,9 @@
       // bottle there, laid out as shipAt (the ship, below). daedalus: it
       // holds daedalus over its text, laid out as daedalusAt (daedalus's
       // body, below). piano: it holds upright's keys and their menu over
-      // its text, laid out as pianoAt (the piano, below). wall: it holds
-      // the graffiti wall's opening and its tools over its text, laid out
-      // as wallAt (the wall, below). menu is its
+      // its text, laid out as pianoAt (the piano, below). wall: it is the
+      // graffiti wall, its bubble open a box round the wall and its menu,
+      // laid out as wallAt (the wall, below). menu is its
       // demo's settings menu as laid out and that menu's state,
       // { ui, m }, monk mouth's or upright's, and push how far its menu
       // has what is under it pushed down now (pushItem)
@@ -1109,6 +1109,28 @@
         const ring = og ? { x0: ox + ik * (og.x + og.dx - og.g.w / 2), y0: base + below - oh, x1: ox + ik * (og.x + og.dx - og.g.w / 2) + ow, y1: base + below, r: Math.min(ow, oh) / 2 } : null;
         it.hit = { x0: ix0, y0: Math.min(base - ik * t.ascent, ring ? ring.y0 : Infinity), x1: ox + ik * t.right + push, y1: base + ik * t.descent };
         it.right = it.hit.x1; // its furthest ink right, its text's too
+        if (it.wall) {
+          // shut, round its caret and name as the others' are; open, a
+          // box round the wall's opening, the whole inside of its
+          // outline (the wall, below): as much of the wall as fits
+          // across the insides and, down, twice bubble bob's box, in
+          // whole px, and no more than the wall
+          const like = sections.find((o) => o.photo && o.box.full), fy = base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is;
+          const tall = 2 * BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * x0);
+          const qx = Math.ceil(ix0 + BOX.LINE), qy = Math.ceil(fy + BOX.LINE);
+          const ow = Math.min(WALL.W, Math.floor(ix1 - BOX.LINE) - qx), oh = Math.min(WALL.H, Math.floor(fy + tall - BOX.LINE) - qy);
+          it.shut = { x0: ix0, y0: fy, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is, r: BOX.ITEM_RADIUS * is };
+          it.full = { x0: ix0, y0: fy, x1: qx + ow + BOX.LINE, y1: qy + oh + BOX.LINE, r: BOX.ITEM_RADIUS * is };
+          it.right = it.full.x1;
+          it.ext = it.full.y1 - it.shut.y1;
+          it.base = base;
+          it.clip = base;
+          it.span = 0;
+          it.logosAt = [];
+          it.wallAt = placeWall(qx, qy, ow, oh, bs, ix0 + bx - qx, seed + 9000 + 10 * i + 5);
+          base += BOX.ROW * is;
+          return;
+        }
         if (ring) {
           // shut, round his caret and name as the others' are, from
           // ITEM_PAD_Y over the ring where that stands over the caps;
@@ -1146,9 +1168,7 @@
         // above the text, centred across the text's measure, or across the
         // room the text has when that is narrower than he is, and so do
         // upright's keys and their menu (PIANO, below), a box PIANO.W wide
-        // and as tall as pianoH has it at the text's size. the graffiti
-        // wall's opening and its tools (the wall, below) go in the row
-        // too, from the caret's ink across the bubble, as wallBox has them
+        // and as tall as pianoH has it at the text's size
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1174,12 +1194,7 @@
           arts.unshift({ l: {}, demo: true, piano: true, w: PIANO.W, h: pianoH(bs) });
           colW = Math.max(colW, PIANO.W);
         }
-        if (it.wall) {
-          const wb = wallBox(rx - ix0 - bx);
-          arts.unshift({ l: {}, demo: true, wall: wb, w: wb.w, h: wb.h });
-          colW = Math.max(colW, wb.w);
-        }
-        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && !it.wall && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
@@ -1199,13 +1214,11 @@
         it.shipAt = null;
         it.daedalusAt = null;
         it.pianoAt = null;
-        it.wallAt = null;
         it.menu = null;
         for (const a of arts) {
-          const x = Math.round(a.wall ? ix0 + bx : beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
-          if (a.wall) it.wallAt = placeWall(x, y, a.wall, bs, seed + 9000 + 10 * i + 5);
-          else if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
+          if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
           else if (a.piano) {
             it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5);
             it.menu = { ui: it.pianoAt.menu, m: pianoMenu };
@@ -1279,9 +1292,9 @@
       s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       grow(s);
       // each item's skin settled where its bubble is now: laid out again,
-      // it is put straight there, as a box's is. bubble bob's opens as big
-      // as a box, so it bows as a box's skin does
-      for (const it of s.items) it.skin = new Skin(itemAt(it), it.game ? SKIN.SPREAD : BOX.ITEM_SPREAD);
+      // it is put straight there, as a box's is. bubble bob's and graffiti
+      // wall's open as big as a box, so they bow as a box's skin does
+      for (const it of s.items) it.skin = new Skin(itemAt(it), it.game || it.wall ? SKIN.SPREAD : BOX.ITEM_SPREAD);
     }
 
     // a box's accordions where they have got to: each item pushed down by
@@ -1448,8 +1461,8 @@
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, its logos, its demo
-      // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus), its
-      // piano (drawPiano) and its wall (drawWall) with it, its text and its links as far down
+      // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus) and
+      // its piano (drawPiano) with it, its text and its links as far down
       // as its menu pushes them (push), all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
@@ -1457,7 +1470,9 @@
       // item whose skin's box, LINE + 1 px more all round, misses the
       // window's rows is left out. bubble bob's insides are the bubble's
       // world, and his caret and name go over his skin, so it never cuts
-      // them as it bows open and shut
+      // them as it bows open and shut. graffiti wall's insides are the
+      // wall and its menu (drawWall), wiped in as its bubble opens, and
+      // its caret and name over them on paper the shape of its bubble shut
       for (const it of s.items) {
         if (!it.skin) continue;
         const b = it.skin.bounds(), m = BOX.LINE + 1;
@@ -1477,9 +1492,13 @@
           for (const L of it.letters) L.draw(t, d, cfb, 0, v);
           continue;
         }
+        if (it.wall) {
+          if (it.p > 0) drawWall(it, t, d, hover);
+          pfb.roundRect(it.shut.x0, it.shut.y0 + d, it.shut.x1, it.shut.y1 + d, it.shut.r, 0, 0);
+        }
         if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, pfb, 0, v);
-        if (it.p > 0) {
+        if (it.p > 0 && !it.wall) {
           const end = it.clip + it.p * it.span + d, dp = d + it.push;
           const see = (L) => L.cy + dp > lo && L.cy + dp < Math.min(hi, end + BOX.MOST);
           for (const L of it.text) if (see(L)) L.draw(t, dp, pfb);
@@ -1492,7 +1511,6 @@
           if (it.shipAt) drawShip(it, t, d);
           if (it.daedalusAt) drawDaedalus(it, t, d);
           if (it.pianoAt) drawPiano(it, t, d, hover);
-          if (it.wallAt) drawWall(it, t, d);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1642,8 +1660,9 @@
     // { s, it, settings, slider }, its button if it has one, { s, it,
     // settings, randomize }, or anywhere else in it, { s, it, settings }; one of the
     // box's items, its caret, its name
-    // or right of them to the box's edge (bubble bob's only as far as his
-    // bubble's right shut, so the game beside it is free), a little above
+    // or right of them to the box's edge (bubble bob's and graffiti wall's
+    // only as far as the bubble's right shut, so the game or the wall
+    // beside it is free), a little above
     // and below,
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; an item's demo's
@@ -1653,10 +1672,13 @@
     // to show it, { s, it, ship }; an item's piano's keys, once they are
     // in, as far as its text has opened to show them and where its menu
     // has them pushed, { s, it, piano, key }, key the midi note of the key
-    // there (Keys.at), -1 for none; an item's wall, as far as its text
-    // has opened to show it: its opening, { s, it, wall }, or one of its
-    // tools' cells, half the gap between them round it, { s, it, wall,
-    // cell }; a word whose box is not open, a little
+    // there (Keys.at), -1 for none; graffiti wall, as far as its bubble
+    // has opened: its menu's header, a little round it, { s, it, wall,
+    // menu }, and, once the menu is over half open, one of its cells,
+    // half the gap between them round it, { s, it, wall, cell }, its
+    // slider's bar across and its row down, a little round them, { s, it,
+    // wall, width }, or anywhere else in it, { s, it, wall }, and the wall itself, clear of
+    // its label, { s, it, wall, canvas }; a word whose box is not open, a little
     // round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
@@ -1700,7 +1722,7 @@
                 if (inside(sm.full, 0)) return { s, it, settings: true };
               }
             }
-            if (x >= h.x0 - 4 && x <= (it.game ? it.shut.x1 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            if (x >= h.x0 - 4 && x <= (it.game || it.wall ? it.shut.x1 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
               if (!k) continue;
@@ -1716,12 +1738,16 @@
             if (sb && x >= sb.x0 && x <= sb.x1 && iy >= sb.y0 && iy <= sb.y1) return { s, it, ship: true };
             const kb = it.pianoAt && Keys.ready && it.p > 0 && iy <= it.clip + it.p * it.span ? it.pianoAt.box : null, uy = iy - it.push;
             if (kb && x >= kb.x0 && x <= kb.x1 && uy >= kb.y0 && uy <= kb.y1) return { s, it, piano: true, key: Keys.at(x - (kb.x0 + kb.x1) / 2, uy - (kb.y0 + kb.y1) / 2) };
-            const wa = it.wallAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.wallAt : null;
-            if (wa) {
-              const wb = wa.box, wm = WALL_UI.GAP / 2;
-              if (x >= wb.x0 && x < wb.x1 && iy >= wb.y0 && iy < wb.y1) return { s, it, wall: true };
-              if (wall.live) for (const cell of wa.cells)
-                if (x >= cell.x0 - wm && x < cell.x1 + wm && iy >= cell.y0 - wm && iy < cell.y1 + wm) return { s, it, wall: true, cell };
+            const wa = it.wallAt && it.p > 0 ? it.wallAt : null, wo = wa && itemAt(it);
+            if (wa && x <= wo.x1 && iy + it.shift <= wo.y1) {
+              const wu = wa.menu, wb = wa.box, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              if (inside(wu.shut, 2)) return { s, it, wall: true, menu: wallMenu };
+              if (wallMenu.open && wallMenu.p > 0.5) {
+                for (const cell of wu.cells) if (inside(cell, WALL_UI.GAP / 2)) return { s, it, wall: true, cell };
+                if (inside(wu.slider.hit, 2)) return { s, it, wall: true, width: true };
+                if (inside(wu.full, 0)) return { s, it, wall: true };
+              }
+              if (x >= wb.x0 && x < wb.x1 && iy >= wb.y0 && iy < wb.y1 && (x > it.shut.x1 || iy > it.shut.y1)) return { s, it, wall: true, canvas: true };
             }
           }
           continue;
@@ -1743,8 +1769,9 @@
     // they are held (the demo, below), and nor does the rest of an open
     // menu, nor a ship, turned while it is held (the ship, below), nor the
     // piano's keys, played while they are held (the piano, below), nor the
-    // wall, drawn on while it is held, nor its tools, picked as they are
-    // pressed (the wall, below)
+    // wall, drawn on while it is held, nor its menu's cells, picked as
+    // they are pressed, nor its slider, set while it is held (the wall,
+    // below), though its menu's header opens and shuts it as the others' do
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -3454,37 +3481,56 @@
     });
 
     // --- the wall ----------------------------------------------------------------
-    // graffiti wall's item, in Doodles, holds the wall (js/wall.js): one
-    // bitmap, WALL.W by WALL.H px in the wall's own colours, that every
-    // visitor draws on, kept by its server (tools/wall-server) and sent to
-    // everyone looking at it as it is drawn. the item shows it through an
-    // opening where its logos would go (layoutItems), from its caret's ink
-    // across its bubble: as much of the wall as fits across and, down,
-    // twice bubble bob's box, a px of outline round it, 1 : 1 and still, so
-    // a px drawn is a px of the wall. where the opening is smaller than the
-    // wall it starts over the wall's middle and is moved over it by two
-    // fingers on it, or by the wheel over it (the wheel, below): across by
-    // the wheel's way across, down by its way down as far as the wall
-    // goes, and what is left of that scrolls the page. under it are its
-    // tools, cells CELL px square and GAP apart, in rows as wide as the
-    // opening: the wall's colours, the one picked filling its cell and the
-    // rest a little smaller, the first the paper's, which rubs out; and its
-    // brushes, each as it stamps, the one picked outlined. a press on a
-    // cell picks it. a primary press on the opening draws in the colour
-    // and brush picked: a mouse's at once, a finger's once it has moved
-    // SLOP px, stayed HOLD ms or lifted (a dot), so a second finger coming
-    // down before that moves the wall and leaves no mark. while it is held
-    // the pen follows the pointer, kept inside the opening; a lift ends the
-    // stroke, the click it ends in presses nothing, and a press on the
-    // opening is never a swipe (the swipe, below). the pen runs dry when it
-    // draws faster than its ink comes back, and draws again as it does
-    // (js/wall.js). the page joins the wall's server while graffiti wall is
-    // open in Doodles' open box and leaves it when either shuts; until the
-    // wall has come the tools' place says so, and nothing draws
+    // graffiti wall, in Doodles, is the wall (js/wall.js): one bitmap,
+    // WALL.W by WALL.H px in the wall's own colours, that every visitor
+    // draws on, kept by its server (tools/wall-server) and sent to everyone
+    // looking at it as it is drawn. its bubble shut goes round its caret
+    // and name as the others' do; open, it is a box round the wall
+    // (layoutItems): as much of the wall as fits across the box's insides
+    // and, down, twice bubble bob's box, the whole inside of its outline
+    // the wall, 1 : 1 and still, so a px drawn is a px of the wall. its
+    // caret and name stay in its top left corner as its label, on paper
+    // the shape of its bubble shut, so the wall's ink never hides them. in
+    // its top right corner, as far in from the top and right as its
+    // caret's ink is from its left, is its menu, built as bubble bob's is
+    // (the shop, above) and moving as his does: shut, a button, a caret,
+    // TITLE, his BAR and the pen, the brush in use as it stamps in the
+    // colour picked (the paper's, which would not show, as a ring of ink),
+    // in the middle of what the button has left right of the bar, the button tall enough to
+    // hold it and as wide as the open menu, its words at its left; open,
+    // the wall's colours under it in rows of COLS cells,
+    // CELL px square and GAP apart, the one picked filling its cell and
+    // the rest a little smaller, the first the paper's, which rubs out,
+    // and along the bottom, as wide as they are, its brush's slider, a
+    // small ribbon as the demo's menu's are (drawBar): a bar with a tick
+    // in the middle of each brush's zone and a dot on the line of the one
+    // in use, going from line to line as theirs do.
+    // a press on a cell picks its colour, and one on the header opens the
+    // menu or shuts it; a primary press on the bar, or its row above and
+    // below it, takes it, and while it is held the brush is the one whose
+    // zone the pointer is in across the bar, and the click it ends in
+    // presses nothing. under the pointer a cell's outline, and the bar,
+    // are in the words' hover colour (the inventor's). where the opening is smaller than the wall it
+    // starts over the wall's middle and is moved over it by two fingers on
+    // it, or by the wheel over it (the wheel, below): across by the
+    // wheel's way across, down by its way down as far as the wall goes,
+    // and what is left of that scrolls the page. a primary press on the
+    // wall draws in the colour and brush picked: a mouse's at once, a
+    // finger's once it has moved SLOP px, stayed HOLD ms or lifted (a
+    // dot), so a second finger coming down before that moves the wall and
+    // leaves no mark. while it is held the pen follows the pointer, kept
+    // inside the opening; a lift ends the stroke, the click it ends in
+    // presses nothing, and a press on the wall is never a swipe (the
+    // swipe, below). the pen runs dry when it draws faster than its ink
+    // comes back, and draws again as it does (js/wall.js). the page joins
+    // the wall's server while graffiti wall is open in Doodles' open box
+    // and leaves it when either shuts; until the wall has come, words in
+    // its middle say so, and nothing draws
     const WALL_UI = {
-      CELL: 22, // world px, a tool's cell, square
+      TITLE: 'settings', // what the menu's header says
+      COLS: 4,  // cells in a row of the menu
+      CELL: 22, // world px, a cell, square
       GAP: 4,   // world px between cells, across and down
-      DROP: 8,  // world px from under the opening's outline to the tools
       SLOP: 4,  // world px a finger moves before it draws
       HOLD: 80, // ms a finger stays before it draws
     };
@@ -3496,83 +3542,142 @@
     const WALL_URL = /(^|\.)(github\.io|peter-dangelo\.com)$/.test(location.hostname) ? WALL_LIVE
       : location.hostname ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + ':8787' : '';
     const wallHome = sections.find((s) => s.items.some((it) => it.wall)) || null; // the section whose box holds the wall
-    const wallItem = wallHome ? wallHome.items.find((it) => it.wall) : null;       // graffiti wall, the item it is in
+    const wallItem = wallHome ? wallHome.items.find((it) => it.wall) : null;       // graffiti wall, the item it is
     const wallLut = Uint8Array.from(WALL.COLOURS, (c) => Framebuffer.colour(c));   // each of the wall's colours as the framebuffer's v
     const wall = new Wall(wallLut);
     const wallPicture = { px: wall.shown, w: WALL.W, h: WALL.H }; // the wall as a picture the framebuffer takes
-    // each brush as a picture, its stamp in ink
-    const wallBrushes = WALL.SIZES.map((size) => {
-      const px = new Uint8Array(size * size);
-      Wall.stamp(px, size, size, size >> 1, size >> 1, size, 1);
-      return { px, w: size, h: size };
-    });
     const wallWords = {
       joining: new Type('connecting...', () => document.createElement('canvas'), TAG.FACE),
       offline: new Type('the wall is offline', () => document.createElement('canvas'), TAG.FACE),
+      title: new Type(WALL_UI.TITLE, () => document.createElement('canvas'), TAG.FACE),
+      bar: new Type(SHOP_UI.BAR, () => document.createElement('canvas'), TAG.FACE),
     };
-    let wallColour = 1, wallBrush = WALL.SIZES[1]; // the colour and the brush picked
+    let wallColour = 1, wallBrush = 4; // the colour and the brush picked
+    const wallNib = { px: null, w: 0, h: 0, brush: 0, colour: -1 }; // the pen as a picture, and the brush and colour it was made for
     let wallPan = null;            // the wall px at the opening's top left, { x, y }, once it is laid out
     let wallPen = null;            // the press drawing, { id, x, y, at, on }: its pointer, where and when it came down, world px on the screen and ms, and whether it has drawn yet; or null
-    const wallFingers = new Map(); // each finger down on the opening, by its pointer, where it was last, world px on the screen
+    const wallFingers = new Map(); // each finger down on the wall, by its pointer, where it was last, world px on the screen
     let wallJoined = false;        // whether the page has asked for the wall's server
+    let wallSlide = null;          // the pointer holding the brush's slider, or null
+    let wallDot = null;            // the slider's dot, 0 .. 1 across its bar, where it has got to; null until it is first put on its line
+    // the menu, as bubble bob's is (menu, above)
+    const wallMenu = {
+      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    };
 
-    // the wall's box in a room room px across: the opening, ow x oh, as
-    // much of the wall as fits across inside its outline and, down, twice
-    // bubble bob's box; how many cells go in a row of its tools; and the
-    // whole of it, w x h, the outline, the opening and the tools under it
-    function wallBox(room) {
-      const U = WALL_UI, like = sections.find((o) => o.photo && o.box.full);
-      const ow = Math.max(U.CELL, Math.min(WALL.W, Math.floor(room) - 2));
-      const oh = Math.max(U.CELL, Math.min(WALL.H, Math.round(2 * BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H))));
-      const per = Math.max(1, Math.floor((ow + 2 + U.GAP) / (U.CELL + U.GAP)));
-      const rows = Math.ceil((WALL.COLOURS.length + WALL.SIZES.length) / per);
-      return { ow, oh, per, w: ow + 2, h: oh + 2 + U.DROP + rows * U.CELL + (rows - 1) * U.GAP };
+    // the wall's opening with its top left at (x, y), w x h, world px on
+    // the page as laid out, at the text's size bs, inset how far its
+    // caret's ink is in from its left: the opening (box); the words that
+    // stand in its middle while there is no wall, as letters seeded from
+    // seed (joining, offline); and its menu, laid out as bubble bob's is
+    // (shopNow), { room, size, shut, full, header: { caret, title, bar,
+    // nib }, cells, slider }: its button in the opening's top right
+    // corner, on whole px, as wide as the open menu, its words from its
+    // left on the middle of its height and nib the top left of the pen's
+    // place, in the middle of the room right of the bar; and, open, down from it
+    // round the colours' cells under the header, each { x0, y0, x1, y1,
+    // colour }, and the slider's row under them, MARGIN round them all:
+    // the slider's bar and the box a press takes it in (hit, its bar
+    // across and its row down). the opening is kept on the wall, over its
+    // middle the first time
+    function placeWall(x, y, w, h, bs, inset, seed) {
+      const U = WALL_UI, S = SHOP_UI, box = { x0: x, y0: y, x1: x + w, y1: y + h };
+      const size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), k = size / TYPE.EM, th = Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC));
+      // the header, the shut menu: the caret, the title, a bar and the pen
+      const pen = WALL.SIZES[WALL.SIZES.length - 1], bh = Math.max(th, pen + 2 * BOX.LINE + 2), up = (bh - th) / 2 + size * (S.PAD_Y + S.CAP);
+      const tt = wallWords.title, bt = wallWords.bar, cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
+      const wide = (t) => k * (t.left + t.right);
+      // as wide shut as open, the wider of its header and its cells, so its words stand at its left either way
+      const margin = Math.round(S.MARGIN * size), pitch = U.CELL + U.GAP, gw = U.COLS * pitch - U.GAP;
+      const right = Math.round(x + w - inset), top = Math.round(y + inset);
+      const fw = Math.max(Math.round(cw + wide(tt) + wide(bt) + pen + 3 * apart + 2 * S.PAD_X * size), gw + 2 * margin);
+      const shut = { x0: right - fw, y0: top, x1: right, y1: top + bh }, hx = shut.x0 + S.PAD_X * size;
+      // a line's letters, its ink's left at x0, on the header's baseline
+      const line = (t, x0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), top + up + k * gl.dy, sd + gl.at, k, WOBBLE));
+      const xt = hx + cw + apart, xb = xt + wide(tt) + apart;
+      const header = {
+        caret: cg ? makeLetter(cg.g, hx + cw / 2, top + up + k * cg.dy, seed + 50, k, WOBBLE) : null,
+        title: line(tt, xt, seed + 60),
+        bar: line(bt, xb, seed + 90),
+        nib: { x: Math.round((xb + wide(bt) + shut.x1 - BOX.LINE - pen) / 2), y: top + ((bh - pen) >> 1), size: pen },
+      };
+      // the cells under it, from its left
+      const gx = shut.x0 + margin, cells = [];
+      for (let i = 0; i < WALL.COLOURS.length; i++) {
+        const cx = gx + (i % U.COLS) * pitch, cy = shut.y1 + Math.floor(i / U.COLS) * pitch;
+        cells.push({ x0: cx, y0: cy, x1: cx + U.CELL, y1: cy + U.CELL, colour: i });
+      }
+      // the slider's row: the bar in its middle, as wide as the cells
+      const ry = shut.y1 + Math.ceil(WALL.COLOURS.length / U.COLS) * pitch, by = ry + ((U.CELL - DEMO.SLIDER.H) >> 1);
+      const slider = {
+        bar: { x0: gx, y0: by, x1: gx + gw, y1: by + DEMO.SLIDER.H },
+        hit: { x0: gx, y0: ry, x1: gx + gw, y1: ry + U.CELL },
+      };
+      const full = { x0: shut.x0, y0: top, x1: right, y1: ry + U.CELL + margin };
+      // the words, a line's ink centred on the opening's middle
+      const bk = bs / TYPE.EM;
+      const words = (t, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x + w / 2 + bk * (gl.x + gl.dx + (t.left - t.right) / 2), y + h / 2 + bk * gl.dy, sd + gl.at, bk, WOBBLE));
+      const mx = WALL.W - w, my = WALL.H - h;
+      wallPan = wallPan ? { x: Math.min(wallPan.x, mx), y: Math.min(wallPan.y, my) } : { x: mx / 2, y: my / 2 };
+      return { box, joining: words(wallWords.joining, seed + 200), offline: words(wallWords.offline, seed + 300), menu: { room: box, size, shut, full, header, cells, slider } };
     }
 
-    // a wall's box b (wallBox) with its top left at (x, y), world px on the
-    // page as laid out, at the text's size bs: the opening inside its
-    // outline (box), its tools' cells, each { x0, y0, x1, y1, colour,
-    // brush }, a colour's brush 0 and a brush's colour -1, and the words
-    // that stand in the tools' place while there is no wall, as letters
-    // seeded from seed (joining, offline). the opening is kept on the
-    // wall, over its middle the first time
-    function placeWall(x, y, b, bs, seed) {
-      const U = WALL_UI, box = { x0: x + 1, y0: y + 1, x1: x + 1 + b.ow, y1: y + 1 + b.oh };
-      const top = box.y1 + 1 + U.DROP, cells = [], colours = WALL.COLOURS.length;
-      for (let i = 0; i < colours + WALL.SIZES.length; i++) {
-        const cx = x + (i % b.per) * (U.CELL + U.GAP), cy = top + Math.floor(i / b.per) * (U.CELL + U.GAP);
-        cells.push({ x0: cx, y0: cy, x1: cx + U.CELL, y1: cy + U.CELL, colour: i < colours ? i : -1, brush: i < colours ? 0 : WALL.SIZES[i - colours] });
-      }
-      const k = bs / TYPE.EM;
-      const words = (t, seed) => t.glyphs.map((gl) => makeLetter(gl.g, x + k * (t.left + gl.x + gl.dx), top + 0.75 * bs + k * gl.dy, seed + gl.at, k, WOBBLE));
-      const mx = WALL.W - b.ow, my = WALL.H - b.oh;
-      wallPan = wallPan ? { x: Math.min(wallPan.x, mx), y: Math.min(wallPan.y, my) } : { x: mx / 2, y: my / 2 };
-      return { box, cells, joining: words(wallWords.joining, seed), offline: words(wallWords.offline, seed + 100) };
+    // the pen as a picture: the brush in use as it stamps, in the colour
+    // picked; the paper's as a ring of ink a px thick, where the brush is
+    // big enough to have a middle. made again when either changes
+    function nibNow() {
+      const g = wallNib, size = wallBrush;
+      if (g.brush === size && g.colour === wallColour) return g;
+      g.brush = size;
+      g.colour = wallColour;
+      g.w = g.h = size;
+      g.px = new Uint8Array(size * size);
+      Wall.stamp(g.px, size, size, size >> 1, size >> 1, size, wallColour ? wallLut[wallColour] : 1);
+      if (!wallColour && size > 2) Wall.stamp(g.px, size, size, size >> 1, size >> 1, size - 2, 0);
+      return g;
     }
 
     // item it's wall, d world px down from where it was laid out, into
-    // pfb: the part of the wall the opening is over, its outline, and
-    // under it the tools, or, with no wall yet, the words that say so
-    function drawWall(it, t, d) {
-      const a = it.wallAt, b = a.box, dy = Math.round(d), U = WALL_UI;
+    // pfb, hover what the pointer is on: the part of the wall the opening
+    // is over, the words in its middle while there is no wall, and its
+    // menu, drawn as drawSettings draws a demo's: its header, the pen
+    // (nibNow) in the middle of its place, and, while it is open at all,
+    // its cells and its slider's bar (drawBar) with its dot where it has
+    // got to, into qfb over
+    // its skin's box, then qfb copied into pfb through the skin and the
+    // skin outlined over it, in the links' hover colour while the header
+    // is hovered; a hovered cell's outline, and the bar hovered or held,
+    // in the words'
+    function drawWall(it, t, d, hover) {
+      const a = it.wallAt, b = a.box, dy = Math.round(d), U = WALL_UI, ui = a.menu, m = wallMenu;
       wallPicture.px = wall.shown;
       pfb.blitPixels(wallPicture, b.x0, b.y0 + dy, Math.round(wallPan.x), Math.round(wallPan.y), b.x1 - b.x0, b.y1 - b.y0);
-      pfb.roundRect(b.x0 - 1, b.y0 - 1 + dy, b.x1 + 1, b.y1 + 1 + dy, 0);
       if (!wall.live) {
         const words = WALL_URL ? a.joining : a.offline;
         for (let i = 0; i < words.length; i++) words[i].draw(t, dy, pfb);
-        return;
       }
-      for (let i = 0; i < a.cells.length; i++) {
-        const c = a.cells[i];
-        if (c.brush) {
-          const g = wallBrushes[WALL.SIZES.indexOf(c.brush)];
-          pfb.blitPixels(g, c.x0 + ((U.CELL - g.w) >> 1), c.y0 + dy + ((U.CELL - g.h) >> 1));
-          if (c.brush === wallBrush) pfb.roundRect(c.x0, c.y0 + dy, c.x1, c.y1 + dy, 3, null, 1, 2);
-        } else {
-          const on = c.colour === wallColour, m = on ? 0 : 2;
-          pfb.roundRect(c.x0 + m, c.y0 + dy + m, c.x1 - m, c.y1 + dy - m, 3, wallLut[c.colour], 1, on ? 2 : 1);
+      if (!m.skin) return;
+      const v = hover && hover.it === it && hover.menu === m ? HOVER_LINK : 1, box = m.skin.bounds();
+      qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
+      if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
+      for (let i = 0; i < ui.header.title.length; i++) ui.header.title[i].draw(t, dy, qfb, 0, v);
+      for (let i = 0; i < ui.header.bar.length; i++) ui.header.bar[i].draw(t, dy, qfb, 0, v);
+      const nib = ui.header.nib, g = nibNow();
+      qfb.blitPixels(g, nib.x + ((nib.size - g.w) >> 1), nib.y + dy + ((nib.size - g.h) >> 1));
+      if (m.p > 0) {
+        const on = hover && hover.it === it && hover.wall ? hover : null;
+        for (let i = 0; i < ui.cells.length; i++) {
+          const c = ui.cells[i], picked = c.colour === wallColour, inset = picked ? 0 : 2;
+          qfb.roundRect(c.x0 + inset, c.y0 + dy + inset, c.x1 - inset, c.y1 + dy - inset, 3, wallLut[c.colour], on && on.cell === c ? HOVER : 1, BOX.LINE);
         }
+        drawBar(qfb, ui.slider.bar, dy, WALL.SIZES.length, wallDot, wallSlide || (on && on.width) ? HOVER : 1, DEMO.SLIDER);
+      }
+      const pts = m.skin.screen(dy), n = pts.length;
+      pfb.fillPolygon(pts, qfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        pfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
       }
     }
 
@@ -3585,10 +3690,10 @@
       return { x: b.x0, y: b.y0 + Math.round(wallItem.shift + wallHome.off - scrolled()), w: b.x1 - b.x0, h: b.y1 - b.y0 };
     }
 
-    // whether a press is on the wall's opening
+    // whether a press is on the wall itself
     function onWall(e) {
       const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
-      return !!(h && h.wall && !h.cell);
+      return !!(h && h.canvas);
     }
 
     // the opening moved (dx, dy) px over the wall, no further than the
@@ -3600,6 +3705,14 @@
       wallPan.x = Math.min(Math.max(wallPan.x + dx, 0), WALL.W - v.w);
       wallPan.y = y;
       return left;
+    }
+
+    // the brush's slider held with the pointer x world px across the
+    // screen: the brush whose zone of the bar that is in, the first's left
+    // of the bar and the last's right of it
+    function slideTo(x) {
+      const b = wallItem.wallAt.menu.slider.bar, n = WALL.SIZES.length;
+      wallBrush = WALL.SIZES[Math.min(n - 1, Math.max(0, Math.floor((x - b.x0) / (b.x1 - b.x0) * n)))];
     }
 
     // the pen down at, or moved to, p, world px on the screen, kept inside
@@ -3624,6 +3737,7 @@
         else {
           wall.disconnect();
           wallPen = null;
+          wallSlide = null;
           wallFingers.clear();
         }
       }
@@ -3635,11 +3749,12 @@
       if (e.button !== 0) return;
       const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.wall) return;
-      if (h.cell) {
-        if (h.cell.brush) wallBrush = h.cell.brush;
-        else wallColour = h.cell.colour;
-        return;
+      if (h.cell) wallColour = h.cell.colour;
+      if (h.width && e.isPrimary) {
+        wallSlide = e.pointerId;
+        slideTo(p.x);
       }
+      if (!h.canvas) return;
       if (e.pointerType === 'touch') {
         wallFingers.set(e.pointerId, p);
         // a second finger: the pen is up, and the two move the wall
@@ -3659,6 +3774,7 @@
         if (wallFingers.size > 1) panWall((f.x - p.x) / wallFingers.size, (f.y - p.y) / wallFingers.size);
         wallFingers.set(e.pointerId, p);
       }
+      if (e.pointerId === wallSlide) slideTo(p.x);
       if (!wallPen || e.pointerId !== wallPen.id) return;
       if (!wallPen.on) {
         if (Math.hypot(p.x - wallPen.x, p.y - wallPen.y) < WALL_UI.SLOP) return;
@@ -3668,15 +3784,17 @@
     });
     // a lifted press on the wall: a finger that never drew leaves a dot,
     // the stroke ends, and the click it ends in presses nothing, wherever
-    // the pointer has got to, as the bottle's does
+    // the pointer has got to, as the bottle's does; and the slider is let
+    // go, its click pressing nothing either
     const wallGo = (e) => {
-      const finger = wallFingers.delete(e.pointerId), pen = !!wallPen && e.pointerId === wallPen.id;
+      const finger = wallFingers.delete(e.pointerId), pen = !!wallPen && e.pointerId === wallPen.id, slide = e.pointerId === wallSlide;
+      if (slide) wallSlide = null;
       if (pen) {
         if (!wallPen.on && e.type === 'pointerup') penTo(wallPen);
         wall.lift();
         wallPen = null;
       }
-      if ((finger || pen) && e.type === 'pointerup') grabbed = true;
+      if ((finger || pen || slide) && e.type === 'pointerup') grabbed = true;
     };
     canvas.addEventListener('pointerup', wallGo);
     canvas.addEventListener('pointercancel', wallGo);
@@ -3697,8 +3815,8 @@
     // there. a press that goes across first is the page's to the end. a
     // press while it glides stops it and is the swipe's alone, its events
     // and its click going no further: up or down, it swipes on from where
-    // it stopped it. a press on the wall's opening that stops no glide is
-    // the wall's to the end (the wall, above), and never a swipe
+    // it stopped it. a press on the wall that stops no glide is the
+    // wall's to the end (the wall, above), and never a swipe
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is read from
@@ -3829,8 +3947,8 @@
     // event's way down, no further than either end, stopping a glide. its
     // events under RUN ms apart are one run, and a run that starts over the
     // bottle turns the bottle instead (the ship, above), to its last event,
-    // and one that starts over the wall's opening moves the opening over
-    // the wall (the wall, above), the page scrolling by what that leaves
+    // and one that starts over the wall moves its opening over
+    // it (the wall, above), the page scrolling by what that leaves
     // of its way down. a wheel held with ctrl is the browser's zoom and
     // moves nothing
     const WHEEL = {
@@ -3846,7 +3964,7 @@
       if (now - wheelAt >= WHEEL.RUN) {
         const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
         wheelShip = !!(h && h.ship);
-        wheelWall = !!(h && h.wall && !h.cell);
+        wheelWall = !!(h && h.canvas);
       }
       wheelAt = now;
       const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
@@ -4041,6 +4159,8 @@
       // each item's skin after its bubble while its box is out of the o
       for (const s of sections) if (s.box.shown) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
       stepMenu(menu, shopNow(), dt, t);
+      stepMenu(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
+      wallDot = dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
       stepSwipe(dt);

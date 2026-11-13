@@ -129,7 +129,8 @@ function live(lut, now = 0) {
     return { size, n: lit(a, 40).length, same: differ(a, b) < 0 };
   });
   check('every size is the round brush its definition gives', counts.every((c) => c.same), counts.map((c) => c.size + ': ' + c.n + ' px').join(', '));
-  check('8 is 52 px and 16 is 208, counted by hand', counts[2].n === 52 && counts[3].n === 208);
+  const n = (size) => counts.find((c) => c.size === size).n;
+  check('1 is a px, 3 a 3x3 block, 8 is 52 px and 16 is 208, counted by hand', n(1) === 1 && n(3) === 9 && n(8) === 52 && n(16) === 208);
   let clipped = true;
   for (const size of WALL.SIZES) {
     for (const [x, y] of [[0, 0], [9, 0], [0, 5], [9, 5], [4, 0], [0, 3], [-3, 2], [12, 8]]) {
@@ -157,7 +158,7 @@ function live(lut, now = 0) {
     const n = 1 + int(6), pts = [];
     for (let k = 0; k < n; k++) pts.push(int(W), int(H));
     if (t === 0) pts.splice(0, pts.length, 30, 40);
-    const size = WALL.SIZES[t % 4];
+    const size = WALL.SIZES[t % WALL.SIZES.length];
     fb.clear();
     if (n === 1 || t === 0) fb.set(pts[0], pts[1], 1);
     for (let k = 2; k < pts.length; k += 2) fb.line(pts[k - 2], pts[k - 1], pts[k], pts[k + 1], 1);
@@ -262,7 +263,8 @@ check('cost: the points between segments counted once', Wall.cost([0, 0, 10, 3, 
     ['a byte short', good.slice(0, -1)],
     ['a byte long', good.concat([0])],
     ['a colour past the last', [1, WALL.COLOURS.length].concat(good.slice(2))],
-    ['a size not among SIZES', [1, 3, 3].concat(good.slice(3))],
+    ['a size not among SIZES', [1, 3, 9].concat(good.slice(3))],
+    ['a size of none', [1, 3, 0].concat(good.slice(3))],
     ['x off the wall', Array.from(Wall.encodeStroke(3, 4, [10, 20, W, 40]))],
     ['y off the wall', Array.from(Wall.encodeStroke(3, 4, [10, H, 30, 40]))],
   ];
@@ -428,7 +430,7 @@ check('cost: the points between segments counted once', Wall.cost([0, 0, 10, 3, 
     x += int(81) - 40;
     y += int(81) - 40;
     const was = w.level;
-    w.pen(int(3) ? 4 : int(16), WALL.SIZES[int(50) ? 3 : int(4)], x, y, now);
+    w.pen(int(3) ? 4 : int(16), WALL.SIZES[int(50) ? WALL.SIZES.length - 1 : int(WALL.SIZES.length)], x, y, now);
     charged += was - w.level;
     if (int(3) === 0) w.step(now += 20);
   }
