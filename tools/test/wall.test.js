@@ -282,7 +282,14 @@ check('cost: the points between segments counted once', Wall.cost([0, 0, 10, 3, 
   check('a new replica: both bitmaps paper through the lut, not live', w.truth.every((v) => v === 200) && w.shown.every((v) => v === 200) && !w.live);
   check('the pen draws nothing before it is live', w.pen(5, 8, 100, 100, 0) === false && w.shown.every((v) => v === 200));
   const plain = new Wall();
-  check('the lut is the identity when none is given', plain.truth.every((v) => v === 0));
+  check('the lut is the identity when none is given', plain.truth.every((v) => v === 0) && plain.lut.length === WALL.COLOURS.length && plain.lut[WALL.COLOURS.length - 1] === WALL.COLOURS.length - 1);
+  // a page with more colours than a byte counts hands in a lut of sixteen bits, and the bitmaps are as wide
+  const wide = new Wall(Uint16Array.from(WALL.COLOURS, (_, i) => 300 + i));
+  check('a lut of sixteen bits makes bitmaps of sixteen bits', wide.truth instanceof wide.lut.constructor && wide.shown.BYTES_PER_ELEMENT === 2 && wide.truth.every((v) => v === 300));
+  const first = ['#fbf6f0', '#000000', '#49B6B0', '#B8B693', '#B5979A', '#D9534A', '#E8913A', '#EDC84A', '#6FAE5B', '#2F6B4F', '#3F7FBF', '#2B3A67', '#7E5AA8', '#E58FB0', '#8A5A3C', '#8C8C8C'];
+  check('the colours: the sixteen picked first and as they were, none twice, no more than a byte counts',
+    first.every((c, i) => WALL.COLOURS[i] === c) && new Set(WALL.COLOURS.map((c) => c.toLowerCase())).size === WALL.COLOURS.length && WALL.COLOURS.length <= 256 && WALL.COLOURS.every((c) => /^#[0-9a-fA-F]{6}$/.test(c)),
+    WALL.COLOURS.length + ' colours');
   w.connect('ws://wall.test/');
   const s = sockets[sockets.length - 1];
   check('connect opens a socket for array buffers', s.url === 'ws://wall.test/' && s.binaryType === 'arraybuffer');

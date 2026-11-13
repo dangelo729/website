@@ -1,7 +1,7 @@
-// the world bitmap: one byte a world pixel, 1 lit and 0 dark, row-major,
+// the world bitmap: sixteen bits a world pixel, 1 lit and 0 dark, row-major,
 // or past 1 for a colour of the page's (PALETTE, at the end). everything
 // on the page is drawn into it and nothing else touches the canvas;
-// present() hands the whole of it over once a frame, each byte as its
+// present() hands the whole of it over once a frame, each pixel as its
 // colour (lit is ink, dark is paper: black on white). the
 // primitives but sprite() are cicada's renderer's, pixel for pixel, so
 // what is drawn here lands where it did there. every write is clipped
@@ -9,7 +9,7 @@
 function Framebuffer(w, h) {
   this.w = w;
   this.h = h;
-  this.bits = new Uint8Array(w * h);
+  this.bits = new Uint16Array(w * h);
   // made once: a frame should not allocate
   this.img = new ImageData(w, h);
   this.px = new Uint32Array(this.img.data.buffer);
@@ -486,9 +486,9 @@ Framebuffer.medianCut = function (rgb, n) {
 // colours ([r, g, b] each) by atkinson's dither, done on each channel: an
 // eighth of each channel's miss goes to each of the same six neighbours
 // as the grey dither's. a bitmap { px, w, h }, px each pixel's index in
-// colours
+// colours, sixteen bits each as the framebuffer's are
 Framebuffer.ditherColour = function (rgb, w, h, colours) {
-  const e = Float32Array.from(rgb), px = new Uint8Array(w * h);
+  const e = Float32Array.from(rgb), px = new Uint16Array(w * h);
   const spread = [[1, 0], [2, 0], [-1, 1], [0, 1], [1, 1], [0, 2]];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x, r = e[3 * i], g = e[3 * i + 1], b = e[3 * i + 2];
@@ -531,6 +531,25 @@ Framebuffer.prototype.blitPixels = function (g, x, y, sx = 0, sy = 0, w = g.w, h
   }
 };
 
+// a bitmap { px, w, h } of v's into the w x h box whose top left is at
+// integer (x, y), through two tables: the box's pixel i across and j down
+// is the bitmap's at column cols[c0 + i] and row rows[r0 + j], every one
+// inside it, so a picture goes down stretched, shrunk or shifted a column
+// and a row at a time. over, its 0s are left alone, and it lays over what
+// is there
+Framebuffer.prototype.blitMapped = function (g, x, y, w, h, cols, c0, rows, r0, over = false) {
+  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h), px = g.px, bits = this.bits;
+  for (let py = Math.max(0, y); py < y1; py++) {
+    const from = rows[r0 + py - y] * g.w, to = py * this.w, c = c0 - x;
+    if (over) {
+      for (let qx = x0; qx < x1; qx++) {
+        const v = px[from + cols[c + qx]];
+        if (v) bits[to + qx] = v;
+      }
+    } else for (let qx = x0; qx < x1; qx++) bits[to + qx] = px[from + cols[c + qx]];
+  }
+};
+
 // a 1-bit image, msb first, each row `stride` bytes from bytes[off], top-left
 // at (x, y). opaque: dark bits are written too, as the panel is a screen
 Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
@@ -542,7 +561,7 @@ Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
 };
 
 // the page's colours, as the little-endian ABGR words a canvas pixel is,
-// all opaque. a pixel's byte is its index in PALETTE: 0 is PAPER, what a
+// all opaque. a pixel's number is its index in PALETTE: 0 is PAPER, what a
 // clear leaves, and 1 is INK, what lit means to every primitive; colour()
 // adds more, for a v past 1. black on an off-white paper, #fbf6f0; swap
 // the first two for paper on black
