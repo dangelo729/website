@@ -27,7 +27,7 @@ const int   kNotes[13]  = { 60, 62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79, 81 }
 const int   kSteps[7][7] = { { 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 }, { 0, 2, 4, 6, 7, 9, 11 },
                              { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 10 }, { 0, 1, 3, 5, 6, 8, 10 } };
 constexpr int kLowest = 24, kHighest = 104; // the keys the page's scales reach: c1, and the thirteenth degree from b5
-const float kKnobs[5]   = { 0.73f, -1.0f, -0.59f, 0.55f, -0.76f };                 // the page's five
+const float kKnobs[5]   = { 0.73f, -1.0f, -0.59f, 0.55f, 0.0f };                 // the page's five
 constexpr int    kVelocity = 100;
 constexpr int    kFrames   = 128;
 constexpr double kRate     = 44100.0;

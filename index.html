@@ -42,6 +42,7 @@
   <script src="js/icons.js"></script>
   <script src="js/scale.js"></script>
   <script src="js/piano.js"></script>
+  <script src="js/keys.js"></script>
   <script src="js/voice.js"></script>
   <script src="js/monk.js"></script>
   <script src="js/moon.js"></script>
@@ -65,7 +66,7 @@
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
     let pfb = null;   // each item's insides, drawn apart and copied through its skin (drawInsides)
-    let qfb = null;   // a menu's insides, the upgrades' or the demo's, drawn apart and copied through its skin (drawShop, drawSettings)
+    let qfb = null;   // a menu's insides, the upgrades' or a demo's settings', drawn apart and copied through its skin (drawShop, drawSettings)
 
     function resize() {
       W = Math.max(1, Math.floor(window.innerWidth / SCALE));
@@ -585,7 +586,7 @@
         { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
         { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
-        { title: 'Upright' },
+        { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
         { title: 'This website!' },
       ] },
       { title: 'Doodles',           photo: false, o: 0, items: [
@@ -636,9 +637,14 @@
       // laid out as demoAt (the demo, below). ship: it holds the ship in a
       // bottle there, laid out as shipAt (the ship, below). daedalus: it
       // holds daedalus over its text, laid out as daedalusAt (daedalus's
-      // body, below)
+      // body, below). piano: it holds upright's keys and their menu over
+      // its text, laid out as pianoAt (the piano, below). menu is its
+      // demo's settings menu as laid out and that menu's state,
+      // { ui, m }, monk mouth's or upright's, and push how far its menu
+      // has what is under it pushed down now (pushItem)
       items: (s.items || []).map((x, i) => ({
-        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, daedalus: !!x.daedalus, daedalusAt: null, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, daedalus: !!x.daedalus, daedalusAt: null,
+        piano: !!x.piano, pianoAt: null, menu: null, push: 0, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1127,7 +1133,9 @@
         // SHIP.W by SHIP.H. daedalus (DAEDALUS, below), a box DAEDALUS.W by
         // DAEDALUS.H that never shrinks either, always goes in the row
         // above the text, centred across the text's measure, or across the
-        // room the text has when that is narrower than he is
+        // room the text has when that is narrower than he is, and so do
+        // upright's keys and their menu (PIANO, below), a box PIANO.W wide
+        // and as tall as pianoH has it at the text's size
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1149,7 +1157,11 @@
           arts.unshift({ l: {}, demo: true, daedalus: true, w: DAEDALUS.W, h: DAEDALUS.H });
           colW = Math.max(colW, DAEDALUS.W);
         }
-        const beside = arts.length > 0 && !stacked && !it.daedalus && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        if (it.piano) {
+          arts.unshift({ l: {}, demo: true, piano: true, w: PIANO.W, h: pianoH(bs) });
+          colW = Math.max(colW, PIANO.W);
+        }
+        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
@@ -1168,12 +1180,21 @@
         it.demoAt = null;
         it.shipAt = null;
         it.daedalusAt = null;
+        it.pianoAt = null;
+        it.menu = null;
         for (const a of arts) {
-          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : a.daedalus && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
           if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
+          else if (a.piano) {
+            it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5);
+            it.menu = { ui: it.pianoAt.menu, m: pianoMenu };
+          }
           else if (a.ship) it.shipAt = placeShip(x, y, seed + 9000 + 10 * i + 5);
-          else if (a.demo) it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
+          else if (a.demo) {
+            it.demoAt = placeDemo(x, y, bs, seed + 9000 + 10 * i + 5);
+            it.menu = { ui: it.demoAt.menu, m: demoMenu };
+          }
           else {
             const g = ditherLogo(a.art, a.w, a.h);
             if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
@@ -1223,6 +1244,10 @@
         it.shut = { x0: ix0, y0: base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is, r: BOX.ITEM_RADIUS * is };
         it.full = { x0: ix0, y0: it.shut.y0, x1: Math.max(it.shut.x1, it.right + bx), y1: Math.max(it.shut.y1, bottom + bx), r: BOX.ITEM_RADIUS * is };
         it.ext = it.full.y1 - it.shut.y1;
+        // and what is under upright's menu pushed down as far as the menu
+        // is open now, so laid out again under an open menu it stays put
+        it.push = 0;
+        if (it.pianoAt) pushItem(it, pianoPush(it));
         base += BOX.ROW * is;
       });
       // the box's right with every item shut, and how much further each
@@ -1403,8 +1428,9 @@
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, its logos, its demo
-      // (drawDemo), its ship (drawShip) and its daedalus (drawDaedalus)
-      // with it, all into pfb over its
+      // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus) and
+      // its piano (drawPiano) with it, its text and its links as far down
+      // as its menu pushes them (push), all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
@@ -1417,7 +1443,7 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1434,17 +1460,18 @@
         if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, pfb, 0, v);
         if (it.p > 0) {
-          const end = it.clip + it.p * it.span + d;
-          const see = (L) => L.cy + d > lo && L.cy + d < Math.min(hi, end + BOX.MOST);
-          for (const L of it.text) if (see(L)) L.draw(t, d, pfb);
+          const end = it.clip + it.p * it.span + d, dp = d + it.push;
+          const see = (L) => L.cy + dp > lo && L.cy + dp < Math.min(hi, end + BOX.MOST);
+          for (const L of it.text) if (see(L)) L.draw(t, dp, pfb);
           for (const k of it.links) {
             const lv = hover && hover.link === k ? HOVER_LINK : undefined;
-            for (const L of k.letters) if (see(L)) L.draw(t, d, pfb, 0, lv);
+            for (const L of k.letters) if (see(L)) L.draw(t, dp, pfb, 0, lv);
           }
           for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
           if (it.demoAt) drawDemo(it, t, d, hover);
           if (it.shipAt) drawShip(it, t, d);
           if (it.daedalusAt) drawDaedalus(it, t, d);
+          if (it.pianoAt) drawPiano(it, t, d, hover);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1585,13 +1612,14 @@
     // little round it as the x is, or the photo's frame, { s, slide }, -1
     // for the < and 1 for the rest; the shop's menu, while bubble bob is
     // open, { s, shop }, its header with menu, the menu's state, and a
-    // button with buy, its key; an item's demo's menu, as far as its text
+    // button with buy, its key; an item's demo's settings menu (monk
+    // mouth's or upright's), as far as its text
     // has opened to show it, as the shop's is: its header a little round
     // it, { s, it, settings, menu }, and, once it is over half open, its
     // header's row all the way across it, the same, a
     // slider's bar across and its row down, a little round them,
-    // { s, it, settings, slider }, its button, { s, it, settings,
-    // randomize }, or anywhere else in it, { s, it, settings }; one of the
+    // { s, it, settings, slider }, its button if it has one, { s, it,
+    // settings, randomize }, or anywhere else in it, { s, it, settings }; one of the
     // box's items, its caret, its name
     // or right of them to the box's edge (bubble bob's only as far as his
     // name, so the game under it is free), a little above and below,
@@ -1600,7 +1628,10 @@
     // ribbon, as far as its text has opened to show it, a little round it
     // (at least 20 world px tall, for a finger), { s, it, ribbon }; an
     // item's ship's box, once the ship is in, as far as its text has opened
-    // to show it, { s, it, ship }; a word whose box is not open, a little
+    // to show it, { s, it, ship }; an item's piano's keys, once they are
+    // in, as far as its text has opened to show them and where its menu
+    // has them pushed, { s, it, piano, key }, key the midi note of the key
+    // there (Keys.at), -1 for none; a word whose box is not open, a little
     // round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
@@ -1633,14 +1664,14 @@
           }
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
-            const sm = it.demoAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.demoAt.menu : null;
+            const sm = it.menu && it.p > 0 && iy <= it.clip + it.p * it.span ? it.menu.ui : null;
             if (sm) {
-              const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
-              if (inside(sm.shut, 2)) return { s, it, settings: true, menu: demoMenu };
-              if (demoMenu.open && demoMenu.p > 0.5) {
-                if (inside({ x0: sm.full.x0, y0: sm.shut.y0, x1: sm.full.x1, y1: sm.shut.y1 }, 2)) return { s, it, settings: true, menu: demoMenu };
+              const sn = it.menu.m, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              if (inside(sm.shut, 2)) return { s, it, settings: true, menu: sn };
+              if (sn.open && sn.p > 0.5) {
+                if (inside({ x0: sm.full.x0, y0: sm.shut.y0, x1: sm.full.x1, y1: sm.shut.y1 }, 2)) return { s, it, settings: true, menu: sn };
                 for (const sl of sm.sliders) if (inside(sl.hit, 2)) return { s, it, settings: true, slider: sl };
-                if (inside(sm.button.rect, 2)) return { s, it, settings: true, randomize: true };
+                if (sm.button && inside(sm.button.rect, 2)) return { s, it, settings: true, randomize: true };
                 if (inside(sm.full, 0)) return { s, it, settings: true };
               }
             }
@@ -1648,8 +1679,8 @@
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
               if (!k) continue;
-              const ky = Math.max(3, (16 - (k.y1 - k.y0)) / 2);
-              if (x >= k.x0 - 3 && x <= k.x1 + 3 && iy >= k.y0 - ky && iy <= k.y1 + ky) return { s, it, link };
+              const ky = Math.max(3, (16 - (k.y1 - k.y0)) / 2), ly = iy - it.push;
+              if (x >= k.x0 - 3 && x <= k.x1 + 3 && ly >= k.y0 - ky && ly <= k.y1 + ky) return { s, it, link };
             }
             const r = it.demoAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.demoAt.bar : null;
             if (r) {
@@ -1658,6 +1689,8 @@
             }
             const sb = it.shipAt && Ship.ready && it.p > 0 && iy <= it.clip + it.p * it.span ? it.shipAt.box : null;
             if (sb && x >= sb.x0 && x <= sb.x1 && iy >= sb.y0 && iy <= sb.y1) return { s, it, ship: true };
+            const kb = it.pianoAt && Keys.ready && it.p > 0 && iy <= it.clip + it.p * it.span ? it.pianoAt.box : null, uy = iy - it.push;
+            if (kb && x >= kb.x0 && x <= kb.x1 && uy >= kb.y0 && uy <= kb.y1) return { s, it, piano: true, key: Keys.at(x - (kb.x0 + kb.x1) / 2, uy - (kb.y0 + kb.y1) / 2) };
           }
           continue;
         }
@@ -1676,7 +1709,8 @@
     // either menu's header opens it, kicked toward open, or shuts it; a
     // demo's ribbon and its menu's sliders press nothing here, played while
     // they are held (the demo, below), and nor does the rest of an open
-    // menu, nor a ship, turned while it is held (the ship, below)
+    // menu, nor a ship, turned while it is held (the ship, below), nor the
+    // piano's keys, played while they are held (the piano, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1690,7 +1724,7 @@
         h.menu.open = !h.menu.open;
         if (h.menu.open) h.menu.v += SHOP_UI.KICK;
       }
-      else if (h.shop || h.ribbon || h.settings || h.ship) return;
+      else if (h.shop || h.ribbon || h.settings || h.ship || h.piano) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -1892,7 +1926,10 @@
     // daedalus's mallets each play their next note in it; the click it
     // ends in presses nothing. the button,
     // BUTTON, as wide as the rows, is drawn and pressed as his are, and
-    // gives the singer a new voice (Monk.randomize). under a mouse the
+    // gives the singer a new voice (Monk.randomize). upright's menu (the
+    // piano, below) is made, drawn, stepped and pressed by the same
+    // functions, each handed the menu it is for (makeSettings): its
+    // sliders are knobs of the piano's, and it has no button. under a mouse the
     // menu's outline, its caret and its title are in the links' hover
     // colour while the pointer is on its header, and a slider and its
     // words, and the button's outline and words, in the words' (the
@@ -1911,39 +1948,88 @@
       // ribbon's, its bottom the box's, and a slider's, centred down its row
       RIBBON: { H: 15, R: 5.5, TICK_IN: 4, MARK: 3 },
       SLIDER: { H: 10, R: 4, TICK_IN: 3, MARK: 2 },
+      KNOB: 0.05,     // of a knob's slider's bar, how far in from each end its turn starts and stops, so its dot stays inside the bar
       SNAP: 0.3,      // of the way left to its line a dot goes, each 60 hz frame
       HAND: { GAP: 2, BOB: 3, HZ: 0.8, DOWN: 2 }, // the hand pointing at the ribbon: world px from its tip to the ribbon's left at the nearest and how far it bobs back from there, its bobs a second, and how far its middle stands under the ribbon's so its finger is level with it
       TITLE: 'settings', BUTTON: 'randomize voice', // what the menu's header says, and its button
-      // the menu's sliders, top to bottom: the page's scale's value each
-      // sets (Scale[key]), the list of its values there (Scale[list]) and
-      // the words it says for one of them
+      // the menu's sliders, top to bottom, each one of the page's scale's
+      // values (scaleSlider, below): the value it sets (Scale[key]), the
+      // list of its values there (Scale[list]) and the words it says for
+      // one of them
       SLIDERS: [
-        { key: 'mode', list: 'MODES', say: (m) => m.name },
-        { key: 'key', list: 'KEYS', say: (k) => 'key ' + k },
-        { key: 'octave', list: 'OCTAVES', say: (o) => 'octave ' + o },
+        scaleSlider('mode', 'MODES', (m) => m.name),
+        scaleSlider('key', 'KEYS', (k) => 'key ' + k),
+        scaleSlider('octave', 'OCTAVES', (o) => 'octave ' + o),
       ],
     };
-    let holding = null; // the press holding the ribbon or a slider, { id, it, i }: its pointer, the demo's item and the slider's place in SLIDERS, null for the ribbon; or null
+    let holding = null; // the press holding the ribbon or a slider, { id, it, i }: its pointer, the item whose demo it is and the slider's place in its menu's SLIDERS, null for the ribbon; or null
     let dotAt = null;   // where the ribbon's dot is across it, 0 .. 1, or null while the ribbon is not held
     let played = false; // the ribbon has been pressed: the hand pointing at it is gone
-    const slideAt = DEMO.SLIDERS.map(() => null); // where each slider's dot is across its bar, 0 .. 1, or null before the first frame
-    const demoTypes = new Map(); // a line of the menu's text, to its Type
-    // the menu, as bubble bob's (menu): whether it is open, how far (p, 0
-    // shut, 1 open and past as it swings) and how fast, its caret's turn,
-    // its skin and the box it was made in, and each edge's warble
-    const demoMenu = {
-      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
-      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
-    };
+    const demoTypes = new Map(); // a line of a settings menu's text, to its Type
+    const demoMenu = makeSettings(DEMO); // the menu, and where it has got to
+
+    // a settings menu's slider, as its menu's SLIDERS hold it, { lines,
+    // at, set, say, says }: how many lines its bar has, each in the middle
+    // of one of as many zones; where its dot goes, 0 .. 1 across the bar,
+    // for the value in use; a press at u, 0 .. 1 across the bar, setting
+    // its value; its words for the value in use; and lines as wide as any
+    // it says, to leave room for beside the bar.
+    // this one is one of the page's scale's values, Scale[key] an index
+    // into Scale[list]: a zone a value, its dot on the line of the value
+    // in use, a press in a zone setting its value, and its words what say
+    // makes of the value
+    function scaleSlider(key, list, say) {
+      const n = Scale[list].length;
+      return {
+        lines: n,
+        at: () => (Scale[key] + 0.5) / n,
+        set: (u) => { Scale[key] = Math.min(n - 1, Math.max(0, Math.floor(u * n))); },
+        say: () => say(Scale[list][Scale[key]]),
+        says: Scale[list].map(say),
+      };
+    }
+
+    // and this one one of the piano's knobs (js/piano.js), the i-th of its
+    // five: the bar is the knob's turn, -1 KNOB in from its left end to 1
+    // as far in from its right, with a line at its middle, 0; its dot
+    // where the knob is, a press along it turning the knob there
+    // (Piano.turn), and its words saloon's sim's (Piano.say): the widest
+    // are its two ends' names, its middle's or a number
+    function knobSlider(i) {
+      const e = DEMO.KNOB;
+      return {
+        lines: 1,
+        at: () => e + (1 - 2 * e) * (Piano.knobs[i] + 1) / 2,
+        set: (u) => Piano.turn(i, 2 * (u - e) / (1 - 2 * e) - 1),
+        say: () => Piano.say(i),
+        says: [-1, 0, 1, 0.88].map((v) => Piano.say(i, v)),
+      };
+    }
+
+    // a settings menu's state for what S says (DEMO, or PIANO, below: its
+    // box's width W, its TITLE, its SLIDERS and its BUTTON, or none), as
+    // bubble bob's (menu): whether it is open, how far (p, 0 shut, 1 open
+    // and past as it swings) and how fast, its caret's turn, its skin and
+    // the box it was made in, each edge's warble, and where each slider's
+    // dot is across its bar, 0 .. 1, or null before the first frame (dots)
+    function makeSettings(S) {
+      return {
+        S, open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
+        warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+        dots: S.SLIDERS.map(() => null),
+      };
+    }
     const demoHome = sections.find((s) => s.items.some((it) => it.demo)) || null; // the section whose box holds the demo
     const demoItem = demoHome ? demoHome.items.find((it) => it.demo) : null;      // monk mouth, the item it is in
 
     // the face's wasm fetched, and handed its eye and its nose; and the
-    // ship's (the ship, below) and daedalus's (daedalus's body, below)
+    // ship's (the ship, below), daedalus's (daedalus's body, below) and
+    // the keys' (the piano, below)
     Moon.load(window);
     Moon.art(iconRows.eye || [], iconRows.nose || []);
     Ship.load(window);
     Daedalus.load(window);
+    Keys.load(window);
 
     // the menu's text size at the item's text size bs, by bubble bob's
     // menu's rule (shopNow), and the height of its button and of each of
@@ -1971,26 +2057,28 @@
       const D = DEMO, face = [], h = demoH(bs), top = y + h - D.H;
       for (let i = 0; i < D.FEATURES; i++) face.push(makeLetter(null, x + D.HEAD_X, top + D.HEAD_Y, seed + i, 1));
       const bar = { x0: x, y0: y + h - D.RIBBON.H, x1: x + D.W, y1: y + h };
-      return { face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(x, y, bs, seed) };
+      return { face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(demoMenu, x, y, y + h, bs, seed) };
     }
 
-    // the demo's menu for its box with its top left at (x, y) and the
-    // item's text size bs, laid out as shopNow lays out bubble bob's, its
-    // seeds from seed on. shut, its header: a button in the box's top left
+    // settings menu m laid out for its box, S.W wide with its top left at
+    // (x, y) and its bottom at bottom, at the item's text size bs, as
+    // shopNow lays out bubble bob's, its seeds from seed on. shut, its
+    // header: a button in the box's top left
     // corner round the caret and TITLE, APART from each other with PAD
     // round them. open, across the box and down round a row for each
-    // slider and one for the button, each as tall as the header, ROW apart
+    // slider and one for the button, if it has one, each as tall as the
+    // header, ROW apart
     // under it and MARGIN round them: a slider's bar MARGIN in from the
     // left, as wide as the box leaves it beside the widest words any slider
-    // says, and centred down its row, its words for every one of its values
-    // APART right of it; the button across the rows. { room, size, shut,
-    // full, header: { caret, title }, sliders: [{ i, n, hit, bar, says }],
-    // button: { rect, ring, letters } }: room the box, and each slider its
-    // place in SLIDERS, how many values it has, the box a press takes it in
-    // (its bar across, its row down), its bar and its words, a line of
-    // letters for each value
-    function placeSettings(x, y, bs, seed) {
-      const U = SHOP_UI, D = DEMO, { size, h } = demoSize(bs), k = size / TYPE.EM, apart = U.APART * size;
+    // says, and centred down its row, its words APART right of it; the
+    // button across the rows. { room, size, shut,
+    // full, header: { caret, title }, sliders: [{ i, hit, bar, words }],
+    // button: { rect, ring, letters } or null }: room the box, and each
+    // slider its place in SLIDERS, the box a press takes it in
+    // (its bar across, its row down), its bar and its words: words(text)
+    // is a line's letters, made the first time the slider says it and kept
+    function placeSettings(m, x, y, bottom, bs, seed) {
+      const U = SHOP_UI, S = m.S, { size, h } = demoSize(bs), k = size / TYPE.EM, apart = U.APART * size;
       const type = (text) => {
         let t = demoTypes.get(text);
         if (!t) demoTypes.set(text, t = new Type(text, () => document.createElement('canvas'), TAG.FACE));
@@ -2000,32 +2088,34 @@
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
       const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
       // the header, the shut menu: the caret and the title
-      const tt = type(D.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, cx = x + U.PAD_X * size;
+      const tt = type(S.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, cx = x + U.PAD_X * size;
       const shut = { x0: x, y0: y, x1: x + Math.round(cw + apart + wide(tt) + 2 * U.PAD_X * size), y1: y + h };
       const header = {
         caret: cg ? makeLetter(cg.g, cx + cw / 2, y + size * (U.PAD_Y + U.CAP) + k * cg.dy, seed + 50, k, WOBBLE) : null,
         title: letters(tt, cx + cw + apart, y, seed + 60),
       };
       // the rows under it
-      const margin = Math.round(U.MARGIN * size), row = Math.round(U.ROW * size), x0 = x + margin, x1 = x + D.W - margin;
-      const lines = D.SLIDERS.map((sl) => Scale[sl.list].map((v) => type(sl.say(v))));
-      const bw = Math.floor(x1 - x0 - apart - Math.max(...lines.flat().map(wide)));
+      const margin = Math.round(U.MARGIN * size), row = Math.round(U.ROW * size), x0 = x + margin, x1 = x + S.W - margin;
+      const bw = Math.floor(x1 - x0 - apart - Math.max(...S.SLIDERS.flatMap((sl) => sl.says).map((text) => wide(type(text)))));
       let ry = shut.y1;
-      const sliders = lines.map((ts, i) => {
-        const by = ry + Math.round((h - D.SLIDER.H) / 2);
-        const sl = {
-          i, n: ts.length,
-          hit: { x0, y0: ry, x1: x0 + bw, y1: ry + h },
-          bar: { x0, y0: by, x1: x0 + bw, y1: by + D.SLIDER.H },
-          says: ts.map((t, v) => letters(t, x0 + bw + apart, ry, seed + 1000 * (i + 1) + 50 * v)),
-        };
+      const sliders = S.SLIDERS.map((def, i) => {
+        const top = ry, by = top + Math.round((h - DEMO.SLIDER.H) / 2), said = new Map();
         ry += h + row;
-        return sl;
+        return {
+          i,
+          hit: { x0, y0: top, x1: x0 + bw, y1: top + h },
+          bar: { x0, y0: by, x1: x0 + bw, y1: by + DEMO.SLIDER.H },
+          words(text) {
+            let line = said.get(text);
+            if (!line) said.set(text, line = letters(type(text), x0 + bw + apart, top, seed + 1000 * (i + 1)));
+            return line;
+          },
+        };
       });
       const rect = { x0, y0: ry, x1, y1: ry + h };
-      const button = { rect, ring: ringRound(rect, U.RADIUS * size, U.STEP), letters: letters(type(D.BUTTON), x0 + U.PAD_X * size, ry, seed + 4000) };
-      const room = { x0: x, y0: y, x1: x + D.W, y1: y + demoH(bs) };
-      return { room, size, shut, full: { x0: x, y0: y, x1: x + D.W, y1: ry + h + margin }, header, sliders, button };
+      const button = S.BUTTON ? { rect, ring: ringRound(rect, U.RADIUS * size, U.STEP), letters: letters(type(S.BUTTON), x0 + U.PAD_X * size, ry, seed + 4000) } : null;
+      const room = { x0: x, y0: y, x1: x + S.W, y1: bottom };
+      return { room, size, shut, full: { x0: x, y0: y, x1: x + S.W, y1: (button ? ry + h : ry - row) + margin }, header, sliders, button };
     }
 
     // item it's demo, d world px down from where it was laid out, into pfb,
@@ -2057,7 +2147,7 @@
         pfb.sprite(f.paper, x, y, p.s, turn, 0, CURSOR.MIN_HITS);
         pfb.sprite(f.ink, x, y, p.s, turn, 1, CURSOR.MIN_HITS);
       }
-      drawSettings(it, t, dy, hover);
+      drawSettings(it, a.menu, demoMenu, t, dy, hover);
       drawBar(pfb, a.bar, dy, Monk.DEGREES, dotAt, v, DEMO.RIBBON);
     }
 
@@ -2076,15 +2166,16 @@
       if (at !== null) into.fillCircle(b.x0 + (b.x1 - b.x0) * at, (y0 + y1) / 2, look.MARK, v);
     }
 
-    // item it's demo's menu, dy world px down from where it was laid out,
-    // hover what the pointer is on: its header and, while it is open at
+    // item it's demo's settings menu m, laid out as ui, dy world px down
+    // from where it was laid out, hover what the pointer is on: its header
+    // and, while it is open at
     // all, its sliders, each its bar (drawBar) with its dot where it has
-    // got to (slideAt) and its words for the value in use, and its button,
+    // got to (m.dots) and its words for the value in use, and its button,
+    // if it has one,
     // its ring outlined LINE px from point to point, drawn into qfb over
     // the skin's box; then qfb copied into pfb through the skin and the
     // skin outlined over it, as drawShop does bubble bob's
-    function drawSettings(it, t, dy, hover) {
-      const ui = it.demoAt.menu, m = demoMenu;
+    function drawSettings(it, ui, m, t, dy, hover) {
       if (!m.skin) return;
       const on = hover && hover.it === it && hover.settings ? hover : null, v = on && on.menu ? HOVER_LINK : 1, box = m.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
@@ -2092,16 +2183,16 @@
       for (const L of ui.header.title) L.draw(t, dy, qfb, 0, v);
       if (m.p > 0) {
         for (const sl of ui.sliders) {
-          const sv = on && on.slider === sl ? HOVER : 1;
-          drawBar(qfb, sl.bar, dy, sl.n, slideAt[sl.i], sv, DEMO.SLIDER);
-          for (const L of sl.says[Scale[DEMO.SLIDERS[sl.i].key]]) L.draw(t, dy, qfb, 0, sv);
+          const def = m.S.SLIDERS[sl.i], sv = on && on.slider === sl ? HOVER : 1;
+          drawBar(qfb, sl.bar, dy, def.lines, m.dots[sl.i], sv, DEMO.SLIDER);
+          for (const L of sl.words(def.say())) L.draw(t, dy, qfb, 0, sv);
         }
-        const b = ui.button, bv = on && on.randomize ? HOVER : 1, n = b.ring.length;
+        const b = ui.button, bv = on && on.randomize ? HOVER : 1, n = b ? b.ring.length : 0;
         for (let i = 0; i < n; i++) {
           const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
           qfb.line(p.x, p.y + dy, q.x, q.y + dy, bv, BOX.LINE);
         }
-        for (const L of b.letters) L.draw(t, dy, qfb, 0, bv);
+        if (b) for (const L of b.letters) L.draw(t, dy, qfb, 0, bv);
       }
       const pts = m.skin.screen(dy), n = pts.length;
       pfb.fillPolygon(pts, qfb);
@@ -2118,34 +2209,37 @@
       return at === null ? to : at + (to - at) * (1 - Math.pow(1 - DEMO.SNAP, 60 * dt));
     }
 
-    // the demo's dots dt on (dotTo): each slider's toward the line of the
-    // value in use; and the ribbon's, while the ribbon is held, toward the
+    // settings menu m's sliders' dots dt on (dotTo), each toward where its
+    // slider's value in use puts it
+    function stepSliders(m, dt) {
+      for (let i = 0; i < m.dots.length; i++) m.dots[i] = dotTo(m.dots[i], m.S.SLIDERS[i].at(), dt);
+    }
+
+    // the demo's dots dt on (dotTo): its menu's sliders' (stepSliders);
+    // and the ribbon's, while the ribbon is held, toward the
     // line of the degree being sung (Monk.deg), or of the degree whose
     // zone holds the finger until one is, put on its line at once by a
     // press and taken away by a lift
     function stepDots(dt) {
-      for (let i = 0; i < DEMO.SLIDERS.length; i++) {
-        const sl = DEMO.SLIDERS[i];
-        slideAt[i] = dotTo(slideAt[i], (Scale[sl.key] + 0.5) / Scale[sl.list].length, dt);
-      }
+      stepSliders(demoMenu, dt);
       if (Monk.down === null) { dotAt = null; return; }
       dotAt = dotTo(dotAt, ((Monk.deg < 0 ? Monk.zone(Monk.down) : Monk.deg) + 0.5) / Monk.DEGREES, dt);
     }
 
     // world x on the screen across what is held: across the ribbon, as
-    // Monk.down; across a slider's bar, the zone it is in as the slider's
-    // value, set on the page's scale when it changes
+    // Monk.down; across a slider's bar, 0 at its left end to 1 at its
+    // right, for the slider to set its value by
     function holdTo(x) {
-      const a = holding.it.demoAt;
-      if (!a) return;
+      const it = holding.it;
       if (holding.i === null) {
-        const b = a.bar;
+        if (!it.demoAt) return;
+        const b = it.demoAt.bar;
         Monk.down = Math.min(Math.max((x - b.x0) / (b.x1 - b.x0), 0), 0.995);
         return;
       }
-      const sl = a.menu.sliders[holding.i], b = sl.bar, key = DEMO.SLIDERS[holding.i].key;
-      const v = Math.min(sl.n - 1, Math.max(0, Math.floor((x - b.x0) / (b.x1 - b.x0) * sl.n)));
-      if (Scale[key] !== v) Scale[key] = v;
+      if (!it.menu) return;
+      const b = it.menu.ui.sliders[holding.i].bar;
+      it.menu.m.S.SLIDERS[holding.i].set(Math.min(1, Math.max(0, (x - b.x0) / (b.x1 - b.x0))));
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
@@ -2317,6 +2411,242 @@
     function ringDaedalus() {
       for (let i = 0; i < DAEDALUS.DEGREES.length; i++) if (Daedalus.struck >> i & 1) Piano.strike(DAEDALUS.DEGREES[i]);
     }
+
+    // --- the piano ---------------------------------------------------------------
+    // upright's item, in personal work, holds a piano to play: saloon's
+    // keyboard (js/keys.js), ten white keys and seven black, the notes c to
+    // e, drawn by saloon's own code and turned to face the player, each
+    // white key an outline and each black key ink, and played on
+    // the page's piano (js/piano.js), which is upright. its box is PIANO.W
+    // world px wide over its text (layoutItems) and as tall as pianoH has
+    // it at the item's text size: a settings menu's button in its top left
+    // corner and, GAP under it, the keys, PIANO.W by PIANO.H, the picture's
+    // middle on their box's at Keys.SCALE. the keys are drawn as the ship
+    // is, the picture's ink alone, from a whole px, wobbling on a seed of
+    // their own, and over it, the same way, the outline of every key that
+    // is down and of the key a mouse is on (Keys.glow) in the links' hover
+    // colour.
+    // they are stepped each frame while upright is at least partly open in
+    // a box out of its o and they are on the screen (the frame, below),
+    // and each of those frames they are told which key the mouse is on, or
+    // that it is on none (pointKeys).
+    //
+    // a press on a key holds it down: its note is struck at once and
+    // sounds until the press lifts, the key drawn down under it as saloon
+    // draws it, shorter from its front, its outline in that colour. a press dragged onto another key lets the first go and
+    // strikes that one, and every finger on the keys holds a key of its
+    // own. a lift lets its key go, and so does a press up or down that the
+    // page takes for a scroll (the swipe, below), and the click it ends in
+    // presses nothing. while upright is open in its box the computer's
+    // keyboard plays it too, as saloon's sim's does: A W S E D F T G Y H U
+    // J K O L P ; are seventeen notes up from c4 (LETTERS), each held
+    // while its letter is, Z and X take them an octave down and up, C and
+    // V the velocity down and up by VEL_STEP, and the space bar is the
+    // sustain pedal. a note in another octave goes down on the key of its
+    // name, and a press on a key then plays its note in that octave
+    // (Keys.at). a key is struck at the velocity as it stands, the page's
+    // piano's own at first. a note two hold, a letter and a press, sounds
+    // once and is let go by the last of them. once upright is shut, or its
+    // box, or the window is left, every key is let go and the pedal
+    // lifted.
+    //
+    // its menu is monk mouth's (the demo, above), made, drawn, stepped and
+    // pressed by the same functions: shut, a button, a caret and TITLE;
+    // open, across the box and down round a row for each of SLIDERS, four
+    // of the piano's knobs, its size, its instrument, its tone and its
+    // detune (knobSlider), which turn the page's piano under whatever plays it,
+    // the name's keys and daedalus's mallets too. it has no button. where
+    // monk mouth's menu opens over its face, this one opens between its
+    // header and the keys: as far as it is open it pushes the keys, the
+    // item's text and its links down, and the item's bubble, the items
+    // under it and the box grow by as much (pushItem), so the keys ride
+    // down with the menu as it swings open and back up as it shuts, and
+    // are played while it is open.
+    const PIANO = {
+      W: 266, H: 48,  // world px, the keys: the picture's 121 columns by its 22 rows at Keys.SCALE, to the nearest px; W is its box's width too
+      GAP: 6,         // world px from the menu's button, or from the menu as far as it is open, to the keys
+      TITLE: 'settings', BUTTON: null, // what the menu's header says, and no button
+      // the menu's sliders, top to bottom: the piano's size, its
+      // instrument, its tone and its detune, each by its place among the
+      // piano's five knobs
+      SLIDERS: [knobSlider(2), knobSlider(0), knobSlider(1), knobSlider(3)],
+      // the computer's keys that play it, each the semitones its note is
+      // over the first's: ableton's layout, as saloon's sim's
+      LETTERS: { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8,
+                 KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16 },
+      BASE: 60,       // the midi note under A at first, c4,
+      BASE_MAX: 108,  // and the highest Z and X take it, so the note under ; is a midi note still
+      VEL_STEP: 20,   // what C takes from the velocity and V adds to it
+    };
+    const pianoMenu = makeSettings(PIANO); // the menu, and where it has got to
+    const pianoHome = sections.find((s) => s.items.some((it) => it.piano)) || null; // the section whose box holds the piano
+    const pianoItem = pianoHome ? pianoHome.items.find((it) => it.piano) : null;    // upright, the item it is in
+    let pianoBase = PIANO.BASE;    // the midi note under A
+    let pianoVel = Piano.VELOCITY; // the velocity a key is struck at, 1 .. 127
+    let pianoPedal = false;        // the sustain pedal is down
+    const pianoHolds = new Map();  // what holds a key down, a letter's code or a pointer's id, to the midi note it holds
+    const pianoDowns = new Map();  // a midi note held down, to how many hold it
+
+    // the piano's box's height in world px at the item's text size bs: the
+    // menu's button, GAP and the keys
+    function pianoH(bs) {
+      return demoSize(bs).h + PIANO.GAP + PIANO.H;
+    }
+
+    // a piano's box with its top left at (x, y), world px on the page as
+    // laid out, at the item's text size bs, its seeds from seed on: the
+    // keys' box, under the menu's button and GAP; a letter with nothing to
+    // draw at the keys' middle, at scale 1 so its pose's scale is its
+    // breathe alone, for their wobble; and the menu (placeSettings),
+    // { box, letter, menu }
+    function placePiano(x, y, bs, seed) {
+      const P = PIANO, top = y + demoSize(bs).h + P.GAP;
+      return {
+        box: { x0: x, y0: top, x1: x + P.W, y1: top + P.H },
+        letter: makeLetter(null, x + P.W / 2, top + P.H / 2, seed, 1),
+        menu: placeSettings(pianoMenu, x, y, top + P.H, bs, seed),
+      };
+    }
+
+    // item it's piano, d world px down from where it was laid out, into
+    // pfb: once the keys are in, the picture's ink with its middle on
+    // their box's, as far down as the menu has them pushed, moved by the
+    // wobble's sway and bob, at Keys.SCALE by its breathe and turned by its
+    // tilt, and over it at the same pose the outlines of the keys that are
+    // down and of the key a mouse is on, in the links' hover colour; and
+    // the menu (drawSettings)
+    function drawPiano(it, t, d, hover) {
+      const a = it.pianoAt;
+      if (Keys.ready) {
+        const p = a.letter.pose(t), y = p.y + Math.round(d + it.push), s = Keys.SCALE * p.s;
+        pfb.sprite(Keys.picture, p.x, y, s, p.a, 1);
+        pfb.sprite(Keys.glow, p.x, y, s, p.a, HOVER_LINK);
+      }
+      drawSettings(it, a.menu, pianoMenu, t, Math.round(d), hover);
+    }
+
+    // where the piano's item's keys are on the screen against the window's
+    // rows: whether any of them is in them
+    function pianoSeen() {
+      const b = pianoItem.pianoAt && pianoItem.pianoAt.box;
+      if (!b) return false;
+      const y = pianoItem.shift + pianoItem.push + pianoHome.off - scrolled();
+      return b.y1 + y > 0 && b.y0 + y < H;
+    }
+
+    // the keys told which of them a mouse is on, wherever the page has
+    // scrolled to and the menu has them pushed, or that it is on none
+    function pointKeys() {
+      const h = hoverAt && !muteAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y);
+      Keys.point(h && h.piano ? h.key : -1);
+    }
+
+    // how far item it's piano's menu pushes what is under it down, world
+    // px: as far as the menu has opened past its button
+    function pianoPush(it) {
+      const ui = it.pianoAt.menu;
+      return pianoMenu.p * (ui.full.y1 - ui.shut.y1);
+    }
+
+    // item it's menu pushing what is under it px world px down, from as
+    // far as it had it (push): the item's bubble open, how tall its text
+    // stands and how far it pushes the items under it open each grown by
+    // the difference, so its skin, the box and the page's end follow
+    // (itemAt, grow, setScroll)
+    function pushItem(it, px) {
+      const by = px - it.push;
+      it.push = px;
+      it.full.y1 += by;
+      it.ext += by;
+      it.span += by;
+    }
+
+    // whether the piano is there to play: upright open, in its box open
+    function pianoOn() {
+      return !!pianoHome && pianoHome.box.open && pianoItem.open;
+    }
+
+    // midi note's key held down by by, a letter's code or a pointer's id,
+    // which holds one key at a time: the note struck on the piano and its
+    // key pressed on the keys, unless something holds it already
+    function pressKey(by, note) {
+      if (pianoHolds.has(by)) return;
+      pianoHolds.set(by, note);
+      const n = pianoDowns.get(note) || 0;
+      pianoDowns.set(note, n + 1);
+      if (n) return;
+      Piano.press(note, pianoVel);
+      Keys.on(note);
+    }
+
+    // by's key let go: the note let go on the piano and its key on the
+    // keys, once nothing else holds it
+    function liftKey(by) {
+      const note = pianoHolds.get(by);
+      if (note === undefined) return;
+      pianoHolds.delete(by);
+      const n = pianoDowns.get(note);
+      if (n > 1) { pianoDowns.set(note, n - 1); return; }
+      pianoDowns.delete(note);
+      Piano.lift(note);
+      Keys.off(note);
+    }
+
+    // the sustain pedal put down, or lifted
+    function setPedal(down) {
+      if (down === pianoPedal) return;
+      pianoPedal = down;
+      Piano.pedal(down);
+    }
+
+    // every key let go and the pedal lifted
+    function liftKeys() {
+      for (const by of [...pianoHolds.keys()]) liftKey(by);
+      setPedal(false);
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !pianoOn()) return;
+      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (h && h.piano && h.key >= 0) pressKey(e.pointerId, h.key);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!pianoHolds.has(e.pointerId)) return;
+      const p = worldPointer(e), h = hitAt(p.x, p.y);
+      if (!h || !h.piano || h.key < 0 || h.key === pianoHolds.get(e.pointerId)) return;
+      liftKey(e.pointerId);
+      pressKey(e.pointerId, h.key);
+    });
+    // the click a lifted press on a key ends in presses nothing, wherever
+    // the pointer has got to, as the ribbon's does
+    const keyGo = (e) => {
+      if (!pianoHolds.has(e.pointerId)) return;
+      liftKey(e.pointerId);
+      if (e.type === 'pointerup' && e.isPrimary) grabbed = true;
+    };
+    canvas.addEventListener('pointerup', keyGo);
+    canvas.addEventListener('pointercancel', keyGo);
+
+    // the computer's keyboard, while the piano is there to play: a letter
+    // of LETTERS holds its note, the space bar the pedal, and Z, X, C and V
+    // set the octave and the velocity; a key held with cmd, ctrl or alt is
+    // the browser's. a key let go lets its note go whatever has shut since
+    window.addEventListener('keydown', (e) => {
+      if (!pianoOn() || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === 'Space') e.preventDefault();
+      if (e.repeat) return;
+      if (e.code in PIANO.LETTERS) pressKey(e.code, pianoBase + PIANO.LETTERS[e.code]);
+      else if (e.code === 'Space') setPedal(true);
+      else if (e.code === 'KeyZ') pianoBase = Math.max(0, pianoBase - 12);
+      else if (e.code === 'KeyX') pianoBase = Math.min(PIANO.BASE_MAX, pianoBase + 12);
+      else if (e.code === 'KeyC') pianoVel = Math.max(1, pianoVel - PIANO.VEL_STEP);
+      else if (e.code === 'KeyV') pianoVel = Math.min(127, pianoVel + PIANO.VEL_STEP);
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code in PIANO.LETTERS) liftKey(e.code);
+      else if (e.code === 'Space') setPedal(false);
+    });
+    window.addEventListener('blur', liftKeys);
 
     // --- the scroll hand ---------------------------------------------------------
     // a hand HAND.GAP world px left of the mute button, as far off the
@@ -3327,7 +3657,7 @@
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, the demo's voice,
-    // its face, its dots and its menu, the ship, daedalus, the tag's bubbles and the
+    // its face, its dots and its menu, the piano's menu and its keys, the ship, daedalus, the tag's bubbles and the
     // cursor's hand and the boxes catch up with the clock, the words
     // under them are pushed down, the page's end is worked out, and each box's skin is stepped after
     // where its box has got to, warbled, and the upgrades' menu with its
@@ -3372,6 +3702,11 @@
       Monk.update(now);
       stepDots(dt);
       stepMenu(demoMenu, demoItem && demoItem.demoAt && demoItem.demoAt.menu, dt, t);
+      // the piano's menu and its dots, and what is under the menu pushed
+      // down as far as it has opened
+      stepSliders(pianoMenu, dt);
+      stepMenu(pianoMenu, pianoItem && pianoItem.pianoAt && pianoItem.pianoAt.menu, dt, t);
+      if (pianoItem && pianoItem.pianoAt) pushItem(pianoItem, pianoPush(pianoItem));
       // the demo's face to the voice as heard, while monk mouth is at least
       // partly open in a box out of its o
       if (Moon.ready && demoItem && demoHome.box.shown && demoItem.p > 0) Moon.step(Monk.state, dt);
@@ -3385,6 +3720,14 @@
         pointDaedalus();
         Daedalus.step(dt);
         ringDaedalus();
+      }
+      // the piano's keys let go once it is not there to play, and on,
+      // after the pointer, while upright is at least partly open in a box
+      // out of its o and they are on the screen
+      if (!pianoOn() && (pianoHolds.size || pianoPedal)) liftKeys();
+      if (Keys.ready && pianoItem && pianoHome.box.shown && pianoItem.p > 0 && pianoSeen()) {
+        pointKeys();
+        Keys.step(dt);
       }
       stepSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);

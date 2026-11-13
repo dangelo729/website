@@ -10,7 +10,11 @@
 // SPACING blocks after it, so a sweep that crosses many keys at once plays
 // them one after another, a plink each, rather than piling them into one
 // block, which would pass full scale in the rig and be clamped. the wasm
-// lets each key go once it has rung.
+// lets each key go once it has rung. anything else on the port is a hand
+// on the piano, and lands at the start of the next block in the order it
+// came, however many: a key held down ({ on, velocity }), a held key let
+// go ({ off }), the sustain pedal ({ pedal }) or the five knobs turned
+// ({ knobs }).
 
 const SPACING = 7; // blocks, about 20 ms at 44.1 khz: the least time between two strikes
 
@@ -23,7 +27,8 @@ class UprightProcessor extends AudioWorkletProcessor {
     this.velocity = velocity;
     this.strikes = [];    // the notes struck and not yet played, oldest first
     this.wait = 0;        // blocks until the next strike may go
-    this.port.onmessage = (e) => this.strikes.push(e.data);
+    this.hands = [];      // the keys held and let go, the pedal and the knobs, still to land, oldest first
+    this.port.onmessage = (e) => (typeof e.data === 'number' ? this.strikes : this.hands).push(e.data);
     WebAssembly.instantiate(wasm, {}).then(({ instance }) => {
       const up = instance.exports;
       up._initialize();
@@ -36,6 +41,14 @@ class UprightProcessor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const up = this.up;
     if (!up) return true;
+    for (let i = 0; i < this.hands.length; i++) {
+      const m = this.hands[i];
+      if (m.on !== undefined) up.upright_on(m.on, m.velocity);
+      else if (m.off !== undefined) up.upright_off(m.off);
+      else if (m.pedal !== undefined) up.upright_pedal(m.pedal ? 1 : 0);
+      else if (m.knobs) up.upright_knobs(m.knobs[0], m.knobs[1], m.knobs[2], m.knobs[3], m.knobs[4]);
+    }
+    this.hands.length = 0;
     if (this.wait > 0) this.wait--;
     if (this.wait === 0 && this.strikes.length) {
       up.upright_strike(this.strikes.shift(), this.velocity);
