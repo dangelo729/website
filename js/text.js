@@ -40,7 +40,10 @@ const TEXT = {
       "A piano for the Teensy 4.1. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through, so nothing is recorded: you set the strings, the hammers and the body, and the piano is whatever comes out. A grand, a toy piano, a Rhodes and a Wurlitzer are all the same model with different numbers.",
       "Every piano note on this page is played on it: the letters of my name up top, Daedalus's mallets and the keys here. Tap them, or play them on your keyboard: A to ; are the notes, Z and X change the octave and space is the pedal. Open the settings to change the piano itself."
     ],
-    "This website!": []
+    "This website!": [
+      "You're looking at it. There's no framework and no build step, just one canvas: every pixel on the page, from these words to the box around them, is drawn into a single bitmap by the site's own code.",
+      "The demos above are the real libraries, compiled to WebAssembly: the same code that runs on a microcontroller."
+    ]
   },
   "Contact": [
     "Feel free to reach out!",
