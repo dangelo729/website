@@ -1,9 +1,12 @@
 // make measure: the glue (web_main.cpp) native, played as the page plays
-// it, at the page's knobs (js/piano.js). prints how long a held key takes
-// to fall 60 db under its peak (the glue's ring), each key's peak struck
-// alone, the peaks of sweeps along the name and of keys struck in one block
-// (what js/piano.js's master gain is set by), the samples the rig's clamp
-// to ±1 held, and what a block costs.
+// it, at the page's knobs (js/piano.js), in the scale the page starts in
+// (js/scale.js). prints how long a held key takes to fall 60 db under its
+// peak (the glue's ring), each key's peak struck alone, the peaks of sweeps
+// along the name and of keys struck in one block (what js/piano.js's master
+// gain is set by), the samples the rig's clamp to ±1 held, and what a block
+// costs; and, for the scales the page can be set to, each octave's root
+// held, the loudest key any of them reaches, and the loudest sweep in each
+// octave.
 #include <chrono>
 #include <math.h>
 #include <stdio.h>
@@ -19,7 +22,11 @@ float* upright_render();
 
 namespace {
 
-const int   kNotes[13]  = { 60, 62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79, 81 }; // the name's, p to o
+const int   kNotes[13]  = { 60, 62, 64, 66, 67, 69, 71, 72, 74, 76, 78, 79, 81 }; // the name's, p to o, in the scale the page starts in: c lydian from c4
+// js/scale.js's seven modes, each its seven degrees in semitones over the root
+const int   kSteps[7][7] = { { 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 }, { 0, 2, 4, 6, 7, 9, 11 },
+                             { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 10 }, { 0, 1, 3, 5, 6, 8, 10 } };
+constexpr int kLowest = 24, kHighest = 104; // the keys the page's scales reach: c1, and the thirteenth degree from b5
 const float kKnobs[5]   = { 0.73f, -1.0f, -0.59f, 0.55f, -0.76f };                 // the page's five
 constexpr int    kVelocity = 100;
 constexpr int    kFrames   = 128;
@@ -78,6 +85,25 @@ double fall(const std::vector<float>& x)
     return (double)(last - first) / kRate;
 }
 
+// a key struck and never let go, three seconds of it
+std::vector<float> held(int note)
+{
+    fresh();
+    pianoRigNoteOn((uint8_t)note, kVelocity);
+    std::vector<float> x;
+    for (int b = 0; b < (int)(3.0 * kRate / kFrames); b++) {
+        const float* out = upright_render();
+        x.insert(x.end(), out, out + kFrames);
+    }
+    return x;
+}
+
+// degree deg's note in mode from c in octave, as js/scale.js has it
+int degree(int mode, int octave, int deg)
+{
+    return 12 * (octave + 1) + 12 * (deg / 7) + kSteps[mode][deg % 7];
+}
+
 } // namespace
 
 int main()
@@ -86,14 +112,7 @@ int main()
     printf("a held key's fall to -60 db under its peak:\n");
     double ringMax = 0.0;
     for (int note : kNotes) {
-        fresh();
-        pianoRigNoteOn((uint8_t)note, kVelocity);
-        std::vector<float> x;
-        for (int b = 0; b < (int)(3.0 * kRate / kFrames); b++) {
-            const float* out = upright_render();
-            x.insert(x.end(), out, out + kFrames);
-        }
-        const double f = fall(x);
+        const double f = fall(held(note));
         ringMax        = fmax(ringMax, f);
         printf("  %d  %.3f s\n", note, f);
     }
@@ -138,6 +157,43 @@ int main()
         fresh();
         const Take a = play(s, 3.0);
         printf("  %2d  peak %.3f  clamped %d\n", k, peak(a.x), clamped(a.x));
+    }
+
+    // the scales the page can be set to: each octave's c held, every key
+    // any of them reaches struck alone, and the name swept in every mode
+    // from c in each octave, both ways, the loudest of them at each spacing
+    printf("each octave's c, held, its fall to -60 db under its peak:\n ");
+    for (int octave = 1; octave <= 5; octave++) printf(" c%d %.3f s", octave, fall(held(12 * (octave + 1))));
+    float any   = 0.0f;
+    int   anyAt = 0;
+    for (int note = kLowest; note <= kHighest; note++) {
+        fresh();
+        const float p = peak(play({ { 0, note } }, 1.5).x);
+        if (p > any) {
+            any   = p;
+            anyAt = note;
+        }
+    }
+    printf("\nevery key the page's scales reach, %d to %d, struck alone: loudest %.3f (%d)\n", kLowest, kHighest, any, anyAt);
+    printf("sweeps in every mode from c, the loudest in each octave, * where the clamp held a sample:\n");
+    for (int octave = 1; octave <= 5; octave++) {
+        printf("  octave %d ", octave);
+        for (int ms = 20; ms <= 100; ms += 20) {
+            float loudest = 0.0f;
+            int   over    = 0;
+            for (int mode = 0; mode < 7; mode++) {
+                for (int dir = 0; dir < 2; dir++) {
+                    std::vector<std::pair<int, int>> s;
+                    for (int k = 0; k < 13; k++) s.push_back({ (int)(k * ms * 1e-3 * kRate / kFrames), degree(mode, octave, dir == 0 ? k : 12 - k) });
+                    fresh();
+                    const Take t = play(s, 3.0);
+                    loudest      = fmaxf(loudest, peak(t.x));
+                    over += clamped(t.x);
+                }
+            }
+            printf("  %3d ms %.3f%s", ms, loudest, over ? "*" : " ");
+        }
+        printf("\n");
     }
 
     // a block's cost, each block's least over five plays (the os's pauses
