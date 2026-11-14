@@ -67,7 +67,7 @@ const BLACK = [1, 3, 6, 8, 10, 13, 15];
   Keys.allOff();
   Keys.point(60);
   Keys.step(DT);
-  check('a note and a step before the wasm do nothing, and no key is found', Keys.at(0, 0) === -1 && !Keys.ready);
+  check('a note and a step before the wasm do nothing, and no key is found or down', Keys.at(0, 0) === -1 && Keys.down(0) === 0 && !Keys.ready);
 
   // --- the wasm ----------------------------------------------------------------
   const imports = WebAssembly.Module.imports(new WebAssembly.Module(wasm));
@@ -118,6 +118,7 @@ const BLACK = [1, 3, 6, 8, 10, 13, 15];
   // --- a key down, and up ----------------------------------------------------------
   Keys.on(64);
   check('a note on puts its key down at once', down(4) === PRESS, down(4));
+  check('and the page is told how far', Keys.down(4) === PRESS && Keys.down(3) === 0, Keys.down(4));
   Keys.step(DT);
   const held = snap();
   check('and the picture shows it', !held.equals(rest));

@@ -84,6 +84,12 @@ const Keys = {
     return this.mm.keys_at(x / this.SCALE + p.w / 2, y / this.SCALE + p.h / 2);
   },
 
+  // how far down the key of the window's note s is, 0 its first to 16, in
+  // picture px: 0 at rest
+  down(s) {
+    return this.ready ? this.mm.keys_down(s) : 0;
+  },
+
   // one frame, dtS seconds on; and, since the pictures have been drawn
   // again, the flatness js/raster.js keeps with a bitmap dropped from
   // each, to be worked out again

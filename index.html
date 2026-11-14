@@ -81,9 +81,9 @@
       qfb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
       canvas.style.height = (H * SCALE) + 'px';
-      layout();
       placeMute();
       placeHand();
+      layout();
     }
 
     // --- letters -----------------------------------------------------------------
@@ -584,11 +584,11 @@
         { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
       ] },
       { title: 'Personal work',     photo: false, o: 0, items: [
-        { title: 'Cicada' },
-        { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
         { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
+        { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
+        { title: 'Cicada' },
         { title: 'This website!',     links: [['github.com/dangelo729/website', 'https://github.com/dangelo729/website']] },
       ] },
       { title: 'Doodles',           photo: false, o: 0, items: [
@@ -1172,7 +1172,8 @@
         // above the text, centred across the text's measure, or across the
         // room the text has when that is narrower than he is, and so do
         // upright's keys and their menu (PIANO, below), a box PIANO.W wide
-        // and as tall as pianoH has it at the text's size
+        // and as tall as pianoH has it at the text's size, the hand
+        // pointing at them in what the measure leaves right of them
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1224,8 +1225,9 @@
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
           if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
           else if (a.piano) {
-            it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5);
+            it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5, nx + tw);
             it.menu = { ui: it.pianoAt.menu, m: pianoMenu };
+            it.right = Math.max(it.right, it.pianoAt.right);
           }
           else if (a.ship) it.shipAt = placeShip(x, y, seed + 9000 + 10 * i + 5);
           else if (a.demo) {
@@ -2526,6 +2528,19 @@
     // box, or the window is left, every key is let go and the pedal
     // lifted.
     //
+    // each key shows the letter that plays it, A on the first to ; on the
+    // last (LABEL): in the box text's face, LABEL.SIZE world px, its
+    // middle across on the key's and its baseline LABEL.WHITE or
+    // LABEL.BLACK down the keys, ink on a white key and paper on a black
+    // one, wobbling on a seed of its own as a letter does, and riding up
+    // with its key as far as the key is down (Keys.down). until a key has been
+    // played a hand stands right of the keys, pointing at them: monk
+    // mouth's (DEMO.HAND), turned a quarter the other way to point left,
+    // its tip GAP short of the keys at the nearest and bobbing BOB back
+    // from there. where the item's text's measure leaves it no room right
+    // of the keys there is no hand. the first key played, by a press or a
+    // letter, takes it away for good.
+    //
     // its menu is monk mouth's (the demo, above), made, drawn, stepped and
     // pressed by the same functions: shut, a button, a caret and TITLE;
     // open, across the box and down round a row for each of SLIDERS, four
@@ -2541,6 +2556,10 @@
     const PIANO = {
       W: 266, H: 48,  // world px, the keys: the picture's 121 columns by its 22 rows at Keys.SCALE, to the nearest px; W is its box's width too
       GAP: 6,         // world px from the menu's button, or from the menu as far as it is open, to the keys
+      // the letter on each key: its size, world px; picture px from a white
+      // key's left edge to the next's; and world px from the keys' top to
+      // the baseline of a white key's letter and of a black key's
+      LABEL: { SIZE: 10, PITCH: 12, WHITE: 39.5, BLACK: 25.5 },
       TITLE: 'settings', BUTTON: null, // what the menu's header says, and no button
       // the menu's sliders, top to bottom: the piano's size, its
       // instrument, its tone and its detune, each by its place among the
@@ -2562,6 +2581,9 @@
     let pianoPedal = false;        // the sustain pedal is down
     const pianoHolds = new Map();  // what holds a key down, a letter's code or a pointer's id, to the midi note it holds
     const pianoDowns = new Map();  // a midi note held down, to how many hold it
+    let pianoPlayed = false;       // a key has been played: the hand pointing at the keys is gone
+    // each key's letter, the semitones its note is over the first's and its type
+    const pianoLabels = Object.entries(PIANO.LETTERS).map(([code, n]) => ({ n, type: new Type(code === 'Semicolon' ? ';' : code.slice(-1), () => document.createElement('canvas'), TAG.FACE) }));
 
     // the piano's box's height in world px at the item's text size bs: the
     // menu's button, GAP and the keys
@@ -2570,33 +2592,59 @@
     }
 
     // a piano's box with its top left at (x, y), world px on the page as
-    // laid out, at the item's text size bs, its seeds from seed on: the
+    // laid out, at the item's text size bs, its seeds from seed on, and
+    // nothing of it further right than right: the
     // keys' box, under the menu's button and GAP; a letter with nothing to
     // draw at the keys' middle, at scale 1 so its pose's scale is its
-    // breathe alone, for their wobble; and the menu (placeSettings),
-    // { box, letter, menu }
-    function placePiano(x, y, bs, seed) {
-      const P = PIANO, top = y + demoSize(bs).h + P.GAP;
-      return {
-        box: { x0: x, y0: top, x1: x + P.W, y1: top + P.H },
-        letter: makeLetter(null, x + P.W / 2, top + P.H / 2, seed, 1),
-        menu: placeSettings(pianoMenu, x, y, top + P.H, bs, seed),
-      };
+    // breathe alone, for their wobble; each key's letter, by the semitones
+    // its note is over the first's: u is how many white keys' widths the
+    // key's middle is from the keys' left, a whole number for a black key,
+    // which sits on the line between two white ones, and the picture's
+    // middle is five across; the hand, where it fits between the keys and
+    // right at its furthest back, or null: a letter with nothing to draw
+    // at the scroll hand's scale on the keys' right edge, for its wobble,
+    // its middle DEMO.HAND.DOWN over the keys' so its finger is level with
+    // it; how far right the keys and the hand reach; and the menu
+    // (placeSettings), { box, letter, labels: [{ n, letter }], hand,
+    // right, menu }
+    function placePiano(x, y, bs, seed, right) {
+      const P = PIANO, top = y + demoSize(bs).h + P.GAP, box = { x0: x, y0: top, x1: x + P.W, y1: top + P.H };
+      const mx = x + P.W / 2, my = top + P.H / 2, lk = P.LABEL.SIZE / TYPE.EM, labels = [];
+      for (const { n, type } of pianoLabels) {
+        const gl = type.glyphs[0];
+        if (!gl) continue;
+        const m = n % 12, u = (m + (m > 4 ? 1 : 0)) / 2 + 0.5 + 7 * Math.floor(n / 12), black = Number.isInteger(u);
+        labels.push({ n, letter: makeLetter(gl.g, mx + (u - 5) * P.LABEL.PITCH * Keys.SCALE, top + (black ? P.LABEL.BLACK : P.LABEL.WHITE) + lk * gl.dy, seed + 100 + n, lk, WOBBLE, black ? 0 : 1) });
+      }
+      const f = handArt[0], D = DEMO.HAND, reach = f ? box.x1 + D.GAP + D.BOB + f.ink.h * HAND.SCALE : Infinity;
+      const hand = reach <= right ? makeLetter(null, box.x1, my - D.DOWN, seed + 9, HAND.SCALE) : null;
+      return { box, letter: makeLetter(null, mx, my, seed, 1), labels, hand, right: hand ? reach : box.x1, menu: placeSettings(pianoMenu, x, y, top + P.H, bs, seed) };
     }
 
     // item it's piano, d world px down from where it was laid out, into
     // pfb: once the keys are in, the picture's ink with its middle on
     // their box's, as far down as the menu has them pushed, moved by the
     // wobble's sway and bob, at Keys.SCALE by its breathe and turned by its
-    // tilt, and over it at the same pose the outlines of the keys that are
-    // down and of the key a mouse is on, in the links' hover colour; and
-    // the menu (drawSettings)
+    // tilt, over it at the same pose the outlines of the keys that are
+    // down and of the key a mouse is on, in the links' hover colour, and
+    // each key's letter, up as far as its key is down; until a key has
+    // been played, the hand pointing at the keys, turned a quarter on from
+    // pointing down, its tip GAP and its bob right of them;
+    // and the menu (drawSettings)
     function drawPiano(it, t, d, hover) {
-      const a = it.pianoAt;
+      const a = it.pianoAt, dy = Math.round(d + it.push);
       if (Keys.ready) {
-        const p = a.letter.pose(t), y = p.y + Math.round(d + it.push), s = Keys.SCALE * p.s;
+        const p = a.letter.pose(t), y = p.y + dy, s = Keys.SCALE * p.s;
         pfb.sprite(Keys.picture, p.x, y, s, p.a, 1);
         pfb.sprite(Keys.glow, p.x, y, s, p.a, HOVER_LINK);
+        for (const l of a.labels) l.letter.draw(t, dy - Keys.SCALE * Keys.down(l.n), pfb);
+      }
+      const f = handArt[0];
+      if (f && a.hand && !pianoPlayed) {
+        const D = DEMO.HAND, p = a.hand.pose(t), back = D.GAP + D.BOB * (0.5 + 0.5 * Math.sin(2 * Math.PI * t * D.HZ));
+        const x = p.x + back + f.ink.h * p.s / 2, y = p.y + dy, turn = p.a + Math.PI / 2;
+        pfb.sprite(f.paper, x, y, p.s, turn, 0, CURSOR.MIN_HITS);
+        pfb.sprite(f.ink, x, y, p.s, turn, 1, CURSOR.MIN_HITS);
       }
       drawSettings(it, a.menu, pianoMenu, t, Math.round(d), hover);
     }
@@ -2644,8 +2692,10 @@
 
     // midi note's key held down by by, a letter's code or a pointer's id,
     // which holds one key at a time: the note struck on the piano and its
-    // key pressed on the keys, unless something holds it already
+    // key pressed on the keys, unless something holds it already. the keys
+    // have been played
     function pressKey(by, note) {
+      pianoPlayed = true;
       if (pianoHolds.has(by)) return;
       pianoHolds.set(by, note);
       const n = pianoDowns.get(note) || 0;
