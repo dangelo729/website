@@ -578,7 +578,6 @@
     // drawn as the box, not as a letter. a section's text and each item's
     // are js/text.js's (readText, below)
     const SECTIONS = [
-      { title: 'About',             photo: true,  o: 0 },
       { title: 'Professional work', photo: false, o: 0, items: [
         { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
         { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
@@ -596,6 +595,7 @@
         { title: 'Bubble Bob', game: true },
         { title: 'Graffiti Wall', wall: true },
       ] },
+      { title: 'About',             photo: true,  o: 0 },
       { title: 'Contact',           photo: false, o: 0 },
     ];
     const sections = SECTIONS.map((s, n) => ({
@@ -947,7 +947,9 @@
           y = s.ink.y1 + ABOUT.SPACE * size;
         }
         const edge = Math.max(2, Math.min(NAME.X, ...laid.map((s) => s.ink.x0)) - BOX.PAD * size);
-        for (const s of laid) layoutBox(s, name, size, stacked, edge);
+        // the photo's box first: bubble bob's and the wall's are sized by it (layoutItems)
+        for (const s of laid) if (s.photo) layoutBox(s, name, size, stacked, edge);
+        for (const s of laid) if (!s.photo) layoutBox(s, name, size, stacked, edge);
         // each box's skin settled where its box is now: laid out again, it
         // is put straight there rather than sent across
         for (const s of laid) if (s.box.full) s.skin = new Skin(boxAt(s, s.box.p));
@@ -959,7 +961,8 @@
     // side of the window, and its insides laid out in it, wide or stacked
     function layoutBox(s, name, size, stacked, edge) {
       const box = s.box, seed = BOX.FIRST + 10000 * s.n, pad = BOX.PAD * size;
-      const x0 = edge, x1 = W - edge, y0 = s.ink.y0 - pad, rest = H - edge;
+      // rest: the window's bottom, edge in, as far under this word as it is under the first of them
+      const x0 = edge, x1 = W - edge, y0 = s.ink.y0 - pad, rest = H - edge + s.ink.y0 - sections.find((o) => o.ink).ink.y0;
       const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = s.ink.y1 + BOX.GAP * size;
       const bs = stacked ? BOX.PHONE : Math.min(BOX.MOST, Math.max(BOX.LEAST, BOX.BODY * name.size)), bk = bs / TYPE.EM;
       // the x in the top left corner, at CLOSE; what
@@ -1058,8 +1061,8 @@
         base += BOX.PARA * bs;
       });
       inside = Math.max(inside, last + 0.3 * bs);
-      // with the photo it reaches across the window and down to its
-      // bottom; without, only as far as its text, and SLACK, or its word
+      // with the photo it reaches across the window and as far down as
+      // the window's bottom is under the first word; without, only as far as its text, and SLACK, or its word
       // if that is wider, so it covers the word
       box.full = s.photo ? { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size }
         : { x0, y0, x1: Math.min(x1, Math.max(right, s.ink.x1) + BOX.SLACK * bs + pad), y1: inside + pad, r: BOX.RADIUS * size };
@@ -1473,7 +1476,7 @@
       // world, and his caret and name go over his skin, so it never cuts
       // them as it bows open and shut. graffiti wall's insides are the
       // wall and its menu (drawWall), wiped in as its bubble opens, and
-      // its caret and name over them on paper the shape of its bubble shut
+      // its caret and name over them
       for (const it of s.items) {
         if (!it.skin) continue;
         const b = it.skin.bounds(), m = BOX.LINE + 1;
@@ -1493,10 +1496,7 @@
           for (const L of it.letters) L.draw(t, d, cfb, 0, v);
           continue;
         }
-        if (it.wall) {
-          if (it.p > 0) drawWall(it, t, d, hover);
-          pfb.roundRect(it.shut.x0, it.shut.y0 + d, it.shut.x1, it.shut.y1 + d, it.shut.r, 0, 0);
-        }
+        if (it.wall && it.p > 0) drawWall(it, t, d, hover);
         if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, pfb, 0, v);
         if (it.p > 0 && !it.wall) {
@@ -3506,8 +3506,8 @@
     // the wall, GROW times its size and still, each of its px off the
     // framebuffer's grid and wobbling a little where it is, so its ink
     // shimmers as the letters do (drawShimmer). its
-    // caret and name stay in its top left corner as its label, on paper
-    // the shape of its bubble shut, so the wall's ink never hides them. in
+    // caret and name stay in its top left corner as its label, over the
+    // wall, and a press there is still the item's, not the wall's. in
     // its top right corner, as far in from the top and right as its
     // caret's ink is from its left, is its menu, built as bubble bob's is
     // (the shop, above) and moving as his does: shut, a button, a caret,
