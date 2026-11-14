@@ -573,26 +573,58 @@ Framebuffer.prototype.blitPacked = function (bytes, off, bw, bh, stride, x, y) {
 };
 
 // the page's colours, as the little-endian ABGR words a canvas pixel is,
-// all opaque. a pixel's number is its index in PALETTE: 0 is PAPER, what a
-// clear leaves, and 1 is INK, what lit means to every primitive; colour()
-// adds more, for a v past 1. black on an off-white paper, #fbf6f0; swap
-// the first two for paper on black
+// all opaque. a pixel's number is its index in PALETTE: 0 is the page's
+// paper, what a clear leaves, and 1 is its ink, what lit means to every
+// primitive; colour() adds more, for a v past 1. black on an off-white
+// paper, #fbf6f0. every colour has another on the dark page, at its index
+// in DARK: there the first two are the other way round, paper on black
 Framebuffer.INK = 0xFF000000;
 Framebuffer.PAPER = 0xFFF0F6FB;
 Framebuffer.PALETTE = [Framebuffer.PAPER, Framebuffer.INK];
+Framebuffer.DARK = [Framebuffer.INK, Framebuffer.PAPER];
 
 // '#rrggbb' as the v that draws in it: its index in PALETTE, added the
-// first time it is asked for
-Framebuffer.colour = function (hex) {
-  const n = parseInt(hex.slice(1), 16);
-  const word = (0xFF000000 | (n & 0xFF) << 16 | (n & 0xFF00) | (n >> 16 & 0xFF)) >>> 0;
-  const i = Framebuffer.PALETTE.indexOf(word);
-  return i >= 0 ? i : Framebuffer.PALETTE.push(word) - 1;
+// first time it is asked for. given dark, another '#rrggbb', the v is
+// that on the dark page; else it is the one colour on both. never one of
+// the first two: black and the paper's colour have places of their own
+// past them, and stay black and paper on the dark page
+Framebuffer.colour = function (hex, dark = hex) {
+  const word = (h) => {
+    const n = parseInt(h.slice(1), 16);
+    return (0xFF000000 | (n & 0xFF) << 16 | (n & 0xFF00) | (n >> 16 & 0xFF)) >>> 0;
+  };
+  const a = word(hex), b = word(dark), L = Framebuffer.PALETTE, D = Framebuffer.DARK;
+  for (let i = 2; i < L.length; i++) if (L[i] === a && D[i] === b) return i;
+  D.push(b);
+  return L.push(a) - 1;
 };
 
-// the canvas is exactly this size, so the copy lands at its corner
-Framebuffer.prototype.present = function (ctx) {
-  const bits = this.bits, px = this.px, n = bits.length, pal = Framebuffer.PALETTE;
-  for (let i = 0; i < n; i++) px[i] = pal[bits[i]];
+// a number for each of n pixels, 0 to 65535, every one as likely and a
+// pixel's nothing to do with the next's: where in the change from light
+// to dark the pixel goes over (present)
+Framebuffer.grain = function (n) {
+  const g = new Uint16Array(n);
+  for (let i = 0; i < n; i++) {
+    let x = i + 1;
+    x = Math.imul(x ^ x >>> 16, 0x7FEB352D);
+    x = Math.imul(x ^ x >>> 15, 0x846CA68B);
+    g[i] = (x ^ x >>> 16) >>> 16;
+  }
+  return g;
+};
+
+// the canvas is exactly this size, so the copy lands at its corner. dark
+// is how far the page has gone from light, 0, to dark, 1: between the
+// two, that share of the pixels are their dark colours and the rest
+// their light, each pixel going over at its own point on the way (grain),
+// so the page changes a pixel at a time and changes back the same way
+Framebuffer.prototype.present = function (ctx, dark = 0) {
+  const bits = this.bits, px = this.px, n = bits.length, L = Framebuffer.PALETTE, D = Framebuffer.DARK;
+  if (dark <= 0) for (let i = 0; i < n; i++) px[i] = L[bits[i]];
+  else if (dark >= 1) for (let i = 0; i < n; i++) px[i] = D[bits[i]];
+  else {
+    const g = this.grain || (this.grain = Framebuffer.grain(n)), at = dark * 65536;
+    for (let i = 0; i < n; i++) px[i] = (g[i] < at ? D : L)[bits[i]];
+  }
   ctx.putImageData(this.img, 0, 0);
 };

@@ -7,6 +7,8 @@
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
+    /* black on a device set dark, where the page starts dark (the switch, in the script) */
+    @media (prefers-color-scheme: dark) { html, body { background: #000000; } }
     /* no system cursor over the document either, as over the canvas */
     html, body { cursor: none; }
     /* the document never scrolls: the page scrolls itself, in the script
@@ -19,6 +21,14 @@
     canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated; cursor: none;
              touch-action: none; user-select: none; -webkit-user-select: none; }
   </style>
+  <script>
+    // the paper's colour as the visitor last chose the page, light or dark,
+    // before the scripts under the canvas have loaded (the switch, there)
+    try {
+      const kept = localStorage.getItem('dark');
+      if (kept !== null) document.documentElement.style.background = kept === '1' ? '#000000' : '#fbf6f0';
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -83,6 +93,7 @@
       canvas.style.height = (H * SCALE) + 'px';
       placeMute();
       placeHand();
+      placeSwitch();
       layout();
     }
 
@@ -715,17 +726,17 @@
     readText(TEXT);
 
     // the logos, each once it has loaded with its own few colours worked
-    // out once, as the photos' are, by key: { img, colours, dithers }, the
-    // last its dithers by size (ditherLogo). the page is laid out again
-    // with each
+    // out once, as the photos' are, by key: { img, photo, colours,
+    // dithers }, photo whether it is a photo of a thing and the last its
+    // dithers by size (ditherLogo). the page is laid out again with each
     const logoArt = {};
     const photoLogos = new Set(SECTIONS.flatMap((s) => (s.items || []).flatMap((x) => (x.logos || []).filter((l) => l.photo).map((l) => l.key))));
     if (typeof LOGOS !== 'undefined') for (const key in LOGOS) {
       const img = new Image();
       img.onload = () => {
-        const colours = imagePalette(img, photoLogos.has(key) ? BOX.PRODUCT_COLOURS : BOX.LOGO_COLOURS);
+        const photo = photoLogos.has(key), colours = imagePalette(img, photo);
         if (!colours) return;
-        logoArt[key] = { img, colours, dithers: new Map() };
+        logoArt[key] = { img, photo, colours, dithers: new Map() };
         if (fb) layout();
       };
       img.src = LOGOS[key];
@@ -781,42 +792,69 @@
       }
     }
 
-    // the paper's colour as [r, g, b], the palette's first: what an image is
-    // drawn over, and the colour its palette has for paper
+    // the light page's paper's colour as [r, g, b]: what an image is drawn
+    // over, and the colour its palette has for paper
     function paperRGB() {
-      const w = Framebuffer.PALETTE[0];
+      const w = Framebuffer.PAPER;
       return [w & 255, w >> 8 & 255, w >> 16 & 255];
     }
 
     // an image drawn at w x h over paper, read back as r, g, b; null if the
-    // canvas cannot be read
-    function readImage(img, w, h) {
+    // canvas cannot be read. given clear, a Uint8Array of w * h, it is
+    // drawn over nothing: a pixel it covers by half or more is the image's
+    // own colour there, and one it covers by less is the paper's, and 1 in
+    // clear
+    function readImage(img, w, h, clear) {
       try {
         const c = document.createElement('canvas');
         c.width = w;
         c.height = h;
-        const x = c.getContext('2d', { willReadFrequently: true });
-        x.fillStyle = 'rgb(' + paperRGB().join(',') + ')';
-        x.fillRect(0, 0, w, h);
+        const x = c.getContext('2d', { willReadFrequently: true }), P = paperRGB();
+        if (!clear) {
+          x.fillStyle = 'rgb(' + P.join(',') + ')';
+          x.fillRect(0, 0, w, h);
+        }
         x.imageSmoothingQuality = 'high';
         x.drawImage(img, 0, 0, w, h);
         const d = x.getImageData(0, 0, w, h).data, n = w * h, rgb = new Float32Array(3 * n);
-        for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) rgb[3 * i + k] = d[4 * i + k];
+        for (let i = 0; i < n; i++) {
+          const off = !!clear && d[4 * i + 3] < 128;
+          if (off) clear[i] = 1;
+          for (let k = 0; k < 3; k++) rgb[3 * i + k] = off ? P[k] : d[4 * i + k];
+        }
         return rgb;
       } catch (e) {
         return null;
       }
     }
 
-    // a logo's own colours, as a photo's: n less two by median cut over
-    // it at PHOTO.SAMPLE px wide, and black and the paper, each a place in
-    // the framebuffer's palette. { rgb, v }, or null
-    function imagePalette(img, n) {
-      const w = PHOTO.SAMPLE, h = Math.max(1, Math.round(w * img.naturalHeight / img.naturalWidth)), rgb = readImage(img, w, h);
+    // a colour [r, g, b] as it is over the paper, made for the dark page:
+    // moved as far on every channel, as shares of the paper's, so that its
+    // lightest channel is as far from black as its darkest was from the
+    // paper. black comes out the paper's colour and the paper black, and a
+    // colour keeps its hue, as does every shade between it and the paper,
+    // which comes out as far between it and black
+    function flipRGB(c) {
+      const P = paperRGB(), r = c[0] / P[0], g = c[1] / P[1], b = c[2] / P[2];
+      const by = 1 - Math.max(r, g, b) - Math.min(r, g, b);
+      return [r, g, b].map((x, k) => P[k] * Math.min(1, Math.max(0, x + by)));
+    }
+
+    // a logo's own colours, as a photo's: LOGO_COLOURS less two, or a
+    // photo of a thing's PRODUCT_COLOURS less two, by median cut over it
+    // at PHOTO.SAMPLE px wide, and black and the paper, each a place in
+    // the framebuffer's palette. { rgb, v }, or null. a flat logo's black
+    // and its paper are the page's own ink and paper, and each of its
+    // others has on the dark page the colour made for it (flipRGB), so its
+    // lettering that was black reads there and its ground goes dark with
+    // the page; a photo of a thing's are the same on both
+    function imagePalette(img, photo) {
+      const w = PHOTO.SAMPLE, h = Math.max(1, Math.round(w * img.naturalHeight / img.naturalWidth));
+      const rgb = readImage(img, w, h, photo ? new Uint8Array(w * h) : null);
       if (!rgb) return null;
-      const colours = [[0, 0, 0], paperRGB(), ...Framebuffer.medianCut(rgb, n - 2)];
-      const hex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
-      return { rgb: colours, v: colours.map((c) => Framebuffer.colour(hex(c))) };
+      const cut = Framebuffer.medianCut(rgb, (photo ? BOX.PRODUCT_COLOURS : BOX.LOGO_COLOURS) - 2), colours = [[0, 0, 0], paperRGB(), ...cut];
+      const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+      return { rgb: colours, v: photo ? colours.map((c) => Framebuffer.colour(hex(c))) : [1, 0, ...cut.map((c) => Framebuffer.colour(hex(c), hex(flipRGB(c))))] };
     }
 
     // make() for key, a dithered picture or null, kept in memo: a layout
@@ -834,14 +872,15 @@
     }
 
     // a logo at w x h in its colours, dithered as a photo is: a bitmap
-    // { px, w, h } of the framebuffer's v's, or null. each size made is
-    // kept with the logo (art.dithers)
+    // { px, w, h } of the framebuffer's v's, or null. where a photo of a
+    // thing does not cover a pixel by half, it is the page's paper. each
+    // size made is kept with the logo (art.dithers)
     function ditherLogo(art, w, h) {
       return remember(art.dithers, w + 'x' + h, () => {
-        const rgb = readImage(art.img, w, h);
+        const clear = art.photo ? new Uint8Array(w * h) : null, rgb = readImage(art.img, w, h, clear);
         if (!rgb) return null;
         const g = Framebuffer.ditherColour(rgb, w, h, art.colours.rgb);
-        for (let i = 0; i < g.px.length; i++) g.px[i] = art.colours.v[g.px[i]];
+        for (let i = 0; i < g.px.length; i++) g.px[i] = clear && clear[i] ? 0 : art.colours.v[g.px[i]];
         return g;
       });
     }
@@ -1770,7 +1809,8 @@
     }
 
     // a click: the mute button mutes the page or gives it its sound back
-    // (muteAt, below), the x shuts its box, a link opens its site in a new
+    // (muteAt, below), the switch sends the page to its other end, dark or
+    // light (sendDark, below), the x shuts its box, a link opens its site in a new
     // tab, the slideshow's < shows the slide before and its > or its photo
     // the one after, an item opens or shuts its text, a word opens its box;
     // a button of the shop's buys a level of its upgrade, the demo's
@@ -1791,6 +1831,7 @@
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
       if (muteAt(p.x, p.y)) { setMuted(!muted); return; }
+      if (switchAt(p.x, p.y)) { sendDark(darkTo < 0.5 ? 1 : 0); return; }
       const h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) window.open(h.link.url, '_blank', 'noopener');
@@ -1886,44 +1927,61 @@
     let muteArt = {};     // each icon as { paper, ink } letters in the corner, by name
 
     // icons (ICONS, js/icons.js) read again and put in the corner, the
-    // scroll hand's frames beside them, and the demo's face (js/moon.js)
-    // given its eye and its nose again
+    // scroll hand's frames beside them and the switch and its ball beside
+    // those, and the demo's face (js/moon.js) given its eye and its nose
+    // again
     function readIcons(icons) {
       iconRows = icons;
       placeMute();
       placeHand();
+      placeSwitch();
       Moon.art(iconRows.eye || [], iconRows.nose || []);
     }
 
-    // each icon as its two letters, centred so the icon stands MUTE.GAP clear
-    // of the window's bottom-right corner; an empty icon has none
-    function placeMute() {
-      muteArt = {};
-      for (const name of ['sound', 'muted']) {
-        const rows = iconRows[name] || [];
-        const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
-        if (!ink.w || !ink.h) continue;
-        const s = MUTE.SCALE, x = W - MUTE.GAP - ink.w * s / 2, y = H - MUTE.GAP - ink.h * s / 2;
-        muteArt[name] = { paper: makeLetter(paper, x, y, MUTE.SEED, s), ink: makeLetter(ink, x, y, MUTE.SEED, s) };
-      }
+    // rows as an icon along the window's bottom, its two letters on seed,
+    // { paper, ink }: centred so it stands with its right edge at right and
+    // MUTE.GAP clear of the bottom edge; null for an empty one
+    function iconArt(rows = [], right, seed) {
+      const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
+      if (!ink.w || !ink.h) return null;
+      const s = MUTE.SCALE, x = right - ink.w * s / 2, y = H - MUTE.GAP - ink.h * s / 2;
+      return { paper: makeLetter(paper, x, y, seed, s), ink: makeLetter(ink, x, y, seed, s) };
     }
 
-    // whether world (x, y) on the screen presses the icon shown: its box and
-    // a little round it, at least 20 world px across, for a finger
-    function muteAt(x, y) {
-      const a = muteArt[muted ? 'muted' : 'sound'];
+    // whether world (x, y) on the screen presses icon a: its box and a
+    // little round it, at least 20 world px across, for a finger
+    function iconAt(a, x, y) {
       if (!a) return false;
       const L = a.ink, w = L.g.w * L.scale, h = L.g.h * L.scale;
       const mx = Math.max(4, (20 - w) / 2), my = Math.max(4, (20 - h) / 2);
       return Math.abs(x - L.cx) <= w / 2 + mx && Math.abs(y - L.cy) <= h / 2 + my;
     }
 
-    // the icon shown, its ink in the first tag colour if over
-    function drawMute(t, over) {
-      const a = muteArt[muted ? 'muted' : 'sound'];
+    // icon a, its ink in the first tag colour if over
+    function drawIcon(a, t, over) {
       if (!a) return;
       a.paper.draw(t, 0, fb, 0, 0);
       a.ink.draw(t, 0, fb, 0, over ? HOVER : 1);
+    }
+
+    // each of the mute button's icons, MUTE.GAP clear of the window's
+    // bottom-right corner; an empty icon has none
+    function placeMute() {
+      muteArt = {};
+      for (const name of ['sound', 'muted']) {
+        const a = iconArt(iconRows[name], W - MUTE.GAP, MUTE.SEED);
+        if (a) muteArt[name] = a;
+      }
+    }
+
+    // whether world (x, y) on the screen presses the icon shown
+    function muteAt(x, y) {
+      return iconAt(muteArt[muted ? 'muted' : 'sound'], x, y);
+    }
+
+    // the icon shown
+    function drawMute(t, over) {
+      drawIcon(muteArt[muted ? 'muted' : 'sound'], t, over);
     }
 
     // the page muted or given its sound back, and the browser told
@@ -1935,6 +1993,142 @@
       try { localStorage.setItem(MUTE.KEY, on ? '1' : '0'); } catch (e) {}
     }
     try { if (localStorage.getItem(MUTE.KEY) === '1') setMuted(true); } catch (e) {}
+
+    // --- the switch --------------------------------------------------------------
+    // light or dark: a switch SWITCH.GAP world px left of the scroll hand,
+    // along the window's bottom with it and the mute button and held there
+    // as they are: ICONS.switch (js/icons.js), drawn as the mute button
+    // is, with ICONS.ball over it, the ball a press takes hold of. dark is
+    // how dark the page is, 0 light to 1 dark, and the ball is that far
+    // along the switch, from as far in from its left end as it is from its
+    // top to as far in from its right, where the switch is drawn. between
+    // the two, that share of the page's pixels are their dark colours, the
+    // rest their light, each going over at a point of its own
+    // (Framebuffer's present, js/raster.js): the page's paper to black and
+    // its ink to the paper's colour, a logo's colours to those made for
+    // the dark (imagePalette), a bubble's pulse to its shades up from the
+    // ink there (pulseInks), and the graffiti wall's paper and its black
+    // with the page's, which they are (wallLut). the photos keep their own
+    // colours, and so do the wall's others.
+    // dark eases to where it is going (darkTo) by the house approach,
+    // dt-correct. a click on the switch, or a little round it, sends it to
+    // the other end; a primary press that goes SLOP px across takes the
+    // ball, which then goes as far along as the pointer has gone since the
+    // press, no further than either end, and let go, to the nearer end,
+    // its click pressing nothing. either presses nothing under it. the
+    // switch and the ball are in the first tag colour while a mouse is
+    // over them or the ball is held. the document behind the canvas is the
+    // paper's colour of the end the page is nearer. the page starts as
+    // the visitor's device is set, until they send the switch to an end:
+    // from then on the browser keeps which
+    const SWITCH = {
+      GAP: 6,      // world px between it and the scroll hand
+      SEED: 99200, // its wobble's, clear of the hand's
+      KEY: 'dark', // where the browser keeps it
+      SLOP: 3,     // world px across a press goes before it has the ball
+      RATE: 0.7,   // of the way left to where it is going, each 60 hz frame
+      NEAR: 0.002, // of the way: as near as this, it is there
+    };
+    let dark = startsDark() ? 1 : 0; // how dark the page is, 0 light to 1 dark
+    let darkTo = dark;               // where it is going
+    let switchArt = null;            // the switch as { paper, ink } letters, its ball's bitmaps { paper, ink } or null, and reach, its px from its middle to the ball's at either end
+    let switchHold = null;           // the press on it, { id, x, from, on }: where it went down, how dark the page was, and whether it has the ball; or null
+
+    // whether the page starts dark: as the browser keeps it or, with
+    // nothing kept, as the visitor's device is set
+    function startsDark() {
+      try {
+        const kept = localStorage.getItem(SWITCH.KEY);
+        if (kept !== null) return kept === '1';
+      } catch (e) {}
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    // the document behind the canvas in the paper's colour at the end the page is nearer
+    function backPaper() {
+      const w = dark < 0.5 ? Framebuffer.PAPER : Framebuffer.INK;
+      document.documentElement.style.background = 'rgb(' + [w & 255, w >> 8 & 255, w >> 16 & 255].join(',') + ')';
+    }
+    backPaper();
+
+    // the switch, SWITCH.GAP clear of the scroll hand's widest frame's
+    // left, and its ball; an empty switch is none, and an empty ball none
+    function placeSwitch() {
+      let w = 0;
+      for (const f of handArt) w = Math.max(w, f.ink.w);
+      switchArt = iconArt(iconRows.switch, handWob.cx - w * HAND.SCALE / 2 - SWITCH.GAP, SWITCH.SEED);
+      if (!switchArt) return;
+      const rows = iconRows.ball || [], ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
+      const g = switchArt.ink.g;
+      switchArt.ball = ink.w && ink.h ? { paper, ink } : null;
+      switchArt.reach = Math.max(0, (g.w - g.h + ink.h - ink.w) / 2);
+    }
+
+    // whether world (x, y) on the screen presses the switch
+    function switchAt(x, y) {
+      return iconAt(switchArt, x, y);
+    }
+
+    // whether world (x, y) on the screen presses the mute button or the switch
+    function cornerAt(x, y) {
+      return muteAt(x, y) || switchAt(x, y);
+    }
+
+    // the switch, and its ball as far along it as the page is dark, where
+    // the switch is drawn, their ink in the first tag colour if over or held
+    function drawSwitch(t, over) {
+      const a = switchArt, lit = over || (switchHold && switchHold.on);
+      drawIcon(a, t, lit);
+      if (!a || !a.ball) return;
+      const p = a.ink.pose(t), along = (2 * dark - 1) * a.reach * p.s;
+      const x = p.x + Math.cos(p.a) * along, y = p.y + Math.sin(p.a) * along;
+      fb.sprite(a.ball.paper, x, y, p.s, p.a, 0);
+      fb.sprite(a.ball.ink, x, y, p.s, p.a, lit ? HOVER : 1);
+    }
+
+    // the page sent to an end, 1 dark or 0 light, and the browser told
+    function sendDark(to) {
+      darkTo = to;
+      try { localStorage.setItem(SWITCH.KEY, to ? '1' : '0'); } catch (e) {}
+    }
+
+    // dark eased toward where it is going, the house approach dt-correct,
+    // and there once it is near; the document behind the canvas follows
+    // it over the middle
+    function stepSwitch(dt) {
+      if (dark === darkTo) return;
+      const was = dark < 0.5;
+      dark += (darkTo - dark) * (1 - Math.pow(1 - SWITCH.RATE, 60 * dt));
+      if (Math.abs(darkTo - dark) < SWITCH.NEAR) dark = darkTo;
+      if (dark < 0.5 !== was) backPaper();
+    }
+
+    // a primary press on the switch is watched: SLOP px across, it has the
+    // ball, which goes with the pointer from there
+    canvas.addEventListener('pointerdown', (e) => {
+      const p = worldPointer(e);
+      if (e.isPrimary && !switchHold && switchAt(p.x, p.y)) switchHold = { id: e.pointerId, x: p.x, from: dark, on: false };
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const h = switchHold;
+      if (!h || e.pointerId !== h.id || !switchArt || !switchArt.reach) return;
+      const across = worldPointer(e).x - h.x;
+      if (!h.on && Math.abs(across) < SWITCH.SLOP) return;
+      h.on = true;
+      darkTo = Math.min(1, Math.max(0, h.from + across / (2 * switchArt.reach * MUTE.SCALE)));
+    });
+    // the press over: a ball that was held goes to the nearer end, and the
+    // click it ends in presses nothing
+    const switchGo = (e) => {
+      const h = switchHold;
+      if (!h || e.pointerId !== h.id) return;
+      switchHold = null;
+      if (!h.on) return;
+      sendDark(darkTo < 0.5 ? 0 : 1);
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', switchGo);
+    canvas.addEventListener('pointercancel', switchGo);
 
     // --- the demo ----------------------------------------------------------------
     // monk mouth's item, in personal work, holds a small demo of its voice
@@ -2320,7 +2514,7 @@
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !(h.ribbon || h.slider)) return;
       holding = { id: e.pointerId, it: h.it, i: h.slider ? h.slider.i : null };
       if (h.ribbon) played = true;
@@ -2397,7 +2591,7 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.ship) turning = { id: e.pointerId, x: p.x };
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -2660,7 +2854,7 @@
     // the keys told which of them a mouse is on, wherever the page has
     // scrolled to and the menu has them pushed, or that it is on none
     function pointKeys() {
-      const h = hoverAt && !muteAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y);
+      const h = hoverAt && !cornerAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y);
       Keys.point(h && h.piano ? h.key : -1);
     }
 
@@ -2732,7 +2926,7 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !pianoOn()) return;
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.piano && h.key >= 0) pressKey(e.pointerId, h.key);
     });
     canvas.addEventListener('pointermove', (e) => {
@@ -3025,17 +3219,19 @@
     // pulse lights it, times INTENSITY: at 1.75 anything it lights at about
     // half or more is the colour itself, and the rest of its trail and its
     // last moments fade back into the ink. every shade is a colour of the
-    // framebuffer's palette, made once here
+    // framebuffer's palette, made once here: up from the page's ink, black,
+    // and on the dark page up from its ink there, the paper's colour
     const PULSE = { STEPS: 6, LEVELS: 5, INTENSITY: 1.75 };
     const pulseInks = (() => {
       const rgb = (hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16));
       const hex = (c) => '#' + c.map((x) => Math.round(x).toString(16).padStart(2, '0')).join('');
-      const ink = [0, 8, 16].map((k) => Framebuffer.INK >> k & 0xFF); // the palette's words run r, g, b up from the low byte
+      const inks = [Framebuffer.INK, Framebuffer.PAPER].map((word) => [0, 8, 16].map((k) => word >> k & 0xFF)); // the palette's words run r, g, b up from the low byte
       const cols = TAG.LINES.map((l) => rgb(l.colour)), n = cols.length * PULSE.STEPS;
       return Array.from({ length: PULSE.LEVELS }, (_, l) => Array.from({ length: n }, (_, k) => {
         const a = cols[Math.floor(k / PULSE.STEPS)], b = cols[(Math.floor(k / PULSE.STEPS) + 1) % cols.length];
         const f = (k % PULSE.STEPS) / PULSE.STEPS, lit = (l + 1) / PULSE.LEVELS;
-        return Framebuffer.colour(hex(ink.map((x, j) => x + (a[j] + (b[j] - a[j]) * f - x) * lit)));
+        const shade = (ink) => hex(ink.map((x, j) => x + (a[j] + (b[j] - a[j]) * f - x) * lit));
+        return Framebuffer.colour(shade(inks[0]), shade(inks[1]));
       }));
     })();
 
@@ -3511,7 +3707,7 @@
       cursor.press();
       pointerAt = p;
       const q = toRoom(p);
-      const free = !hitAt(p.x, p.y) && !muteAt(p.x, p.y); // the press presses nothing else
+      const free = !hitAt(p.x, p.y) && !cornerAt(p.x, p.y); // the press presses nothing else
       grabbed = !!(playing() && free) && world.grab(q.x, q.y);
       if (grabbed && world.drag.blob === bubble) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
       const b = !grabbed && free && tagBubbleAt(p.x, p.y);
@@ -3705,7 +3901,7 @@
       : location.hostname ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + ':8787' : '';
     const wallHome = sections.find((s) => s.items.some((it) => it.wall)) || null; // the section whose box holds the wall
     const wallItem = wallHome ? wallHome.items.find((it) => it.wall) : null;       // graffiti wall, the item it is
-    const wallLut = Uint16Array.from(WALL.COLOURS, (c) => Framebuffer.colour(c));  // each of the wall's colours as the framebuffer's v
+    const wallLut = Uint16Array.from(WALL.COLOURS, (c, i) => i < 2 ? i : Framebuffer.colour(c));  // each of the wall's colours as the framebuffer's v, its paper and its black the page's own
     const wall = new Wall(wallLut);
     const wallPicture = { px: wall.shown, w: WALL.W, h: WALL.H }; // the wall as a picture the framebuffer takes
     const wallWords = {
@@ -4098,7 +4294,7 @@
     // whether a press is on the wall itself, or on its menu's cells,
     // slider, tray or eraser
     function onWall(e) {
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       return !!(h && (h.canvas || h.cell || h.width || h.tray || h.eraser));
     }
 
@@ -4221,7 +4417,7 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.wall) return;
       // a cell's paint taken up, packed in the cell as it is drawn, or the tray's under the pen
       if ((h.cell || h.tray) && e.isPrimary && wallMixer === null) {
@@ -4487,7 +4683,7 @@
     // is kept from the browser, and the page's listener leaves it be
     canvas.addEventListener('wheel', (e) => {
       if (!e.ctrlKey && !e.metaKey) return;
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y), v = wallView(), U = WALL_UI;
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y), v = wallView(), U = WALL_UI;
       if (!h || !h.canvas || !v) return;
       e.preventDefault();
       const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
@@ -4499,7 +4695,7 @@
     // has since it was last heard, and is kept from safari's zoom of the
     // page. fingers on a screen are the pointers' (the wall, above)
     canvas.addEventListener('gesturestart', (e) => {
-      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.canvas) return;
       e.preventDefault();
       wallPinch = 1;
@@ -4519,7 +4715,7 @@
       if (e.ctrlKey || e.defaultPrevented) return;
       const now = performance.now();
       if (now - wheelAt >= WHEEL.RUN) {
-        const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+        const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
         wheelShip = !!(h && h.ship);
         wheelWall = !!(h && h.canvas);
       }
@@ -4726,13 +4922,14 @@
       if (panel) panel.step(now);
       stepSwipe(dt);
       stepHand(dt);
+      stepSwitch(dt);
       fb.clear();
       // the words and their boxes first, scrolled and pushed down by the
       // boxes above them, each box over its word, so the header's letters
       // cover them all
       const sy = scrolled();
-      const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y);
-      const hit = hoverAt && !overMute && hitAt(hoverAt.x, hoverAt.y);
+      const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y), overSwitch = !!hoverAt && !overMute && switchAt(hoverAt.x, hoverAt.y);
+      const hit = hoverAt && !overMute && !overSwitch && hitAt(hoverAt.x, hoverAt.y);
       for (const s of sections) {
         const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
@@ -4748,9 +4945,10 @@
       if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
       for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
       drawHand(t);
+      drawSwitch(t, overSwitch);
       drawMute(t, overMute);
       cursor.draw(fb);
-      fb.present(ctx);
+      fb.present(ctx, dark);
       requestAnimationFrame(frame);
     }
 
