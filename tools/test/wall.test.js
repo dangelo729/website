@@ -17,8 +17,12 @@
 // ms and at MOST points, carrying the last point on; that ink running dry
 // lifts the pen, comes back over time and is charged exactly what each
 // message costs; that a lost socket drops the ink not yet acked and is
-// tried again on the RETRY schedule; and that disconnect stops trying.
-// exits 1 on failure.
+// tried again on the RETRY schedule; that disconnect stops trying; and of
+// mixed strokes, that the dice is whole, even and the number it was, that
+// a blend gives each pixel one of its colours by weight, the same each
+// time, that its message round-trips and every bad one is refused, and
+// that the pen shows, sends and keeps one, hears someone else's and takes
+// a refused one off. exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -491,6 +495,85 @@ check('cost: the points between segments counted once', Wall.cost([0, 0, 10, 3, 
   check('disconnect closes the socket, drops the ink not yet acked and stops trying', last.closed && !w.live && w.shown.every((v) => v === LUT[0]) && sockets.length === before + 1);
   w.connect('ws://wall.test/');
   check('and connect opens one again at once', sockets.length === before + 2 && w.socket === sockets[sockets.length - 1]);
+}
+
+// --- mixed strokes -----------------------------------------------------------------
+{
+  // the dice: whole, the same wherever it is worked out, and even
+  const pinned = [Wall.dice(0, 0, 0), Wall.dice(1, 2, 3), Wall.dice(65535, 1343, 575), Wall.dice(7, 100, 200)];
+  check('dice is the number it was', pinned.join() === '3747132242,3216843603,2859387003,3988789095', pinned.join());
+  let whole = true;
+  const tenths = new Array(10).fill(0);
+  for (let k = 0; k < 20000; k++) {
+    const d = Wall.dice(int(65536), int(W), int(H));
+    if (!Number.isInteger(d) || d < 0 || d > 4294967295) whole = false;
+    tenths[Math.floor(d / 429496729.6)]++;
+  }
+  check('it is a whole number from 0 to 2^32 - 1, spread evenly', whole && tenths.every((n) => n > 1800 && n < 2200), tenths.join());
+  // a blend: each pixel one of its colours, in its lut's bytes, by weight
+  const set = { colours: [5, 2, 9], weights: [200, 50, 250], seed: 4242 };
+  const m = Wall.blend(set.colours, set.weights, set.seed, LUT), counts = {};
+  for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) { const v = Wall.roll(m, x, y); counts[v] = (counts[v] || 0) + 1; }
+  const share = (c) => (counts[LUT[c]] || 0) / 10000;
+  check('a blend gives each pixel one of its colours, a colour\'s share its weight over all', Object.keys(counts).length === 3 && Math.abs(share(5) - 0.4) < 0.03 && Math.abs(share(2) - 0.1) < 0.02 && Math.abs(share(9) - 0.5) < 0.03, [share(5), share(2), share(9)].join());
+  check('and a pixel the same each time, whatever else is asked', Wall.roll(m, 31, 77) === Wall.roll(m, 31, 77) && Wall.roll(Wall.blend(set.colours, set.weights, set.seed), 31, 77) === set.colours[m.vs.indexOf(Wall.roll(m, 31, 77))]);
+  // a stamp and a stroke of it
+  const a = new Uint8Array(W * H), bmp = new Uint8Array(W * H);
+  Wall.stroke(a, W, H, [100, 100, 160, 130], 16, m);
+  Wall.stroke(bmp, W, H, [100, 100, 160, 130], 16, 1);
+  let right = true;
+  for (let i = 0; i < a.length; i++) if (bmp[i] ? a[i] !== Wall.roll(m, i % W, Math.floor(i / W)) : a[i] !== 0) right = false;
+  check('a stroke of a blend paints the pixels one of a colour would, each what the blend gives it', right);
+  // the message
+  const pts = [10, 20, 300, 400, W - 1, H - 1], e = Wall.encodeMixed(set, 8, pts), d = Wall.decodeMixed(e);
+  check('encodeMixed lays out its bytes', Array.from(e.subarray(0, 12)).join() === [WALL.MIXED, 8, 4242 & 255, 4242 >> 8, 3, 5, 200, 2, 50, 9, 250, 3].join() && e.length === 12 + 12);
+  check('and decodeMixed reads them back', d && d.size === 8 && d.seed === 4242 && d.colours.join() === '5,2,9' && d.weights.join() === '200,50,250' && d.pts.join() === pts.join());
+  const good = Array.from(e), bad = (f) => { const b = good.slice(); f(b); return Wall.decodeMixed(Uint8Array.from(b)); };
+  const full = { colours: Array.from({ length: WALL.SET }, (_, i) => i), weights: new Array(WALL.SET).fill(1), seed: 0 };
+  const over = { colours: Array.from({ length: WALL.SET + 1 }, (_, i) => i), weights: new Array(WALL.SET + 1).fill(1), seed: 0 };
+  const refused = [
+    ['a stroke of one colour', Wall.decodeMixed(Wall.encodeStroke(3, 4, [10, 20]))],
+    ['no colours', Wall.decodeMixed(Uint8Array.of(WALL.MIXED, 8, 0, 0, 0, 1, 10, 0, 20, 0))],
+    ['more than SET colours', Wall.decodeMixed(Wall.encodeMixed(over, 8, [10, 20]))],
+    ['a colour off the list', bad((b) => { b[5] = WALL.COLOURS.length; })],
+    ['a weight of 0', bad((b) => { b[8] = 0; })],
+    ['a size not a brush', bad((b) => { b[1] = 9; })],
+    ['no points', bad((b) => { b[11] = 0; b.length = 12; })],
+    ['a byte missing', bad((b) => { b.pop(); })],
+    ['a byte over', bad((b) => { b.push(0); })],
+    ['x off the wall', Wall.decodeMixed(Wall.encodeMixed(set, 8, [W, 20]))],
+    ['y off the wall', Wall.decodeMixed(Wall.encodeMixed(set, 8, [10, H]))],
+  ];
+  for (const [what, got] of refused) check('decodeMixed refuses ' + what, got === null);
+  check('and takes SET colours', Wall.decodeMixed(Wall.encodeMixed(full, 8, [10, 20])) !== null);
+  check('decodeStroke refuses a mixed stroke', Wall.decodeStroke(e) === null);
+  // the pen: a mixed stroke is shown at once, sent as one, and kept once acked
+  const { w, s } = live(LUT);
+  const want = new Uint8Array(W * H).fill(LUT[0]);
+  Wall.stroke(want, W, H, [50, 50, 150, 60], 8, m);
+  w.pen(set, 8, 50, 50, 0); w.pen(set, 8, 150, 60, 0);
+  check('a pen given a set paints it on shown at once', differ(w.shown, want) < 0 && w.truth.every((v) => v === LUT[0]));
+  w.lift();
+  const out = Wall.decodeMixed(Uint8Array.from(s.out[s.out.length - 1]));
+  check('and sends a mixed stroke of it', out && out.seed === 4242 && out.colours.join() === '5,2,9' && out.weights.join() === '200,50,250' && out.size === 8 && out.pts.join() === '50,50,150,60');
+  ack(s, 1);
+  check('acked, it is on truth as it was shown', differ(w.truth, want) < 0 && differ(w.shown, want) < 0);
+  // a new set, or a colour, lifts the stroke and starts another
+  const n0 = s.out.length, other = { colours: [5, 2, 9], weights: [200, 50, 250], seed: 9 };
+  w.pen(set, 4, 300, 300, 100); w.pen(other, 4, 310, 300, 100); w.pen(3, 4, 320, 300, 100); w.lift();
+  const kinds = s.out.slice(n0).map((b) => b[0]);
+  check('the pen given another set, or a colour, starts a new stroke', kinds.join() === [WALL.MIXED, WALL.MIXED, WALL.STROKE].join(), kinds.join());
+  // someone else's mixed stroke, and one refused
+  const b = live(LUT), theirs = { colours: [7, 1], weights: [1, 3], seed: 77 };
+  const tw = new Uint8Array(W * H).fill(LUT[0]);
+  Wall.stroke(tw, W, H, [400, 100, 420, 180], 16, Wall.blend(theirs.colours, theirs.weights, theirs.seed, LUT));
+  hear(b.s, Wall.encodeMixed(theirs, 16, [400, 100, 420, 180]));
+  check('someone else\'s mixed stroke is painted on truth and shown', differ(b.w.truth, tw) < 0 && differ(b.w.shown, tw) < 0);
+  b.w.pen(set, 16, 405, 120, 0); b.w.pen(set, 16, 415, 160, 0); b.w.lift();
+  ack(b.s, 0);
+  check('a mixed stroke refused comes off shown', differ(b.w.shown, tw) < 0 && differ(b.w.truth, tw) < 0);
+  hear(b.s, [WALL.MIXED, 8, 0, 0, 0]);
+  check('a malformed mixed stroke from the server is ignored', differ(b.w.truth, tw) < 0);
 }
 
 check('nothing read the clock or set a timer', reads === 0);

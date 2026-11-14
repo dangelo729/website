@@ -536,12 +536,24 @@ Framebuffer.prototype.blitPixels = function (g, x, y, sx = 0, sy = 0, w = g.w, h
 // is the bitmap's at column cols[c0 + i] and row rows[r0 + j], every one
 // inside it, so a picture goes down stretched, shrunk or shifted a column
 // and a row at a time. over, its 0s are left alone, and it lays over what
-// is there
-Framebuffer.prototype.blitMapped = function (g, x, y, w, h, cols, c0, rows, r0, over = false) {
-  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h), px = g.px, bits = this.bits;
+// is there. given paper, a v, a pixel that would be paper is instead the
+// first v that is not among the bitmap's from its own column and row up
+// to the next pixel's (cols[c0 + i + 1], rows[r0 + j + 1], so each table
+// holds one more than the box is across or down), row by row: a picture
+// shrunk to no less than half keeps every pixel that is not paper
+Framebuffer.prototype.blitMapped = function (g, x, y, w, h, cols, c0, rows, r0, over = false, paper = -1) {
+  const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h), px = g.px, gw = g.w, bits = this.bits;
   for (let py = Math.max(0, y); py < y1; py++) {
-    const from = rows[r0 + py - y] * g.w, to = py * this.w, c = c0 - x;
-    if (over) {
+    const j = r0 + py - y, from = rows[j] * gw, to = py * this.w, c = c0 - x;
+    if (paper >= 0) {
+      const rb = Math.max(rows[j] + 1, rows[j + 1]) * gw;
+      for (let qx = x0; qx < x1; qx++) {
+        const ca = cols[c + qx], cb = Math.max(ca + 1, cols[c + qx + 1]);
+        let v = px[from + ca];
+        for (let r = from; v === paper && r < rb; r += gw) for (let q = ca; v === paper && q < cb; q++) v = px[r + q];
+        if (v || !over) bits[to + qx] = v;
+      }
+    } else if (over) {
       for (let qx = x0; qx < x1; qx++) {
         const v = px[from + cols[c + qx]];
         if (v) bits[to + qx] = v;

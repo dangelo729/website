@@ -146,9 +146,19 @@ async function main() {
     tick();
     await wait(4);
   }
+  // and a mixed stroke, each pixel one of a set's colours
+  const set = { colours: [3, 7, 12], weights: [255, 120, 40], seed: 31337 };
+  for (let k = 0; k <= 20; k++) {
+    A.pen(set, 12, 500 + 6 * k, 150 + 2 * k, performance.now());
+    tick();
+    await wait(4);
+  }
   A.lift();
   const settled = await until(() => A.sent.length === 0 && differ(B.shown, A.shown) < 0);
   check('A draws, and B\'s shown matches A\'s', settled && !blank(A.shown), where(differ(B.shown, A.shown)));
+  const speckle = new Set();
+  for (let y = 150; y <= 190; y++) for (let x = 500; x <= 620; x++) if (B.truth[y * W + x] !== B.lut[0]) speckle.add(B.truth[y * W + x]);
+  check('the mixed stroke reaches B in all of its set\'s colours and no other', speckle.size === 3 && set.colours.every((c) => speckle.has(B.lut[c])), [...speckle].join());
   check('both match once acked, truth and shown', differ(A.truth, A.shown) < 0 && differ(B.truth, A.truth) < 0 && differ(B.shown, B.truth) < 0);
   const C = client();
   await until(() => C.live);
@@ -175,6 +185,10 @@ async function main() {
   r1.s.send(Uint8Array.of(WALL.STROKE, WALL.COLOURS.length, 4, 1, 0, 0, 0, 0));
   await until(() => r1.code !== null);
   check('a malformed stroke closes its socket with 1008', r1.code === 1008, r1.code);
+  const r1m = await raw();
+  r1m.s.send(Uint8Array.of(WALL.MIXED, 4, 0, 0, 1, WALL.COLOURS.length, 1, 1, 0, 0, 0, 0));
+  await until(() => r1m.code !== null);
+  check('and so does a malformed mixed stroke', r1m.code === 1008, r1m.code);
   const r2 = await raw();
   r2.s.send('hello');
   await until(() => r2.code !== null);

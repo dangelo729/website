@@ -11,6 +11,12 @@
 //   SNAPSHOT  W and H as u16 little-endian, then the bitmap packed
 //   STROKE    colour, size, n, then n points, x and y each u16 little-endian
 //   ACK       1 when the sender's oldest stroke not yet acked was painted, 0 refused
+//   MIXED     size, a seed as u16 little-endian, k, then k colours each
+//             with its weight, then n and n points as a stroke's
+// a mixed stroke is one of a set of colours: each pixel it paints is one of
+// them, picked by a number the pixel always has for the stroke's seed
+// (dice), a colour's chance its weight over all of them, so the server and
+// every page paint it the same.
 // an instance is the page's replica of it and its link: truth, the wall in
 // the server's order, and shown, truth with the visitor's own ink not yet
 // acked over it, both in the page's colours through a lut. the pen paints
@@ -61,7 +67,8 @@ const WALL = {
   INK: 120000,            // a full pen, in px of brush width times px of travel
   RATE: 8000,             // ink back a second
   GRACE: 1.25,            // the server's pen is this many times as full, so an honest client is never refused
-  SNAPSHOT: 0, STROKE: 1, ACK: 2, // message types, a message's first byte
+  SNAPSHOT: 0, STROKE: 1, ACK: 2, MIXED: 3, // message types, a message's first byte
+  SET: 32,                // colours a mixed stroke's set holds at most
   RETRY: [1000, 2000, 5000, 10000], // ms before each try to reconnect, the last one repeating
 };
 
@@ -82,7 +89,9 @@ class Wall {
     this.due = 0;         // when the next try is
     this.now = 0;         // the last now step() was given
     this.sent = [];       // each { colour, size, pts } sent and not yet acked, oldest first
-    this.colour = -1;     // the stroke in progress, -1 when the pen is up
+    this.colour = -1;     // the stroke in progress, -1 when the pen is up: its colour, or the first of its set's
+    this.inked = null;    // what its pen was given: that colour, or a set { colours, weights, seed }
+    this.blend = null;    // a set's blend in the page's colours, null for one colour
     this.size = 0;
     this.unsent = [];     // its points not yet sent, flat x, y
     this.paid = 0;        // what they have cost: 0 when they are none, or only the point carried on
@@ -91,11 +100,43 @@ class Wall {
     this.filled = 0;      // when the ink was last topped up
   }
 
+  // a whole number from 0 to 2^32 - 1 that pixel (x, y) has in a stroke
+  // seeded seed, the same wherever it is worked out
+  static dice(seed, x, y) {
+    let d = Math.imul(x + 1, 0x9E3779B1) ^ Math.imul(y + 1, 0x85EBCA77) ^ Math.imul(seed + 1, 0xC2B2AE3D);
+    d = Math.imul(d ^ d >>> 15, 0x2C1B3C6D);
+    d = Math.imul(d ^ d >>> 12, 0x297A2D39);
+    return (d ^ d >>> 15) >>> 0;
+  }
+
+  // a set of colours as a brush paints it: vs, each as a bitmap holds it,
+  // through lut when there is one, and upto, the weights added up as far
+  // as each, total in all
+  static blend(colours, weights, seed, lut) {
+    const n = colours.length, vs = new Array(n), upto = new Array(n);
+    let total = 0;
+    for (let i = 0; i < n; i++) {
+      vs[i] = lut ? lut[colours[i]] : colours[i];
+      total += weights[i];
+      upto[i] = total;
+    }
+    return { seed, vs, upto, total };
+  }
+
+  // the v blend m gives pixel (x, y): the colour its dice lands in
+  static roll(m, x, y) {
+    const r = Wall.dice(m.seed, x, y) % m.total;
+    let i = 0;
+    while (r >= m.upto[i]) i++;
+    return m.vs[i];
+  }
+
   // the brush at integer (x, y): of the size by size box round it, the
   // pixels whose middles are within size / 2 of its middle. 2 is a 2x2
-  // block, 4 is 4x4 less its corners
+  // block, 4 is 4x4 less its corners. v is what each is written, or a
+  // blend, and each is written what the blend gives it
   static stamp(px, w, h, x, y, size, v) {
-    const half = size / 2, r2 = half * half;
+    const half = size / 2, r2 = half * half, m = typeof v === 'number' ? null : v;
     const x0 = x - Math.floor(half), y0 = y - Math.floor(half);
     for (let j = 0; j < size; j++) {
       const py = y0 + j;
@@ -105,7 +146,7 @@ class Wall {
         const qx = x0 + i;
         if (qx < 0 || qx >= w) continue;
         const dx = i + 0.5 - half;
-        if (dx * dx + dy * dy <= r2) px[py * w + qx] = v;
+        if (dx * dx + dy * dy <= r2) px[py * w + qx] = m ? Wall.roll(m, qx, py) : v;
       }
     }
   }
@@ -191,19 +232,35 @@ class Wall {
     return o === m;
   }
 
+  // pts, flat x and y, into out from o on, each a u16 little-endian
+  static putPoints(out, o, pts) {
+    for (let k = 0; k < pts.length; k++, o += 2) {
+      out[o] = pts[k] & 255;
+      out[o + 1] = pts[k] >> 8;
+    }
+  }
+
+  // the n points bytes holds from o to its end, flat x and y, or null
+  // unless they are 1 to MOST, fill it exactly and are all on the wall
+  static points(bytes, o, n) {
+    if (n < 1 || n > WALL.MOST || bytes.length !== o + 4 * n) return null;
+    const pts = new Array(2 * n);
+    for (let k = 0; k < n; k++, o += 4) {
+      const x = bytes[o] | bytes[o + 1] << 8, y = bytes[o + 2] | bytes[o + 3] << 8;
+      if (x >= WALL.W || y >= WALL.H) return null;
+      pts[2 * k] = x;
+      pts[2 * k + 1] = y;
+    }
+    return pts;
+  }
+
   static encodeStroke(colour, size, pts) {
     const n = pts.length >> 1, out = new Uint8Array(4 + 4 * n);
     out[0] = WALL.STROKE;
     out[1] = colour;
     out[2] = size;
     out[3] = n;
-    for (let k = 0; k < n; k++) {
-      const x = pts[2 * k], y = pts[2 * k + 1], o = 4 + 4 * k;
-      out[o] = x & 255;
-      out[o + 1] = x >> 8;
-      out[o + 2] = y & 255;
-      out[o + 3] = y >> 8;
-    }
+    Wall.putPoints(out, 4, pts);
     return out;
   }
 
@@ -211,18 +268,43 @@ class Wall {
   // colour, a size and 1 to MOST points, all on the wall
   static decodeStroke(bytes) {
     if (bytes.length < 4 || bytes[0] !== WALL.STROKE) return null;
-    const colour = bytes[1], size = bytes[2], n = bytes[3];
-    if (n < 1 || n > WALL.MOST || bytes.length !== 4 + 4 * n) return null;
-    if (colour >= WALL.COLOURS.length || WALL.SIZES.indexOf(size) < 0) return null;
-    const pts = new Array(2 * n);
-    for (let k = 0; k < n; k++) {
-      const o = 4 + 4 * k;
-      const x = bytes[o] | bytes[o + 1] << 8, y = bytes[o + 2] | bytes[o + 3] << 8;
-      if (x >= WALL.W || y >= WALL.H) return null;
-      pts[2 * k] = x;
-      pts[2 * k + 1] = y;
-    }
+    const colour = bytes[1], size = bytes[2], pts = Wall.points(bytes, 4, bytes[3]);
+    if (!pts || colour >= WALL.COLOURS.length || WALL.SIZES.indexOf(size) < 0) return null;
     return { colour, size, pts };
+  }
+
+  // a stroke of set, { colours, weights, seed }
+  static encodeMixed(set, size, pts) {
+    const k = set.colours.length, n = pts.length >> 1, out = new Uint8Array(6 + 2 * k + 4 * n);
+    out[0] = WALL.MIXED;
+    out[1] = size;
+    out[2] = set.seed & 255;
+    out[3] = set.seed >> 8;
+    out[4] = k;
+    for (let i = 0; i < k; i++) {
+      out[5 + 2 * i] = set.colours[i];
+      out[6 + 2 * i] = set.weights[i];
+    }
+    out[5 + 2 * k] = n;
+    Wall.putPoints(out, 6 + 2 * k, pts);
+    return out;
+  }
+
+  // { colours, weights, seed, size, pts }, or null for anything but a
+  // whole mixed stroke: a size, 1 to SET colours each with a weight of 1
+  // or more, and 1 to MOST points, all on the wall
+  static decodeMixed(bytes) {
+    if (bytes.length < 6 || bytes[0] !== WALL.MIXED) return null;
+    const size = bytes[1], seed = bytes[2] | bytes[3] << 8, k = bytes[4];
+    if (k < 1 || k > WALL.SET || bytes.length < 6 + 2 * k || WALL.SIZES.indexOf(size) < 0) return null;
+    const colours = new Array(k), weights = new Array(k);
+    for (let i = 0; i < k; i++) {
+      colours[i] = bytes[5 + 2 * i];
+      weights[i] = bytes[6 + 2 * i];
+      if (colours[i] >= WALL.COLOURS.length || weights[i] < 1) return null;
+    }
+    const pts = Wall.points(bytes, 6 + 2 * k, bytes[5 + 2 * k]);
+    return pts ? { colours, weights, seed, size, pts } : null;
   }
 
   static encodeSnapshot(px) {
@@ -278,6 +360,7 @@ class Wall {
     this.live = false;
     this.sent.length = 0;
     this.colour = -1;
+    this.blend = null;
     this.unsent = [];
     this.paid = 0;
     this.shown.set(this.truth);
@@ -290,23 +373,25 @@ class Wall {
     if (this.wanted && !this.socket && now >= this.due) this.open();
   }
 
-  // the pen down at, or moved to, wall pixel (x, y): false when it draws nothing
+  // the pen down at, or moved to, wall pixel (x, y), in a colour or in a
+  // set of them, { colours, weights, seed }: false when it draws nothing
   pen(colour, size, x, y, now) {
     if (!this.live) return false;
     this.fill(now);
     x = Math.min(WALL.W - 1, Math.max(0, Math.round(x)));
     y = Math.min(WALL.H - 1, Math.max(0, Math.round(y)));
-    if (this.colour >= 0 && (colour !== this.colour || size !== this.size)) this.lift();
-    const v = this.lut[colour];
+    if (this.colour >= 0 && (colour !== this.inked || size !== this.size)) this.lift();
     if (this.colour < 0) {
       // a new stroke: its first point is a stamp
       if (this.level < size) return false;
       this.level -= size;
       this.paid = size;
-      this.colour = colour;
+      this.inked = colour;
+      this.blend = typeof colour === 'number' ? null : Wall.blend(colour.colours, colour.weights, colour.seed, this.lut);
+      this.colour = this.blend ? colour.colours[0] : colour;
       this.size = size;
       this.unsent = [x, y];
-      Wall.stamp(this.shown, WALL.W, WALL.H, x, y, size, v);
+      Wall.stamp(this.shown, WALL.W, WALL.H, x, y, size, this.blend || this.lut[this.colour]);
     } else {
       const u = this.unsent, lx = u[u.length - 2], ly = u[u.length - 1];
       if (x === lx && y === ly) return true;
@@ -319,7 +404,7 @@ class Wall {
       this.level -= c;
       this.paid += c;
       u.push(x, y);
-      Wall.stroke(this.shown, WALL.W, WALL.H, [lx, ly, x, y], size, v);
+      Wall.stroke(this.shown, WALL.W, WALL.H, [lx, ly, x, y], size, this.blend || this.lut[this.colour]);
     }
     if (this.unsent.length >= 2 * WALL.MOST) this.send(now);
     return true;
@@ -328,6 +413,7 @@ class Wall {
   lift() {
     if (this.colour >= 0 && this.paid > 0) this.send(this.now);
     this.colour = -1;
+    this.blend = null;
     this.unsent = [];
     this.paid = 0;
   }
@@ -335,8 +421,8 @@ class Wall {
   // the unsent points as a batch, the next starting from their last
   send(now) {
     const u = this.unsent;
-    this.socket.send(Wall.encodeStroke(this.colour, this.size, u));
-    this.sent.push({ colour: this.colour, size: this.size, pts: u });
+    this.socket.send(this.blend ? Wall.encodeMixed(this.inked, this.size, u) : Wall.encodeStroke(this.colour, this.size, u));
+    this.sent.push({ colour: this.colour, blend: this.blend, size: this.size, pts: u });
     this.sentAt = now;
     this.unsent = [u[u.length - 2], u[u.length - 1]];
     this.paid = 0;
@@ -365,15 +451,16 @@ class Wall {
       this.shown.set(truth);
       this.sent.length = 0;
       this.colour = -1;
+      this.blend = null;
       this.unsent = [];
       this.paid = 0;
       this.live = true;
       this.tries = 0;
-    } else if (type === WALL.STROKE) {
+    } else if (type === WALL.STROKE || type === WALL.MIXED) {
       // someone else's: it comes before all of own ink not yet acked
-      const s = Wall.decodeStroke(bytes);
+      const s = type === WALL.STROKE ? Wall.decodeStroke(bytes) : Wall.decodeMixed(bytes);
       if (!s) return;
-      const v = this.lut[s.colour];
+      const v = s.colours ? Wall.blend(s.colours, s.weights, s.seed, this.lut) : this.lut[s.colour];
       Wall.stroke(this.truth, WALL.W, WALL.H, s.pts, s.size, v);
       Wall.stroke(this.shown, WALL.W, WALL.H, s.pts, s.size, v);
       this.repaint();
@@ -381,7 +468,7 @@ class Wall {
       const b = this.sent.shift();
       if (!b) return;
       if (bytes[1] === 1) {
-        Wall.stroke(this.truth, WALL.W, WALL.H, b.pts, b.size, this.lut[b.colour]);
+        Wall.stroke(this.truth, WALL.W, WALL.H, b.pts, b.size, b.blend || this.lut[b.colour]);
         return;
       }
       // refused: truth back over its box, and the rest of own ink over that
@@ -409,8 +496,8 @@ class Wall {
   repaint() {
     for (let k = 0; k < this.sent.length; k++) {
       const b = this.sent[k];
-      Wall.stroke(this.shown, WALL.W, WALL.H, b.pts, b.size, this.lut[b.colour]);
+      Wall.stroke(this.shown, WALL.W, WALL.H, b.pts, b.size, b.blend || this.lut[b.colour]);
     }
-    if (this.colour >= 0) Wall.stroke(this.shown, WALL.W, WALL.H, this.unsent, this.size, this.lut[this.colour]);
+    if (this.colour >= 0) Wall.stroke(this.shown, WALL.W, WALL.H, this.unsent, this.size, this.blend || this.lut[this.colour]);
   }
 }

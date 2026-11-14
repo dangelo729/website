@@ -895,6 +895,29 @@ const between = (a, b) => a + (b - a) * rand();
     if (!got.bits.every((b, i) => b === want.bits[i])) { mapOk = false; mapBad = mapBad || pw + 'x' + ph + ' of ' + w + 'x' + h + ' at ' + x + ',' + y + (over ? ' over' : ''); }
   }
   check(mapOk, 'blitMapped is blitPixels of a window, or a set() of each pixel its tables point at, over or not, clipped at every edge, 400 places ' + mapBad);
+  // given paper, a pixel is the first v not paper from its own column and
+  // row up to the next pixel's, and paper when there is none
+  let thinOk = true, thinBad = '';
+  for (let n = 0; n < 400; n++) {
+    const w = 4 + Math.floor(rand() * 30), h = 4 + Math.floor(rand() * 24), paper = Math.floor(rand() * 3);
+    const g = { px: Uint16Array.from({ length: w * h }, () => Math.floor(rand() * 5) ? paper : Math.floor(rand() * 400)), w, h };
+    const pw = 1 + Math.floor(rand() * 20), ph = 1 + Math.floor(rand() * 16), c0 = Math.floor(rand() * 4), r0 = Math.floor(rand() * 4);
+    // tables that never go back, a step of 0, 1 or 2 each, as a picture shrunk to no less than half or grown has them
+    const steps = (len, most) => { const t = new Int32Array(len); for (let i = 1; i < len; i++) t[i] = Math.min(most, t[i - 1] + Math.floor(rand() * 3)); return t; };
+    const cols = steps(c0 + pw + 1, w - 1), rows = steps(r0 + ph + 1, h - 1);
+    const [x, y] = n < places.length ? places[n] : [Math.floor(between(-pw - 2, W + 2)), Math.floor(between(-ph - 2, H + 2))];
+    const over = n % 3 === 0, got = new Framebuffer(W, H), want = new Framebuffer(W, H);
+    got.bits.fill(99); want.bits.fill(99);
+    got.blitMapped(g, x, y, pw, ph, cols, c0, rows, r0, over, paper);
+    for (let j = 0; j < ph; j++) for (let i = 0; i < pw; i++) {
+      const ca = cols[c0 + i], cb = Math.max(ca + 1, cols[c0 + i + 1]), ra = rows[r0 + j], rb = Math.max(ra + 1, rows[r0 + j + 1]);
+      let v = paper;
+      for (let r = ra; r < rb && v === paper; r++) for (let q = ca; q < cb && v === paper; q++) v = g.px[r * w + q];
+      if (v || !over) want.set(x + i, y + j, v);
+    }
+    if (!got.bits.every((b, i) => b === want.bits[i])) { thinOk = false; thinBad = thinBad || pw + 'x' + ph + ' of ' + w + 'x' + h + ' at ' + x + ',' + y + (over ? ' over' : ''); }
+  }
+  check(thinOk, 'blitMapped given paper keeps what is not paper between one pixel and the next, 400 places ' + thinBad);
 }
 
 // medianCut, its boxes' spans worked out once each, cuts as one that
