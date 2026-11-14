@@ -3524,7 +3524,9 @@
     // in use, going from line to line as theirs do, and PEN right of it,
     // the two as wide as the cells; a GAP under that, as
     // wide as the cells and TRAY px tall, the mixing tray (js/mix.js),
-    // bare paper with its paint on it, the paint's px GROW world px each;
+    // bare paper with its paint on it, the paint's px GROW world px each,
+    // and until paint is first dragged into it HINT in its middle over a
+    // hand pointing down into it;
     // and under the tray, at the cells' left, CLEAR, a button drawn as
     // the shop's are. the cells, the bar and CLEAR's outline are ink
     // drawn as letters are, each with a letter's wobble, GROW times the
@@ -3541,8 +3543,8 @@
     // all of it as one: a press on the wall then draws each pixel one of
     // the colours the tray shows, by its share of the tray (wallInk), and
     // the pen in the header shows it so. the
-    // click it ends in presses nothing. while shift
-    // is down a cell held goes on giving paint. the wall left
+    // click it ends in presses nothing. a cell held goes on giving
+    // paint as long as it is held (js/mix.js). the wall left
     // or the menu shut while it is held lets it go, picking nothing. a
     // click on CLEAR empties the tray, the pen back in the cell's colour
     // last picked if it was the tray's; otherwise its paint stays for the
@@ -3586,6 +3588,8 @@
       HOLD: 80, // ms a finger stays before it draws
       TRAY: 132, // world px, the mixing tray's height: it is as wide as the row of cells
       CLEAR: 'clear', // what the button under the tray says
+      HINT: 'drag paint here', // what the tray says in its middle until paint is first dragged into it
+      HINT_GAP: 4, // world px between those words and the hand under them, pointing down into the tray
       PEN: 'pen size', // what the slider's words say
       OUT: '−', IN: '+', // what the two small buttons in the opening's bottom right corner say: the wall drawn smaller, and bigger
       ZOOM_MOST: 8,   // world px a px of the wall is drawn at most
@@ -3645,6 +3649,7 @@
       title: new Type(WALL_UI.TITLE, () => document.createElement('canvas'), TAG.FACE),
       bar: new Type(SHOP_UI.BAR, () => document.createElement('canvas'), TAG.FACE),
       clear: new Type(WALL_UI.CLEAR, () => document.createElement('canvas'), TAG.FACE),
+      hint: new Type(WALL_UI.HINT, () => document.createElement('canvas'), TAG.FACE),
       pen: new Type(WALL_UI.PEN, () => document.createElement('canvas'), TAG.FACE),
       out: new Type(WALL_UI.OUT, () => document.createElement('canvas'), TAG.FACE),
       in: new Type(WALL_UI.IN, () => document.createElement('canvas'), TAG.FACE),
@@ -3653,10 +3658,11 @@
     const wallMixed = { px: new Uint16Array(wallTray.mw * (wallTray.mup + wallTray.mh)), w: wallTray.mw, h: wallTray.mup + wallTray.mh }; // the paint in the air and, under it, the tray's, as a picture, painted again when either has changed
     let wallMixer = null;          // the pointer holding the tray's paint, or null
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
-    let wallColour = 1, wallBrush = 4; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, all of it as one
+    let wallColour = 1, wallBrush = 12; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, all of it as one
     let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
     let wallSet = null;            // the tray's paint as the pen takes it, { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
     let wallFromCell = false;      // whether the press holding the tray's paint came down on a cell
+    let wallPainted = false;       // whether paint has been dragged into the tray: the words asking for it are gone for good
     const wallNib = { px: null, w: 0, h: 0, brush: 0, colour: -2, set: null }; // the pen as a picture, and the brush and colour it was made for
     let wallPan = null;            // the wall px at the opening's top left, { x, y }, once it is laid out
     let wallScale = WALL_UI.GROW, wallScaleTo = WALL_UI.GROW; // world px a px of the wall is drawn, and what OUT and IN have asked for
@@ -3680,7 +3686,7 @@
     // seed (offline); OUT and IN, two small square buttons in its bottom
     // right corner (zooms, each { rect, dir, fill, ring, letter }); and its menu, laid out as bubble bob's is
     // (shopNow), { room, size, shut, full, header: { caret, title, bar,
-    // nib }, cells, slider, tray, clear }: its button in the opening's top right
+    // nib }, cells, slider, tray, clear, hint }: its button in the opening's top right
     // corner, on whole px, as wide as the open menu, its words from its
     // left on the middle of its height and nib the top left of the pen's
     // place, in the middle of the room right of the bar; and, open, down from it
@@ -3691,7 +3697,8 @@
     // across and its row down); the tray, { x0, y0, x1, y1 } on whole
     // px, as wide as the cells and wallTray.up under their top; and
     // CLEAR, a button as one of the shop's is, { rect, ring, letters },
-    // its left the cells' left. the opening is kept on the wall, over its
+    // its left the cells' left; and HINT's words and the hand under them
+    // in the tray's middle, { words, hand }. the opening is kept on the wall, over its
     // middle the first time
     function placeWall(x, y, w, h, bs, inset, seed) {
       const U = WALL_UI, S = SHOP_UI, box = { x0: x, y0: y, x1: x + w, y1: y + h };
@@ -3743,6 +3750,15 @@
         rect, ring: makeLetter(ring, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
         letters: line(ct, gx + S.PAD_X * size, cy + size * (S.PAD_Y + S.CAP), seed + 120),
       };
+      // HINT in the tray's middle and HINT_GAP under it the scroll hand's
+      // first frame, pointing down, the two centred in it together: the
+      // hand a letter with nothing to draw where its top is, for its wobble
+      const hw = wallWords.hint, hr = (iconRows.hand || [])[0], hh = hr ? Framebuffer.ink(hr).h * HAND.SCALE : 0;
+      const hb = Math.round((tray.y0 + tray.y1 + size * S.CAP - U.HINT_GAP - hh) / 2);
+      const hint = {
+        words: line(hw, (tray.x0 + tray.x1 - wide(hw)) / 2, hb, seed + 190),
+        hand: makeLetter(null, (tray.x0 + tray.x1) / 2, hb + U.HINT_GAP, seed + 210, HAND.SCALE),
+      };
       // OUT and IN, small square buttons in the opening's bottom right
       // corner, as far in from its bottom and right as the menu is from
       // its top and right, IN the last: paper inside, so the wall's ink
@@ -3762,7 +3778,7 @@
       wallScaleTo = Math.max(wallScaleTo, wallLeast(w, h));
       if (!wallPan) wallPan = { x: (WALL.W - w / wallScale) / 2, y: (WALL.H - h / wallScale) / 2 };
       clampPan(w, h);
-      return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, clear } };
+      return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, clear, hint } };
     }
 
     // picture g into into, s times its size: the w x h box with its top
@@ -3910,7 +3926,8 @@
     // (nibNow) in the middle of its place, and, while it is open at all,
     // its cells, its slider's bar (drawBar) with its dot where it has
     // got to, the tray's paint (js/mix.js) as a picture painted again
-    // when it has changed, the paint in the air over them all and CLEAR,
+    // when it has changed, over HINT and its hand until paint is first
+    // dragged into it, the paint in the air over them all and CLEAR,
     // its ring outlined as a button of the shop's is (drawShop), into qfb over
     // its skin's box, then qfb copied into pfb through the skin and the
     // skin outlined over it, in the links' hover colour while the header
@@ -3965,6 +3982,17 @@
           qfb.fillCircle(p.x + Math.cos(p.a) * across, p.y + dy + Math.sin(p.a) * across, DEMO.SLIDER.MARK, sv);
         }
         for (let i = 0; i < ui.slider.words.length; i++) ui.slider.words[i].draw(t, dy, qfb, 0, sv);
+        // until paint is first dragged into the tray, HINT in its middle and
+        // the hand under it pointing down into it, bobbing as the demo's does
+        if (!wallPainted) {
+          for (let i = 0; i < ui.hint.words.length; i++) ui.hint.words[i].draw(t, dy, qfb, 0, 1);
+          const f = handArt[0];
+          if (f) {
+            const H = DEMO.HAND, p = ui.hint.hand.pose(t), y = p.y + dy + f.ink.h * p.s / 2 + H.BOB * (0.5 + 0.5 * Math.sin(2 * Math.PI * t * H.HZ));
+            qfb.sprite(f.paper, p.x, y, p.s, p.a, 0, CURSOR.MIN_HITS);
+            qfb.sprite(f.ink, p.x, y, p.s, p.a, 1, CURSOR.MIN_HITS);
+          }
+        }
         // the paint: the air's rows of its picture over the cells and the slider, the tray's on the tray
         const tr = ui.tray, M = wallMixed;
         drawShimmer(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, U.GROW, t, 93000, true);
@@ -4049,7 +4077,8 @@
     // HOLD ms put to the wall; while graffiti wall is not open in Doodles'
     // open box the pen is up and the slider and the fingers let go; the
     // tray's paint let go, picking nothing, once the wall is left or its
-    // menu shuts while it is held
+    // menu shuts while it is held; and once the tray has paint, the words
+    // asking for it gone for good
     function stepWall() {
       const now = performance.now(), on = !!wallHome && wallHome.box.open && wallItem.open;
       if (!wallJoined && WALL_URL) {
@@ -4069,6 +4098,7 @@
       }
       wall.step(now);
       if (wallPen && !wallPen.on && now - wallPen.at >= WALL_UI.HOLD) penTo(wallPen);
+      if (wallMix.count()) wallPainted = true;
     }
 
     canvas.addEventListener('pointerdown', (e) => {
@@ -4080,7 +4110,6 @@
         const q = inTray(p), tr = wallItem.wallAt.menu.tray, c = h.cell;
         wallMixer = e.pointerId;
         wallFromCell = !!c;
-        wallMix.flow = e.shiftKey;
         // paint still settling is put down by the press: its colour first
         wallMix.settle();
         takeMixed();
@@ -4163,11 +4192,6 @@
     };
     canvas.addEventListener('pointerup', wallGo);
     canvas.addEventListener('pointercancel', wallGo);
-    // a cell held goes on giving paint while shift is down (js/mix.js)
-    const wallShift = (e) => { wallMix.flow = e.shiftKey; };
-    window.addEventListener('keydown', wallShift);
-    window.addEventListener('keyup', wallShift);
-    window.addEventListener('blur', () => { wallMix.flow = false; });
 
     // --- the swipe ---------------------------------------------------------------
     // the browser scrolls on its own and tells the page where it got to late
