@@ -419,6 +419,51 @@ const between = (a, b) => a + (b - a) * rand();
   check(dithered.px[0] === 0 && dithered.px[1] === far, 'a dithered picture holds a v past 255 in place of an index');
 }
 
+// --- the dark page
+{
+  const pal = Framebuffer.PALETTE, dk = Framebuffer.DARK, L = Framebuffer.INK, D = Framebuffer.PAPER;
+  check(dk.length === pal.length && dk[0] === L && dk[1] === D, 'dark: a colour for each of the light page\'s, the first two the other way round');
+  const black = Framebuffer.colour('#000000'), cream = Framebuffer.colour('#fbf6f0');
+  check(black >= 2 && cream >= 2 && black !== cream, 'colour: black and the paper have places of their own past the first two: ' + black + ', ' + cream);
+  check(pal[black] === L && pal[cream] === D && dk[black] === L && dk[cream] === D, 'colour: and are black and the paper on both pages');
+  check(Framebuffer.colour('#000000') === black && Framebuffer.colour('#FBF6F0') === cream, 'colour: asked again, the same places');
+  const teal = Framebuffer.colour('#49B6B0');
+  check(dk[teal] === pal[teal], 'colour: one colour given, the same on the dark page');
+  const two = Framebuffer.colour('#102030', '#405060');
+  check(pal[two] === 0xFF302010 && dk[two] === 0xFF605040, 'colour: given another for the dark page, that there: ' + (dk[two] >>> 0).toString(16));
+  check(Framebuffer.colour('#102030', '#405060') === two, 'colour: the pair asked again, the same place');
+  const one = Framebuffer.colour('#102030');
+  check(one !== two && dk[one] === 0xFF302010, 'colour: the same light colour with another dark one is another place');
+  check(dk.length === pal.length, 'dark: still a colour for each');
+  const fb = new Framebuffer(5, 1);
+  fb.set(1, 0, 1); fb.set(2, 0, black); fb.set(3, 0, cream); fb.set(4, 0, two);
+  const shown = (dark) => { let px = null; fb.present({ putImageData(img) { px = Array.from(new Uint32Array(img.data.buffer)); } }, dark); return px.map(String); };
+  check(same(shown(), [D, L, L, D, 0xFF302010].map(String)), 'present: light with nothing given');
+  check(same(shown(0), [D, L, L, D, 0xFF302010].map(String)), 'present: light at 0');
+  check(same(shown(1), [L, D, L, D, 0xFF605040].map(String)), 'present: at 1 the page\'s two swap, a colour\'s own stay and a pair shows its dark');
+  check(same(shown(0), [D, L, L, D, 0xFF302010].map(String)), 'present: and light again at 0');
+  // between the two, a pixel at a time
+  const g = Framebuffer.grain(40000);
+  let low = 0, sameAsNext = 0;
+  for (let i = 0; i < g.length; i++) { if (g[i] < 32768) low++; if (i && g[i] === g[i - 1]) sameAsNext++; }
+  check(Math.abs(low - 20000) < 400, 'grain: half the pixels under half way: ' + low + ' of 40000');
+  check(sameAsNext < 10, 'grain: a pixel\'s is not the next\'s: ' + sameAsNext + ' alike');
+  check(same(Array.from(Framebuffer.grain(64)).map(String), Array.from(g.subarray(0, 64)).map(String)), 'grain: the same numbers each time');
+  const big = new Framebuffer(200, 200);
+  const count = (dark) => { let px = null; big.present({ putImageData(img) { px = new Uint32Array(img.data.buffer); } }, dark); let n = 0; for (let i = 0; i < px.length; i++) if (px[i] === L) n++; return { n, px: Array.from(px) }; };
+  const none = count(0), q = count(0.25), h = count(0.5), tq = count(0.75), all = count(1);
+  check(none.n === 0 && all.n === 40000, 'present: no pixel dark at 0 and every one at 1');
+  check(Math.abs(q.n - 10000) < 400 && Math.abs(h.n - 20000) < 400 && Math.abs(tq.n - 30000) < 400, 'present: a quarter, a half and three quarters of the pixels dark at each: ' + [q.n, h.n, tq.n].join(', '));
+  let back = 0;
+  for (let i = 0; i < 40000; i++) if ((q.px[i] === L && h.px[i] !== L) || (h.px[i] === L && tq.px[i] !== L)) back++;
+  check(back === 0, 'present: a pixel gone dark stays dark the rest of the way: ' + back + ' went back');
+  check(same(count(0.5).px.map(String), h.px.map(String)), 'present: the same pixels dark at a half each time');
+  big.set(3, 3, 1);
+  const lit = count(0.5).px, at = 3 * 200 + 3;
+  check(lit[at] === (h.px[at] === L ? D : L), 'present: a pixel of ink is the other of the two its paper would be');
+  check(count(1e-9).n <= 1 && count(1 - 1e-9).n >= 39999, 'present: all but none of the way either end');
+}
+
 // --- sprites
 {
   // index.html's drawGlyph word for word, as it was before it moved here

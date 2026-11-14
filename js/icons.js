@@ -1,36 +1,62 @@
-// the mute button's icons, monk mouth's face and the scroll hand's frames
-// (index.html), written by tools/text/editor.html (python3
-// tools/text/serve.py): edit there, not here. each is rows of '#' ink, 'o'
-// paper and '.' clear; sound shows while the page plays, muted while it is
-// muted, eye is the face's left eye and, mirrored, its right, nose is its
-// nose, and hand's frames play from pointing down, first, to thumbs up,
-// last, as the page comes to its bottom, every frame the same size.
+// the mute button's icons, the light and dark switch and its ball, monk
+// mouth's face and the scroll hand's frames (index.html), written by
+// tools/text/editor.html (python3 tools/text/serve.py): edit there, not
+// here. each is rows of '#' ink, 'o' paper and '.' clear; sound shows
+// while the page plays, muted while it is muted, switch is the light and
+// dark switch and ball the ball that is dragged along it, from as far in
+// from its left end as it is from its top, light, to as far in from its
+// right, dark, eye is the face's left eye and, mirrored, its right, nose
+// is its nose, and hand's frames play from pointing down, first, to
+// thumbs up, last, as the page comes to its bottom, every frame the same
+// size.
 const ICONS = {
   "sound": [
-    "......#......",
-    ".....##...#..",
+    ".............",
+    ".....#....#..",
     "....#o#....#.",
-    "####oo#.#...#",
+    ".###oo#.#...#",
     "#ooooo#..#..#",
     "#ooooo#..#..#",
     "#ooooo#..#..#",
-    "####oo#.#...#",
+    ".###oo#.#...#",
     "....#o#....#.",
-    ".....##...#..",
-    "......#......"
+    ".....#....#..",
+    "............."
   ],
   "muted": [
-    "......#......",
-    ".....##......",
+    ".............",
+    ".....#.......",
     "....#o#......",
-    "####oo#.#...#",
+    ".###oo#.#...#",
     "#ooooo#..#.#.",
     "#ooooo#...#..",
     "#ooooo#..#.#.",
-    "####oo#.#...#",
+    ".###oo#.#...#",
     "....#o#......",
-    ".....##......",
-    "......#......"
+    ".....#.......",
+    "............."
+  ],
+  "switch": [
+    "...###############...",
+    "..#ooooooooooooooo#..",
+    ".#ooo##ooooo#oooo#o#.",
+    "#ooo##oooooooo##oooo#",
+    "#oo##oooooooo####ooo#",
+    "#oo##oooooo#o####o#o#",
+    "#oo##oooooooo####ooo#",
+    "#ooo##oooooooo##oooo#",
+    ".#ooo##ooooo#oooo#o#.",
+    "..#ooooooooooooooo#..",
+    "...###############..."
+  ],
+  "ball": [
+    "..####..",
+    ".######.",
+    "########",
+    "########",
+    "########",
+    ".######.",
+    "..####.."
   ],
   "eye": [
     ".#########.",
