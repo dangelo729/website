@@ -19,7 +19,9 @@
 // pointer is still once it has settled; that yellow and blue stirred long
 // enough end as one green; that step(dt) keeps time at 60 and 120 a
 // second, a glob of one grain too, and takes no more than 4 FOLLOW steps
-// however large dt is; that clear() empties it mid-drag; that a tray keeps
+// however large dt is; that erase() takes away every grain of the piles
+// in its box and no other, what the pen has picked up too, with as much
+// of the box as is on the tray; that a tray keeps
 // FULL of the biggest pen's worths, never more than a grain a pixel, and
 // what is over what it keeps dries away off the paint's edges, DRY of it
 // a second at 60 and 120 a second, down to what it keeps and no further,
@@ -34,7 +36,7 @@
 // dragged, what the pen has picked up; the colours it shows, the most
 // first, each weighed by its pixels, and none of the paint not touching
 // it; that a tap on bare tray or a glob let go in the air leaves the blob
-// as it was, clear() leaves none, its grains drying away keep it right,
+// as it was, the tray erased leaves none, its grains drying away keep it right,
 // and the picture is painted again as it changes; and that outline()
 // marks exactly the bare pixels within r px, across and down, of the
 // blob, and nothing past the tray's edges. prints, not
@@ -481,21 +483,53 @@ function pull(dt, seed) {
   check('and owes nothing after it', steps === MIX.FOLLOW, steps);
 }
 
-// --- clear ---------------------------------------------------------------------------
+// --- the eraser ----------------------------------------------------------------------
 {
-  const mix = tray(100), b = cell(6);
-  glob(mix, 2, 50, 100, 16);
-  mix.hold(6, b.cx, b.cy, b.box, 16);
-  drag(mix, b.cx, b.cy, 50, 6, 3);
-  const mid = mix.busy && mix.held !== null && mix.count() > area(16);
-  mix.clear();
-  const px = shown(mix).px;
-  check('clear() mid-drag empties the tray and drops what is held', mid && mix.count() === 0 && !mix.busy && mix.colour === -1 && flown(mix).length === 0 && px.every((v) => v === -1) && tallest(mix) === 0);
-  mix.move(60, 60);
-  frames(mix, 30);
-  check('and nothing is left to move', mix.lift().pick === -1 && mix.count() === 0 && !mix.busy);
-  glob(mix, 7, 50, 66, 10);
-  check('and it works as new after', same(covered(mix), stamp(50, 66, 10)) && mix.count() === area(10));
+  const mix = tray(100);
+  glob(mix, 2, 50, 66, 16);
+  const before = covered(mix), box = { x0: 40, y0: 60, x1: 50, y1: 70 };
+  const inBox = (i) => i % W >= box.x0 && i % W < box.x1 && Math.floor(i / W) >= box.y0 && Math.floor(i / W) < box.y1;
+  const under = before.reduce((a, v, i) => a + (v && inBox(i) ? 1 : 0), 0);
+  mix.dirty = false;
+  const went = mix.erase(box.x0, box.y0, box.x1, box.y1), after = covered(mix);
+  check('erase() takes the paint in its box, short of its far edges, and says how much', under > 0 && went === under && mix.count() === area(16) - under && after.every((v, i) => v === (inBox(i) ? 0 : before[i])), went + ' grains');
+  check('and the picture is painted again', mix.dirty && shown(mix).px.every((v, i) => (v === -1) === !after[i]));
+  mix.dirty = false;
+  check('a box with no paint in it takes none and changes nothing', mix.erase(box.x0, box.y0, box.x1, box.y1) === 0 && mix.erase(0, 0, 10, 10) === 0 && !mix.dirty);
+  // paint piled up: a cell held over the tray, and grains come down on one spot of its paint as they do from the air
+  const m1 = tray(103), c1 = cell(6);
+  m1.hold(6, c1.cx, c1.cy, c1.box, 16);
+  drag(m1, c1.cx, c1.cy, 50, 66, 3);
+  frames(m1, 30);
+  const pile = m1.tall.indexOf(1), px = pile % W, py = Math.floor(pile / W);
+  for (let k = 0; k < 3; k++) m1.down(px, py);
+  const piled = tallest(m1), n = m1.count(), tn = m1.tn;
+  const near = (i) => Math.abs(i % W - px) < 6 && Math.abs(Math.floor(i / W) - py) < 6;
+  const deep = m1.tall.reduce((a, v, i) => a + (near(i) ? v : 0), 0), took = m1.erase(px - 5, py - 5, px + 6, py + 6);
+  check('every grain of a pile in the box goes, out of what the pen has picked up too', piled === 4 && took === deep && deep > 4 && m1.count() === n - deep && m1.tn === tn - deep && m1.tall.every((v, i) => !near(i) || v === 0) && m1.top.every((g, i) => !near(i) || g === -1), 'tallest ' + piled + ', ' + took + ' grains');
+  m1.lift();
+  rest(m1);
+  check('and what is left comes to rest, all on the tray', !m1.busy && m1.count() > 0 && strays(m1) === 0 && tallest(m1) === 1);
+  // a box partly, or wholly, off the tray
+  const m2 = tray(101);
+  glob(m2, 3, 2, 2, 8);
+  glob(m2, 3, W - 3, H - 3, 8);
+  const c0 = m2.count(), a0 = m2.erase(-20, -20, 6, 6), a1 = m2.erase(W - 6, H - 6, W + 20, H + 20), a2 = m2.erase(W, 0, W + 9, 9) + m2.erase(-9, 0, 0, 9) + m2.erase(0, H, 9, H + 9) + m2.erase(30, 30, 20, 20);
+  check('a box over the tray\'s edge takes what is on the tray, and one off it or inside out nothing', a0 > 0 && a1 > 0 && a2 === 0 && m2.count() === c0 - a0 - a1 && strays(m2) === 0, a0 + ' and ' + a1);
+  // while the pen drags paint
+  const m3 = tray(102);
+  glob(m3, 2, 50, 66, 16);
+  m3.press(50, 66, 16);
+  drag(m3, 50, 66, 70, 66, 3);
+  const held = m3.tn, c3 = m3.count(), a3 = m3.erase(0, 0, W, H);
+  check('the whole tray erased mid-drag takes what the pen has picked up too', held > 0 && a3 === c3 && m3.count() === 0 && m3.tn === 0 && tallest(m3) === 0);
+  m3.move(60, 60);
+  frames(m3, 30);
+  m3.lift();
+  rest(m3);
+  check('and nothing is left to move', m3.count() === 0 && !m3.busy);
+  glob(m3, 7, 50, 66, 10);
+  check('and it works as new after', same(covered(m3), stamp(50, 66, 10)) && m3.count() === area(10));
 }
 
 // --- drying --------------------------------------------------------------------------
@@ -667,9 +701,6 @@ function heldRight(mix) {
   mix.lift();
   rest(mix);
   check('a glob let go in the air leaves none', mix.mixed === -1 && !mix.busy, mix.mixed);
-  mix.mixed = 4;
-  mix.clear();
-  check('and clear() leaves none', mix.mixed === -1);
 }
 
 // --- the blob ------------------------------------------------------------------------
@@ -761,8 +792,12 @@ const json = (v) => JSON.stringify(v);
   mix.press(90, 10, 16);
   mix.lift();
   check('and so does a tap on bare tray', json(pixelsOf(mix, mix.blob)) === json(put) && json(mix.shares(32)) === sh);
-  mix.clear();
-  check('clear() leaves none', mix.shares(32) === null && pixelsOf(mix, mix.blob).length === 0);
+  const xs = put.map((i) => i % W), cut = (Math.min(...xs) + Math.max(...xs) + 1) >> 1;
+  mix.erase(0, 0, cut, H);
+  const left = pixelsOf(mix, mix.blob);
+  check('the blob erased in part is what is left of it', left.length > 0 && left.length < put.length && json(left) === json(put.filter((i) => i % W >= cut)) && mix.shares(32) !== null, left.length + ' of ' + put.length + ' px');
+  mix.erase(0, 0, W, H);
+  check('and the tray erased leaves none', mix.shares(32) === null && pixelsOf(mix, mix.blob).length === 0);
   glob(mix, 5, 50, 66, 8);
   check('and the next glob put down is the blob, all of it and only it', json(pixelsOf(mix, mix.blob)) === json(touching(mix, 66 * W + 50)) && mix.count() === area(8) && pixelsOf(mix, mix.blob).length === area(8));
 }
@@ -856,10 +891,10 @@ const marked = (px) => px.reduce((o, v, i) => { if (v === V) o.push(i); return o
   check('against the tray\'s edges it marks nothing past them, nor wraps to the far side', tl.ok && br.ok && tl.got.every((i) => i % W < W / 2) && br.got.every((i) => i % W >= W / 2), tl.got.length + ' and ' + br.got.length + ' px');
   const fresh = tray(183), none = picture(fresh);
   fresh.outline(none, V, 2);
-  mix.clear();
-  const cleared = picture(mix);
-  mix.outline(cleared, V, 2);
-  check('a tray with no blob, new or cleared, has no outline', marked(none).length === 0 && marked(cleared).length === 0);
+  mix.erase(0, 0, W, H);
+  const erased = picture(mix);
+  mix.outline(erased, V, 2);
+  check('a tray with no blob, new or erased, has no outline', marked(none).length === 0 && marked(erased).length === 0);
 }
 
 check('nothing read the clock, set a timer or called Math.random', reads === 0);
