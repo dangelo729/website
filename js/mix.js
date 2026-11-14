@@ -23,6 +23,8 @@
 // is put down: a glob out of a cell that picked nothing else up takes the
 // pen's exact shape, and the colour the paint shows nearest the pen is
 // kept as the one mixed. a tap on a cell or on paint picks that colour.
+// shares() is the tray as one paint: the colours it shows, each with its
+// share of the tray's pixels.
 // while flow is on, a cell held goes on giving paint, FLOW pens' worths a
 // second: a new grain in each of the glob's places in the cell left empty,
 // no more in the air at once than a second's worth. the tray keeps FULL of
@@ -808,6 +810,22 @@ class Mix {
   paint(px, lut, empty) {
     const top = this.top;
     for (let i = 0; i < top.length; i++) px[i] = top[i] < 0 ? empty : lut[this.shows(top[i])];
+  }
+
+  // the colours the tray shows, the one on the most pixels first and no
+  // more of them than most, each with its share of those pixels as a
+  // weight, the first's 255 and none under 1: { colours, weights }, or
+  // null with no paint
+  shares(most) {
+    const top = this.top, counts = new Map();
+    for (let i = 0; i < top.length; i++) {
+      if (top[i] < 0) continue;
+      const c = this.shows(top[i]);
+      counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    if (!counts.size) return null;
+    const by = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, most);
+    return { colours: by.map((e) => e[0]), weights: by.map((e) => Math.max(1, Math.round(255 * e[1] / by[0][1]))) };
   }
 
   // fn(x, y) for each grain in the air outside its cell, all of them this.colour

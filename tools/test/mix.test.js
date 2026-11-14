@@ -26,8 +26,9 @@
 // second, until flow is off, none while the pointer is still in the cell,
 // no more than a second's worth in the air, and all of it home again when
 // let go there; and that paint dragged, once it is put down, leaves the
-// colour it shows nearest the pen as the one mixed, and a tap none.
-// prints, not
+// colour it shows nearest the pen as the one mixed, and a tap none; and
+// that the tray's shares are the colours it shows, the most first, each
+// weighed by its pixels. prints, not
 // checks, the ms a frame takes with about 2500 grains dragged, timed in
 // node's own realm. exits 1 on failure.
 
@@ -642,6 +643,32 @@ function heldRight(mix) {
   mix.mixed = 4;
   mix.clear();
   check('and clear() leaves none', mix.mixed === -1);
+}
+
+// --- the tray's shares ---------------------------------------------------------------
+{
+  const mix = tray(150);
+  check('an empty tray has no shares', mix.shares(32) === null);
+  glob(mix, 7, 30, 40, 16);
+  const one = mix.shares(32);
+  check('one glob is one colour, its weight 255', one.colours.join() === '7' && one.weights.join() === '255');
+  glob(mix, 10, 70, 100, 8);
+  const two = mix.shares(32), small = Math.round(255 * area(8) / area(16));
+  check('two apart are both, the bigger first, each by its pixels', two.colours.join() === '7,10' && two.weights.join() === '255,' + small, two.colours.join() + ' ' + two.weights.join());
+  check('no more than asked for, the most first', mix.shares(1).colours.join() === '7' && mix.shares(1).weights.join() === '255');
+  glob(mix, 3, 50, 70, 1);
+  const three = mix.shares(32);
+  check('and none weighs under 1', three.colours.join() === '7,10,3' && three.weights[2] === 1, three.weights.join());
+  // stirred: what it shares is what it shows
+  mix.press(30, 40, 16);
+  drag(mix, 30, 40, 70, 100, 2);
+  drag(mix, 70, 100, 40, 60, 2);
+  mix.lift();
+  rest(mix);
+  const all = mix.shares(224), seen = shown(mix), counts = new Map();
+  for (const v of seen.px) if (v >= 0) counts.set(v, (counts.get(v) || 0) + 1);
+  const most = Math.max(...counts.values());
+  check('stirred, its shares are the colours it shows, by their pixels', all.colours.length === counts.size && all.colours.every((c, i) => all.weights[i] === Math.max(1, Math.round(255 * counts.get(c) / most))) && all.weights.every((w, i) => i === 0 || w <= all.weights[i - 1]), all.colours.length + ' colours');
 }
 
 check('nothing read the clock, set a timer or called Math.random', reads === 0);

@@ -3,7 +3,7 @@
 // object. the worker lets a websocket in on / from one of ORIGINS (any, or
 // none, when ORIGINS is *), and /admin/... in with the ADMIN token, and
 // hands both to the one WallRoom. the room holds the wall: it sends each
-// socket the wall as it joins, paints each stroke in the order it arrives,
+// socket the wall as it joins, paints each stroke, of one colour or mixed, in the order it arrives,
 // relays it to every other socket and acks the sender, and refuses a
 // stroke its socket's ink cannot pay for. the ink is a bucket a socket,
 // GRACE times the page's pen and filled at its RATE, held in memory, so
@@ -123,7 +123,8 @@ export class WallRoom extends DurableObject {
   }
 
   webSocketMessage(ws, message) {
-    const s = typeof message === 'string' ? null : Wall.decodeStroke(new Uint8Array(message));
+    const bytes = typeof message === 'string' ? null : new Uint8Array(message);
+    const s = bytes && (Wall.decodeStroke(bytes) || Wall.decodeMixed(bytes));
     if (!s) {
       ws.close(1008, 'not a stroke');
       return;
@@ -132,7 +133,7 @@ export class WallRoom extends DurableObject {
       ws.send(Uint8Array.of(WALL.ACK, 0));
       return;
     }
-    Wall.stroke(this.wall(), WALL.W, WALL.H, s.pts, s.size, s.colour);
+    Wall.stroke(this.wall(), WALL.W, WALL.H, s.pts, s.size, s.colours ? Wall.blend(s.colours, s.weights, s.seed) : s.colour);
     this.touch();
     const all = this.ctx.getWebSockets();
     for (let i = 0; i < all.length; i++) {

@@ -1680,8 +1680,9 @@
     // slider's bar across and its row down, a little round them, { s, it,
     // wall, width }, CLEAR's button, a little round it, { s, it, wall,
     // clear }, its tray, { s, it, wall, tray }, or
-    // anywhere else in it, { s, it, wall }, and the wall itself, clear of
-    // its label, { s, it, wall, canvas }; a word whose box is not open, a little
+    // anywhere else in it, { s, it, wall }, OUT or IN in the opening's
+    // bottom right corner, a little round it, { s, it, wall, zoom }, -1
+    // or 1, and the wall itself, clear of its label, { s, it, wall, canvas }; a word whose box is not open, a little
     // round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
@@ -1752,6 +1753,7 @@
                 if (inside(wu.tray, 0)) return { s, it, wall: true, tray: true };
                 if (inside(wu.full, 0)) return { s, it, wall: true };
               }
+              for (const z of wa.zooms) if (inside(z.rect, WALL_UI.GAP / 2)) return { s, it, wall: true, zoom: z.dir };
               if (x >= wb.x0 && x < wb.x1 && iy >= wb.y0 && iy < wb.y1 && (x > it.shut.x1 || iy > it.shut.y1)) return { s, it, wall: true, canvas: true };
             }
           }
@@ -1777,8 +1779,9 @@
     // wall, drawn on while it is held, nor its menu's cells and tray, their
     // paint mixed while it is held and a tap's colour picked as it lifts,
     // nor its slider, set while it is held (the wall, below), though its
-    // menu's header opens and shuts it as the others' do, and its CLEAR
-    // empties the tray
+    // menu's header opens and shuts it as the others' do, its CLEAR
+    // empties the tray, and OUT and IN in its opening's corner ask for
+    // the wall ZOOM_STEP times smaller or bigger (stepZoom)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1792,7 +1795,11 @@
         h.menu.open = !h.menu.open;
         if (h.menu.open) h.menu.v += SHOP_UI.KICK;
       }
-      else if (h.clear) wallMix.clear();
+      else if (h.clear) {
+        wallMix.clear();
+        if (wallColour < 0) wallColour = wallCell;
+      }
+      else if (h.zoom) wallScaleTo = Math.min(WALL_UI.ZOOM_MOST, wallScaleTo * Math.pow(WALL_UI.ZOOM_STEP, h.zoom));
       else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
@@ -3529,13 +3536,16 @@
     // it: while it is held the paint follows the pointer, out of the cell
     // through the air over the cells and the slider, and over the tray is
     // pushed and stirred there; lifted, it is put down, a tap on a cell
-    // picks its colour and a tap on paint in the tray the colour that
-    // paint shows, paint that was dragged picks, once it is put down, the
-    // colour it shows nearest where the pen left it (takeMixed), and the
+    // picks its colour, and a tap on paint in the tray, or paint that was
+    // dragged, once it is put down (takeMixed), picks the tray's paint,
+    // all of it as one: a press on the wall then draws each pixel one of
+    // the colours the tray shows, by its share of the tray (wallInk), and
+    // the pen in the header shows it so. the
     // click it ends in presses nothing. while shift
     // is down a cell held goes on giving paint. the wall left
     // or the menu shut while it is held lets it go, picking nothing. a
-    // click on CLEAR empties the tray; otherwise its paint stays for the
+    // click on CLEAR empties the tray, the pen back in the cell's colour
+    // last picked if it was the tray's; otherwise its paint stays for the
     // page's life, but that what is over the tray's fill dries away. a press on the header opens the
     // menu or shuts it; a primary press on the bar, or its row above and
     // below it, takes it, and while it is held the brush is the one whose
@@ -3554,9 +3564,16 @@
     // presses nothing. a press on the wall, or on the menu's cells, slider
     // or tray, is never a swipe (the swipe, below). the pen runs dry when it draws faster than its ink
     // comes back, and draws again as it does (js/wall.js). the page joins
-    // the wall's server while graffiti wall is open in Doodles' open box
-    // and leaves it when either shuts; until the wall has come, words in
-    // its middle say so, and nothing draws
+    // the wall's server as it starts and stays with it, so the wall is
+    // there behind its bubble before that is opened and is shown as the
+    // bubble opens, as a box's words are; until the wall has come nothing
+    // draws, and with no server to join, words in its middle say so.
+    // two fingers on the wall coming together or apart, a wheel held with
+    // ctrl or cmd over it, safari's pinch over it (the wheel, below) and
+    // OUT and IN in the opening's bottom right corner draw it smaller or
+    // bigger, from ZOOM_MOST world px a px down to the whole of it fitting
+    // its opening, where it stands in the opening's middle with its edges
+    // drawn (zoomTo, stepZoom, clampPan)
     const WALL_UI = {
       TITLE: 'settings', // what the menu's header says
       PICKS: 16, // the wall's colours the menu has a cell for, its first: the rest are mixed from them
@@ -3570,6 +3587,12 @@
       TRAY: 132, // world px, the mixing tray's height: it is as wide as the row of cells
       CLEAR: 'clear', // what the button under the tray says
       PEN: 'pen size', // what the slider's words say
+      OUT: '−', IN: '+', // what the two small buttons in the opening's bottom right corner say: the wall drawn smaller, and bigger
+      ZOOM_MOST: 8,   // world px a px of the wall is drawn at most
+      ZOOM_STEP: 1.5, // times bigger, or smaller, a press on IN or OUT draws it
+      ZOOM_RATE: 0.2, // of the way left to there it goes each 60 hz frame
+      PINCH: 0.01,    // a px of a wheel held with ctrl or cmd grows or shrinks it e to this
+      NOTCH: 30,      // px, the most one such wheel event counts for
     };
     // the tray, as wide as the row of cells, and how far the cells' top is
     // above its top: their rows, the slider's row and a GAP. placeWall lays
@@ -3618,21 +3641,28 @@
     const wall = new Wall(wallLut);
     const wallPicture = { px: wall.shown, w: WALL.W, h: WALL.H }; // the wall as a picture the framebuffer takes
     const wallWords = {
-      joining: new Type('connecting...', () => document.createElement('canvas'), TAG.FACE),
       offline: new Type('the wall is offline', () => document.createElement('canvas'), TAG.FACE),
       title: new Type(WALL_UI.TITLE, () => document.createElement('canvas'), TAG.FACE),
       bar: new Type(SHOP_UI.BAR, () => document.createElement('canvas'), TAG.FACE),
       clear: new Type(WALL_UI.CLEAR, () => document.createElement('canvas'), TAG.FACE),
       pen: new Type(WALL_UI.PEN, () => document.createElement('canvas'), TAG.FACE),
+      out: new Type(WALL_UI.OUT, () => document.createElement('canvas'), TAG.FACE),
+      in: new Type(WALL_UI.IN, () => document.createElement('canvas'), TAG.FACE),
     };
     const wallMix = new Mix(WALL.COLOURS, wallTray.mw, wallTray.mh, wallTray.mup); // the paint in the tray, kept for the page's life
     const wallMixed = { px: new Uint16Array(wallTray.mw * (wallTray.mup + wallTray.mh)), w: wallTray.mw, h: wallTray.mup + wallTray.mh }; // the paint in the air and, under it, the tray's, as a picture, painted again when either has changed
     let wallMixer = null;          // the pointer holding the tray's paint, or null
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
-    let wallColour = 1, wallBrush = 4; // the colour and the brush picked
-    const wallNib = { px: null, w: 0, h: 0, brush: 0, colour: -1 }; // the pen as a picture, and the brush and colour it was made for
+    let wallColour = 1, wallBrush = 4; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, all of it as one
+    let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
+    let wallSet = null;            // the tray's paint as the pen takes it, { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
+    let wallFromCell = false;      // whether the press holding the tray's paint came down on a cell
+    const wallNib = { px: null, w: 0, h: 0, brush: 0, colour: -2, set: null }; // the pen as a picture, and the brush and colour it was made for
     let wallPan = null;            // the wall px at the opening's top left, { x, y }, once it is laid out
-    let wallPen = null;            // the press drawing, { id, x, y, at, on }: its pointer, where and when it came down, world px on the screen and ms, and whether it has drawn yet; or null
+    let wallScale = WALL_UI.GROW, wallScaleTo = WALL_UI.GROW; // world px a px of the wall is drawn, and what OUT and IN have asked for
+    const wallMips = [];           // the wall at half its size, a quarter and so on, as pictures, made as they are drawn from (wallMip)
+    let wallPinch = null;          // safari's pinch over the wall: its scale as last heard, or null
+    let wallPen = null;            // the press drawing, { id, x, y, at, on, ink }: its pointer, where and when it came down, world px on the screen and ms, whether it has drawn yet, and what it draws in (wallInk); or null
     const wallFingers = new Map(); // each finger down on the wall, by its pointer, where it was last, world px on the screen
     let wallJoined = false;        // whether the page has asked for the wall's server
     let wallSlide = null;          // the pointer holding the brush's slider, or null
@@ -3646,8 +3676,9 @@
     // the wall's opening with its top left at (x, y), w x h, world px on
     // the page as laid out, at the text's size bs, inset how far its
     // caret's ink is in from its left: the opening (box); the words that
-    // stand in its middle while there is no wall, as letters seeded from
-    // seed (joining, offline); and its menu, laid out as bubble bob's is
+    // stand in its middle where there is no server, as letters seeded from
+    // seed (offline); OUT and IN, two small square buttons in its bottom
+    // right corner (zooms, each { rect, dir, fill, ring, letter }); and its menu, laid out as bubble bob's is
     // (shopNow), { room, size, shut, full, header: { caret, title, bar,
     // nib }, cells, slider, tray, clear }: its button in the opening's top right
     // corner, on whole px, as wide as the open menu, its words from its
@@ -3712,16 +3743,29 @@
         rect, ring: makeLetter(ring, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
         letters: line(ct, gx + S.PAD_X * size, cy + size * (S.PAD_Y + S.CAP), seed + 120),
       };
+      // OUT and IN, small square buttons in the opening's bottom right
+      // corner, as far in from its bottom and right as the menu is from
+      // its top and right, IN the last: paper inside, so the wall's ink
+      // never hides them
+      const side = Math.max(14, Math.round(size)), zy = Math.round(y + h - inset), zoom = (t, x1, dir, sd) => {
+        const art = inkBox(Math.round(side / U.GROW), Math.round(side / U.GROW), S.RADIUS * size / U.GROW), gl = t.glyphs[0];
+        const at = (g, sc) => makeLetter(g, x1 - side / 2, zy - side / 2, sd, sc, WOBBLE);
+        return { rect: { x0: x1 - side, y0: zy - side, x1, y1: zy }, dir, fill: at(art.fill, U.GROW), ring: at(art.line, U.GROW), letter: gl ? at(gl.g, k) : null };
+      };
+      const zooms = [zoom(wallWords.out, right - side - U.GAP, -1, seed + 170), zoom(wallWords.in, right, 1, seed + 180)];
       const full = { x0: shut.x0, y0: top, x1: right, y1: rect.y1 + margin };
       // the words, a line's ink centred on the opening's middle
       const bk = bs / TYPE.EM;
       const words = (t, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x + w / 2 + bk * (gl.x + gl.dx + (t.left - t.right) / 2), y + h / 2 + bk * gl.dy, sd + gl.at, bk, WOBBLE));
-      const mx = WALL.W - w / U.GROW, my = WALL.H - h / U.GROW;
-      wallPan = wallPan ? { x: Math.min(wallPan.x, mx), y: Math.min(wallPan.y, my) } : { x: mx / 2, y: my / 2 };
-      return { box, joining: words(wallWords.joining, seed + 200), offline: words(wallWords.offline, seed + 300), menu: { room: box, size, shut, full, header, cells, slider, tray, clear } };
+      // the wall no smaller than fits the opening, which is kept on it, over its middle the first time
+      wallScale = Math.max(wallScale, wallLeast(w, h));
+      wallScaleTo = Math.max(wallScaleTo, wallLeast(w, h));
+      if (!wallPan) wallPan = { x: (WALL.W - w / wallScale) / 2, y: (WALL.H - h / wallScale) / 2 };
+      clampPan(w, h);
+      return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, clear } };
     }
 
-    // picture g into into, GROW times its size: the w x h box with its top
+    // picture g into into, s times its size: the w x h box with its top
     // left at (x, y), whole px, shows g from its (sx, sy) on, each pixel
     // of the box g's under its middle. that middle is pushed up to SWAY_PX
     // across and BOB_PX down by a wobble that every corner of a grid of
@@ -3730,50 +3774,138 @@
     // them, across along each row of squares and down along each column,
     // so g's pixels, off the framebuffer's grid, pop at their edges here
     // and there as a letter's do while the picture holds still. over,
-    // g's 0s are left alone
+    // g's 0s are left alone. given paper, a v, and s no less than a half,
+    // g shrunk keeps every pixel of it that is not paper (blitMapped)
     const shimmer = { n: 0, sway: null, bob: null, cols: new Int32Array(0), rows: new Int32Array(0) };
-    function drawShimmer(into, g, sx, sy, x, y, w, h, t, seed, over) {
-      const T = WALL_UI.TILE, s = WALL_UI.GROW, nx = Math.ceil(w / T), ny = Math.ceil(h / T), across = nx + 1, n = across * (ny + 1);
-      const S = shimmer, k = 2 * Math.PI * t, m = WOBBLE;
+    function drawShimmer(into, g, sx, sy, x, y, w, h, s, t, seed, over, paper = -1) {
+      const T = WALL_UI.TILE, nx = Math.ceil(w / T), ny = Math.ceil(h / T), across = nx + 1, n = across * (ny + 1);
+      const S = shimmer, k = 2 * Math.PI * t, m = WOBBLE, cw = w + 1, rh = h + 1;
       if (S.n < n) { S.n = n; S.sway = new Float64Array(n); S.bob = new Float64Array(n); }
-      if (S.cols.length < ny * w) S.cols = new Int32Array(ny * w);
-      if (S.rows.length < nx * h) S.rows = new Int32Array(nx * h);
+      if (S.cols.length < ny * cw) S.cols = new Int32Array(ny * cw);
+      if (S.rows.length < nx * rh) S.rows = new Int32Array(nx * rh);
       const sway = S.sway, bob = S.bob, cols = S.cols, rows = S.rows;
       for (let c = 0; c < n; c++) {
         sway[c] = m.SWAY_PX * Math.sin(k * m.SWAY_HZ * (0.8 + 0.4 * noise(seed + c, 1)) + 2 * Math.PI * noise(seed + c, 5));
         bob[c] = m.BOB_PX * Math.sin(k * m.BOB_HZ * (0.8 + 0.4 * noise(seed + c, 2)) + 2 * Math.PI * noise(seed + c, 6));
       }
-      // g's column under each column of each row of squares, and its row under each row of each column of them
-      for (let b = 0; b < ny; b++) for (let i = 0; i < w; i++) {
-        const a = Math.floor(i / T), c = b * across + a, d = sway[c] + (sway[c + 1] - sway[c]) * (i + 0.5 - a * T) / T;
-        cols[b * w + i] = Math.min(g.w - 1, Math.max(0, Math.floor(sx + (i + 0.5 - d) / s)));
+      // g's column under each column of each row of squares, and its row
+      // under each row of each column of them, and one more of each past the box
+      for (let b = 0; b < ny; b++) for (let i = 0; i <= w; i++) {
+        const a = Math.min(nx - 1, Math.floor(i / T)), c = b * across + a, d = sway[c] + (sway[c + 1] - sway[c]) * (i + 0.5 - a * T) / T;
+        cols[b * cw + i] = Math.min(g.w - 1, Math.max(0, Math.floor(sx + (i + 0.5 - d) / s)));
       }
-      for (let a = 0; a < nx; a++) for (let j = 0; j < h; j++) {
-        const b = Math.floor(j / T), c = b * across + a, d = bob[c] + (bob[c + across] - bob[c]) * (j + 0.5 - b * T) / T;
-        rows[a * h + j] = Math.min(g.h - 1, Math.max(0, Math.floor(sy + (j + 0.5 - d) / s)));
+      for (let a = 0; a < nx; a++) for (let j = 0; j <= h; j++) {
+        const b = Math.min(ny - 1, Math.floor(j / T)), c = b * across + a, d = bob[c] + (bob[c + across] - bob[c]) * (j + 0.5 - b * T) / T;
+        rows[a * rh + j] = Math.min(g.h - 1, Math.max(0, Math.floor(sy + (j + 0.5 - d) / s)));
       }
       for (let b = 0; b < ny; b++) for (let a = 0; a < nx; a++)
-        into.blitMapped(g, x + a * T, y + b * T, Math.min(T, w - a * T), Math.min(T, h - b * T), cols, b * w + a * T, rows, a * h + b * T, over);
+        into.blitMapped(g, x + a * T, y + b * T, Math.min(T, w - a * T), Math.min(T, h - b * T), cols, b * cw + a * T, rows, a * rh + b * T, over, paper);
+    }
+
+    // the wall as a picture 2 to the n times smaller, each of its pixels
+    // the first of the four it is made of, a size up, that is not paper:
+    // made again from the wall as it is shown each time it is asked for
+    function wallMip(n) {
+      let g = wallPicture;
+      const paper = wallLut[0];
+      for (let k = 1; k <= n; k++) {
+        const w = g.w >> 1, h = g.h >> 1, m = wallMips[k] || (wallMips[k] = { px: new wallLut.constructor(w * h), w, h });
+        const from = g.px, to = m.px, gw = g.w;
+        for (let y = 0, o = 0; y < h; y++) for (let x = 0, i = 2 * y * gw; x < w; x++, i += 2, o++) {
+          const a = from[i], b = from[i + 1], c = from[i + gw];
+          to[o] = a !== paper ? a : b !== paper ? b : c !== paper ? c : from[i + gw + 1];
+        }
+        g = m;
+      }
+      return g;
+    }
+
+    // the least the wall is drawn in an opening w x h: GROW times its
+    // size, or as much less as it takes for the whole of it to fit
+    function wallLeast(w, h) {
+      return Math.min(WALL_UI.GROW, w / WALL.W, h / WALL.H);
+    }
+
+    // the opening, w x h, kept on the wall as it is drawn: no further
+    // across or down than the wall's edges, and where the wall is the
+    // smaller, the wall in its middle
+    function clampPan(w, h) {
+      const mx = WALL.W - w / wallScale, my = WALL.H - h / wallScale;
+      wallPan.x = mx < 0 ? mx / 2 : Math.min(Math.max(wallPan.x, 0), mx);
+      wallPan.y = my < 0 ? my / 2 : Math.min(Math.max(wallPan.y, 0), my);
+    }
+
+    // the wall drawn s times its size, no less than fits and no more than
+    // ZOOM_MOST, about (cx, cy), world px from its opening's top left: the
+    // px of the wall there stays there
+    function zoomTo(s, cx, cy) {
+      const v = wallView();
+      if (!v) return;
+      s = Math.min(WALL_UI.ZOOM_MOST, Math.max(wallLeast(v.w, v.h), s));
+      wallPan.x += cx / wallScale - cx / s;
+      wallPan.y += cy / wallScale - cy / s;
+      wallScale = s;
+      clampPan(v.w, v.h);
+    }
+
+    // the wall's size dt on toward what OUT and IN have asked for, by the
+    // house approach, about its opening's middle; there within a hair, there
+    function stepZoom(dt) {
+      const v = wallView();
+      if (!v || wallScale === wallScaleTo) return;
+      const to = Math.min(WALL_UI.ZOOM_MOST, Math.max(wallLeast(v.w, v.h), wallScaleTo));
+      const s = wallScale + (to - wallScale) * (1 - Math.pow(1 - WALL_UI.ZOOM_RATE, 60 * dt));
+      zoomTo(Math.abs(s - to) < 0.002 * to ? to : s, v.w / 2, v.h / 2);
+      wallScaleTo = to;
+    }
+
+    // the tray's picture and its paint as the pen takes it (wallSet), made
+    // again when the paint has changed: the air's rows of the picture and,
+    // under them, the tray's
+    function trayNow() {
+      if (!wallMix.dirty) return;
+      const M = wallMixed, air = wallTray.mup * M.w, ink = wallLut[wallMix.colour];
+      wallMix.paint(M.px.subarray(air), wallLut, 0);
+      M.px.fill(0, 0, air);
+      wallMix.flying((x, y) => { M.px[air + y * M.w + x] = ink; });
+      wallSet = wallMix.shares(WALL.SET);
+      wallMix.dirty = false;
+    }
+
+    // what a press on the wall draws in: the colour picked, or, the tray's
+    // paint picked, the colours the tray shows, each pixel drawn one of
+    // them by its share of the tray (js/wall.js's mixed stroke), seeded
+    // anew: the one colour where it shows only one, and the cell's last
+    // picked where it is empty
+    function wallInk() {
+      if (wallColour >= 0) return wallColour;
+      trayNow();
+      if (!wallSet) return wallCell;
+      return wallSet.colours.length === 1 ? wallSet.colours[0] : { colours: wallSet.colours, weights: wallSet.weights, seed: Math.floor(Math.random() * 65536) };
     }
 
     // the pen as a picture: the brush in use as it stamps, in the colour
-    // picked; the paper's as a ring of ink a px thick, where the brush is
-    // big enough to have a middle. made again when either changes
+    // picked, or the tray's paint as a stroke of it would be; the paper's
+    // as a ring of ink a px thick, where the brush is big enough to have a
+    // middle. made again when any of them changes
     function nibNow() {
-      const g = wallNib, size = wallBrush;
-      if (g.brush === size && g.colour === wallColour) return g;
+      const g = wallNib, size = wallBrush, set = wallColour < 0 ? wallSet : null;
+      if (g.brush === size && g.colour === wallColour && g.set === set) return g;
       g.brush = size;
       g.colour = wallColour;
+      g.set = set;
       g.w = g.h = size;
       g.px = new Uint16Array(size * size);
-      Wall.stamp(g.px, size, size, size >> 1, size >> 1, size, wallColour ? wallLut[wallColour] : 1);
+      const v = set ? Wall.blend(set.colours, set.weights, 0, wallLut) : wallColour < 0 ? wallLut[wallCell] : wallColour ? wallLut[wallColour] : 1;
+      Wall.stamp(g.px, size, size, size >> 1, size >> 1, size, v);
       if (!wallColour && size > 2) Wall.stamp(g.px, size, size, size >> 1, size >> 1, size - 2, 0);
       return g;
     }
 
     // item it's wall, d world px down from where it was laid out, into
     // pfb, hover what the pointer is on: the part of the wall the opening
-    // is over, the words in its middle while there is no wall, and its
+    // is over at the size it is drawn (wallScale), the words in its middle
+    // where there is no server, and its
     // menu, drawn as drawSettings draws a demo's: its header, the pen
     // (nibNow) in the middle of its place, and, while it is open at all,
     // its cells, its slider's bar (drawBar) with its dot where it has
@@ -3787,10 +3919,27 @@
     function drawWall(it, t, d, hover) {
       const a = it.wallAt, b = a.box, dy = Math.round(d), U = WALL_UI, ui = a.menu, m = wallMenu;
       wallPicture.px = wall.shown;
-      drawShimmer(pfb, wallPicture, Math.round(wallPan.x), Math.round(wallPan.y), b.x0, b.y0 + dy, b.x1 - b.x0, b.y1 - b.y0, t, 91000, false);
-      if (!wall.live) {
-        const words = WALL_URL ? a.joining : a.offline;
-        for (let i = 0; i < words.length; i++) words[i].draw(t, dy, pfb);
+      // the part of the opening the wall is over, and the wall there: shrunk
+      // under half, from a picture of it small enough to be shrunk no more than that
+      const sc = wallScale, bw = b.x1 - b.x0, bh = b.y1 - b.y0, wy = b.y0 + dy;
+      const x0 = Math.max(0, Math.ceil(-wallPan.x * sc)), x1 = Math.min(bw, Math.floor((WALL.W - wallPan.x) * sc));
+      const y0 = Math.max(0, Math.ceil(-wallPan.y * sc)), y1 = Math.min(bh, Math.floor((WALL.H - wallPan.y) * sc));
+      let half = 0;
+      while (sc * (1 << half) <= 0.5) half++;
+      const f = 1 << half;
+      drawShimmer(pfb, wallMip(half), (wallPan.x + x0 / sc) / f, (wallPan.y + y0 / sc) / f, b.x0 + x0, wy + y0, x1 - x0, y1 - y0, sc * f, t, 91000, false, sc * f < 1 ? wallLut[0] : -1);
+      // its edges, where they are inside the opening
+      if (y0 > 0) pfb.line(b.x0 + x0, wy + y0 - 1, b.x0 + x1 - 1, wy + y0 - 1);
+      if (y1 < bh) pfb.line(b.x0 + x0, wy + y1, b.x0 + x1 - 1, wy + y1);
+      if (x0 > 0) pfb.line(b.x0 + x0 - 1, wy + y0, b.x0 + x0 - 1, wy + y1 - 1);
+      if (x1 < bw) pfb.line(b.x0 + x1, wy + y0, b.x0 + x1, wy + y1 - 1);
+      if (!WALL_URL) for (let i = 0; i < a.offline.length; i++) a.offline[i].draw(t, dy, pfb);
+      // OUT and IN over it, the one under the pointer in the words' hover colour
+      for (let i = 0; i < a.zooms.length; i++) {
+        const z = a.zooms[i], zv = hover && hover.it === it && hover.zoom === z.dir ? HOVER : 1;
+        z.fill.draw(t, dy, pfb, 0, 0);
+        z.ring.draw(t, dy, pfb, 0, zv);
+        if (z.letter) z.letter.draw(t, dy, pfb, 0, zv);
       }
       if (!m.skin) return;
       const v = hover && hover.it === it && hover.menu === m ? HOVER_LINK : 1, box = m.skin.bounds();
@@ -3798,6 +3947,7 @@
       if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
       for (let i = 0; i < ui.header.title.length; i++) ui.header.title[i].draw(t, dy, qfb, 0, v);
       for (let i = 0; i < ui.header.bar.length; i++) ui.header.bar[i].draw(t, dy, qfb, 0, v);
+      trayNow();
       nibNow();
       ui.header.nib.draw(t, dy, qfb);
       if (m.p > 0) {
@@ -3816,15 +3966,8 @@
         }
         for (let i = 0; i < ui.slider.words.length; i++) ui.slider.words[i].draw(t, dy, qfb, 0, sv);
         // the paint: the air's rows of its picture over the cells and the slider, the tray's on the tray
-        const tr = ui.tray, M = wallMixed, air = wallTray.mup * M.w;
-        if (wallMix.dirty) {
-          const ink = wallLut[wallMix.colour];
-          wallMix.paint(M.px.subarray(air), wallLut, 0);
-          M.px.fill(0, 0, air);
-          wallMix.flying((x, y) => { M.px[air + y * M.w + x] = ink; });
-          wallMix.dirty = false;
-        }
-        drawShimmer(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, t, 93000, true);
+        const tr = ui.tray, M = wallMixed;
+        drawShimmer(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, U.GROW, t, 93000, true);
         const cv = on && on.clear ? HOVER : 1;
         ui.clear.ring.draw(t, dy, qfb, 0, cv);
         for (let i = 0; i < ui.clear.letters.length; i++) ui.clear.letters[i].draw(t, dy, qfb, 0, cv);
@@ -3853,11 +3996,11 @@
       return !!(h && (h.canvas || h.cell || h.width || h.tray));
     }
 
-    // the colour of the paint last mixed (js/mix.js), put down since this
-    // was last asked, is the one picked, if it was lifted and not called off
+    // paint dragged and put down since this was last asked (js/mix.js),
+    // lifted and not called off: the tray's paint is the one picked
     function takeMixed() {
       if (wallMix.mixed < 0) return;
-      if (wallTake) wallColour = wallMix.mixed;
+      if (wallTake) wallColour = -1;
       wallMix.mixed = -1;
     }
 
@@ -3869,14 +4012,16 @@
     }
 
     // the opening moved (dx, dy) world px over the wall as it is drawn, no
-    // further than the wall's edges: how much of dy that left over
+    // further than the wall's edges, and not at all the way the wall is
+    // the smaller (clampPan): how much of dy that left over
     function panWall(dx, dy) {
       const v = wallView();
       if (!v) return dy;
-      const g = WALL_UI.GROW, y = Math.min(Math.max(wallPan.y + dy / g, 0), WALL.H - v.h / g), left = (wallPan.y + dy / g - y) * g;
-      wallPan.x = Math.min(Math.max(wallPan.x + dx / g, 0), WALL.W - v.w / g);
+      const y = wallPan.y + dy / wallScale;
+      wallPan.x += dx / wallScale;
       wallPan.y = y;
-      return left;
+      clampPan(v.w, v.h);
+      return (y - wallPan.y) * wallScale;
     }
 
     // the brush's slider held with the pointer x world px across the
@@ -3888,32 +4033,34 @@
     }
 
     // the pen down at, or moved to, p, world px on the screen, kept inside
-    // the opening: the wall's px drawn there
+    // the opening and on the wall: the wall's px drawn there
     function penTo(p) {
       const v = wallView();
       if (!v) return;
       wallPen.on = true;
-      const g = WALL_UI.GROW, x = Math.floor(Math.min(Math.max(p.x - v.x, 0), v.w - 1) / g), y = Math.floor(Math.min(Math.max(p.y - v.y, 0), v.h - 1) / g);
-      wall.pen(wallColour, wallBrush, Math.min(WALL.W - 1, Math.round(wallPan.x) + x), Math.min(WALL.H - 1, Math.round(wallPan.y) + y), performance.now());
+      const x = Math.floor(wallPan.x + Math.min(Math.max(p.x - v.x, 0), v.w - 1) / wallScale), y = Math.floor(wallPan.y + Math.min(Math.max(p.y - v.y, 0), v.h - 1) / wallScale);
+      wall.pen(wallPen.ink, wallBrush, Math.min(WALL.W - 1, Math.max(0, x)), Math.min(WALL.H - 1, Math.max(0, y)), performance.now());
     }
 
     // the wall on to now, on the clock its presses are timed by: joined
-    // while graffiti wall is open in Doodles' open box and left when it is
-    // not, its pen's points sent and its server tried again as they fall
-    // due (js/wall.js), and a finger that has stayed HOLD ms put to the
-    // wall; the tray's paint let go, picking nothing, once the wall is left
-    // or its menu shuts while it is held
+    // as the page starts and kept, so it is there behind its bubble
+    // before that is opened, its pen's points sent and its server tried
+    // again as they fall due (js/wall.js), and a finger that has stayed
+    // HOLD ms put to the wall; while graffiti wall is not open in Doodles'
+    // open box the pen is up and the slider and the fingers let go; the
+    // tray's paint let go, picking nothing, once the wall is left or its
+    // menu shuts while it is held
     function stepWall() {
       const now = performance.now(), on = !!wallHome && wallHome.box.open && wallItem.open;
-      if (on !== wallJoined) {
-        wallJoined = on;
-        if (on) { if (WALL_URL) wall.connect(WALL_URL); }
-        else {
-          wall.disconnect();
-          wallPen = null;
-          wallSlide = null;
-          wallFingers.clear();
-        }
+      if (!wallJoined && WALL_URL) {
+        wallJoined = true;
+        wall.connect(WALL_URL);
+      }
+      if (!on && (wallPen || wallSlide !== null || wallFingers.size)) {
+        if (wallPen && wallPen.on) wall.lift();
+        wallPen = null;
+        wallSlide = null;
+        wallFingers.clear();
       }
       if (wallMixer !== null && (!on || !wallMenu.open)) {
         wallMix.lift();
@@ -3932,6 +4079,7 @@
       if ((h.cell || h.tray) && e.isPrimary && wallMixer === null) {
         const q = inTray(p), tr = wallItem.wallAt.menu.tray, c = h.cell;
         wallMixer = e.pointerId;
+        wallFromCell = !!c;
         wallMix.flow = e.shiftKey;
         // paint still settling is put down by the press: its colour first
         wallMix.settle();
@@ -3955,14 +4103,25 @@
           return;
         }
       }
-      wallPen = { id: e.pointerId, x: p.x, y: p.y, at: performance.now(), on: false };
+      wallPen = { id: e.pointerId, x: p.x, y: p.y, at: performance.now(), on: false, ink: wallInk() };
       if (e.pointerType !== 'touch') penTo(p);
     });
     canvas.addEventListener('pointermove', (e) => {
       const p = worldPointer(e), f = wallFingers.get(e.pointerId);
       if (f) {
-        // each of the fingers moving the wall carries it its share of the way
+        // each of the fingers moving the wall carries it its share of the
+        // way, and two coming together or apart shrink or grow it about
+        // the middle of them
         if (wallFingers.size > 1) panWall((f.x - p.x) / wallFingers.size, (f.y - p.y) / wallFingers.size);
+        if (wallFingers.size === 2) {
+          let q = null;
+          for (const [id, o] of wallFingers) if (id !== e.pointerId) q = o;
+          const was = Math.hypot(f.x - q.x, f.y - q.y), v = wallView();
+          if (was >= 1 && v) {
+            zoomTo(wallScale * Math.hypot(p.x - q.x, p.y - q.y) / was, (p.x + q.x) / 2 - v.x, (p.y + q.y) / 2 - v.y);
+            wallScaleTo = wallScale;
+          }
+        }
         wallFingers.set(e.pointerId, p);
       }
       if (e.pointerId === wallSlide) slideTo(p.x);
@@ -3989,9 +4148,10 @@
       const mixer = e.pointerId === wallMixer;
       if (slide) wallSlide = null;
       if (mixer) {
+        // a tap: a cell's colour, or, on paint, the tray's
         const pick = wallMix.lift().pick;
         wallTake = e.type === 'pointerup';
-        if (pick >= 0 && wallTake) wallColour = pick;
+        if (pick >= 0 && wallTake) wallColour = wallFromCell ? wallCell = pick : -1;
         wallMixer = null;
       }
       if (pen) {
@@ -4161,7 +4321,8 @@
     // and one that starts over the wall moves its opening over
     // it (the wall, above), the page scrolling by what that leaves
     // of its way down. a wheel held with ctrl is the browser's zoom and
-    // moves nothing
+    // moves nothing, but over the wall, where one held with ctrl or cmd
+    // grows or shrinks the wall (below)
     const WHEEL = {
       LINE: 16, // css px a line, for a wheel that counts in lines
       RUN: 200, // ms: the wheel's events under this apart are one run
@@ -4169,8 +4330,41 @@
     let wheelAt = -Infinity; // when the wheel was last heard, ms on the page's clock
     let wheelShip = false;   // the run it is in is the bottle's
     let wheelWall = false;   // the run it is in is the wall's
+    // held with ctrl or cmd over the wall, as most browsers send a
+    // trackpad's pinch, it grows or shrinks the wall about the pointer and
+    // is kept from the browser, and the page's listener leaves it be
     canvas.addEventListener('wheel', (e) => {
-      if (e.ctrlKey) return;
+      if (!e.ctrlKey && !e.metaKey) return;
+      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y), v = wallView(), U = WALL_UI;
+      if (!h || !h.canvas || !v) return;
+      e.preventDefault();
+      const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
+      zoomTo(wallScale * Math.exp(-Math.max(-U.NOTCH, Math.min(U.NOTCH, e.deltaY * px)) * U.PINCH), p.x - v.x, p.y - v.y);
+      wallScaleTo = wallScale;
+    }, { passive: false });
+    // safari's own word for a trackpad's pinch: one that starts over the
+    // wall grows or shrinks it about the pointer by as much as the pinch
+    // has since it was last heard, and is kept from safari's zoom of the
+    // page. fingers on a screen are the pointers' (the wall, above)
+    canvas.addEventListener('gesturestart', (e) => {
+      const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!h || !h.canvas) return;
+      e.preventDefault();
+      wallPinch = 1;
+    });
+    canvas.addEventListener('gesturechange', (e) => {
+      if (wallPinch === null) return;
+      e.preventDefault();
+      const p = worldPointer(e), v = wallView();
+      if (v && !wallFingers.size && e.scale > 0) {
+        zoomTo(wallScale * e.scale / wallPinch, p.x - v.x, p.y - v.y);
+        wallScaleTo = wallScale;
+      }
+      wallPinch = e.scale > 0 ? e.scale : wallPinch;
+    });
+    canvas.addEventListener('gestureend', () => { wallPinch = null; });
+    canvas.addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.defaultPrevented) return;
       const now = performance.now();
       if (now - wheelAt >= WHEEL.RUN) {
         const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
@@ -4373,6 +4567,7 @@
       stepMenu(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
       wallMix.step(dt);
       takeMixed();
+      stepZoom(dt);
       wallDot = dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
       if (panel) panel.step(now);
