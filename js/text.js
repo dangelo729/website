@@ -25,23 +25,22 @@ const TEXT = {
   "Personal work": {
     "Cicada": [],
     "Monk Mouth": [
-      "A singing voice for the Teensy 4.1. It makes sound by simulating air moving through a tube shaped like a vocal tract, so nothing is recorded: you move a tongue, lips and lungs, and the voice is whatever comes out.",
+      "A singing voice for the Teensy audio library. It makes sound by simulating air moving through a tube shaped like a vocal tract. You move a tongue, lips and lungs, and the voice is whatever comes out.",
       "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here: drag the slider to hear it sing."
     ],
     "Third Dimension": [
       "A small 3D renderer for microcontrollers and the tiny screens they drive. Hand it a model and it frames it, lights it and draws it: shaded, in flat bands like a cartoon, as a wireframe, or as an outline with the hidden lines removed, like a pen drawing.",
-      "Most of those screens can only turn a pixel on or off, so the shading is made of dither patterns, with ten to choose from. The mouth on Monk Mouth's face is drawn with it, and so is the ship in the bottle here: drag it, or scroll over it, to turn it."
+      "It's highly configurable, and super fun to mess around with. I built it for various embedded projects I'm working on, in the hopes that I'll be able to continue to iterate and improve it for whatever 3d rendering needs I have."
     ],
     "Second Dimension": [
-      "The 2D sibling of Third Dimension: a small library for posing pixel art on microcontrollers and the tiny screens they drive. Draw a character in pieces, pin the pieces together like a paper puppet, and it turns and draws them at any angle. It can also aim an arm at a point.",
-      "Daedalus here is posed and drawn with it: his head and his four arms, a mallet in each hand. Bring your cursor within reach of an arm, or press near him, and he'll take a swing at it."
+      "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens.",
+      "Daedalus here is posed and drawn with it: his head and his four arms, a mallet in each hand. Don't get too close or he may whack you."
     ],
     "Upright": [
-      "A piano for the Teensy 4.1. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through, so nothing is recorded: you set the strings, the hammers and the body, and the piano is whatever comes out. A grand, a toy piano, a Rhodes and a Wurlitzer are all the same model with different numbers.",
-      "Every piano note on this page is played on it: the letters of my name up top, Daedalus's mallets and the keys here. Tap them, or play them on your keyboard: A to ; are the notes, Z and X change the octave and space is the pedal. Open the settings to change the piano itself."
+      "A piano for the Teensy audio library. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through: you set the strings, the hammers and the body, and the piano is whatever comes out."
     ],
     "This website!": [
-      "You're looking at it. There's no framework and no build step, just one canvas: every pixel on the page, from these words to the box around them, is drawn into a single bitmap by the site's own code.",
+      "You're here! There's no framework and no build step, just a canvas: every pixel on the page, from these words to the box around them, is drawn into a single bitmap.",
       "The demos above are the real libraries, compiled to WebAssembly: the same code that runs on a microcontroller."
     ]
   },
