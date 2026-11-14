@@ -7,29 +7,37 @@
 // a page would, pressing, moving in small steps with a frame between and
 // lifting, then stepping until it is no longer busy. checks that a tap on
 // a cell picks its colour and leaves the tray empty, a tap on paint picks
-// the colour it shows and moves nothing, and a tap on bare tray picks
-// nothing; that a glob dropped into the tray, the pointer there at once
+// the colour it shows and moves and mixes nothing, and a tap on bare tray
+// picks nothing; that a glob dropped into the tray, the pointer there at once
 // and let go, lands as exactly the pen's stamp at the let-go point, one
 // layer, at every size, and one pulled in gives more paint on the way and
 // lands in its colour, one layer; that a glob let go before the tray leaves nothing on it and nothing held; that
 // random drags, fast, slow and out of the grid, never change the count
-// but by the globs pulled in, and each settle leaves one layer, all on the
+// but by the globs pulled in, and each settle comes to rest, all on the
 // tray; that a colour pulled into another mixes before anything is let go
 // and the paint's total is kept; that nothing mixes or moves while the
 // pointer is still once it has settled; that yellow and blue stirred long
 // enough end as one green; that step(dt) keeps time at 60 and 120 a
 // second, a glob of one grain too, and takes no more than 4 FOLLOW steps
 // however large dt is; that clear() empties it mid-drag; that a tray keeps
-// FULL of the biggest pen's worths and what is over dries away off the
-// paint's edges, DRY of it a second at 60 and 120 a second, down to what
-// it keeps and no further, at rest and while it is dragged; and that a
+// FULL of the biggest pen's worths, never more than a grain a pixel, and
+// what is over what it keeps dries away off the paint's edges, DRY of it
+// a second at 60 and 120 a second, down to what it keeps and no further,
+// at rest and while it is dragged; and that a
 // cell held gives FLOW pens' worths a second, at 60 and 120 a second, all
 // of it put down when let go over the tray, none while the pointer is
 // still in the cell, no more than a second's worth in the air, and all of
 // it home again when let go there; and that paint dragged, once it is put down, leaves the
 // colour it shows nearest the pen as the one mixed, and a tap none; and
-// that the tray's shares are the colours it shows, the most first, each
-// weighed by its pixels. prints, not
+// that the tray's shares are the blob's: the paint last tapped or put
+// down and all the paint touching it, eight ways, or, while paint is
+// dragged, what the pen has picked up; the colours it shows, the most
+// first, each weighed by its pixels, and none of the paint not touching
+// it; that a tap on bare tray or a glob let go in the air leaves the blob
+// as it was, clear() leaves none, its grains drying away keep it right,
+// and the picture is painted again as it changes; and that outline()
+// marks exactly the bare pixels within r px, across and down, of the
+// blob, and nothing past the tray's edges. prints, not
 // checks, the ms a frame takes with about 2500 grains dragged, timed in
 // node's own realm. exits 1 on failure.
 
@@ -193,12 +201,11 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   const before = shown(mix).px;
   // a pixel showing neither colour as it is
   const at = before.findIndex((v) => v >= 0 && v !== 9 && v !== 13), tx = at % W, ty = (at - tx) / W;
-  mix.dirty = false;
   mix.press(tx, ty, 16);
   frames(mix, 5);
   const r = mix.lift();
   check('a tap on paint picks the colour it shows there, mixed', at >= 0 && r.pick === before[at], r.pick + ' shows ' + before[at]);
-  check('and moves and mixes nothing', !mix.busy && !mix.dirty && same(xs, mix.gx.slice(0, n)) && same(ys, mix.gy.slice(0, n)) && same(ps, mix.p.slice(0, 4 * n)));
+  check('and moves and mixes nothing', !mix.busy && same(xs, mix.gx.slice(0, n)) && same(ys, mix.gy.slice(0, n)) && same(ps, mix.p.slice(0, 4 * n)));
   mix.press(5, 125, 16);
   const bare = mix.lift();
   check('a tap on bare tray picks nothing', bare.pick === -1 && mix.count() === n && !mix.busy, bare.pick);
@@ -259,7 +266,7 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   glob(mix, 5, 75, 110, 10);
   glob(mix, 1, 20, 120, 8);
   glob(mix, 0, 60, 70, 14);
-  let want = mix.count(), grew = false, counts = true, layers = true, onTray = true, detail = '', settles = 0, holds = 0;
+  let want = mix.count(), grew = false, counts = true, rested = true, onTray = true, detail = '', settles = 0, holds = 0, piled = 0, longest = 0;
   for (let t = 0; t < 120; t++) {
     const size = WALL.SIZES[int(WALL.SIZES.length)];
     let x, y, reached = false, n = 0;
@@ -294,18 +301,20 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
     mix.lift();
     // most drags are left to settle; the rest are finished by the next press
     if (int(4)) {
-      rest(mix);
+      const k = rest(mix);
       settles++;
+      longest = Math.max(longest, k);
+      if (k >= 20000) rested = false;
       if ((grew ? mix.count() < want : mix.count() !== want) && counts) { counts = false; detail = 'drag ' + t + ': ' + mix.count() + ' grains, ' + want + (grew ? ' at least' : '') + ' wanted'; }
       want = mix.count();
       grew = false;
-      if (tallest(mix) > 1) layers = false;
+      if (tallest(mix) > 1) piled++;
       if (strays(mix)) onTray = false;
     }
   }
-  rest(mix);
+  const last = rest(mix);
   check('random drags never change the count but by the globs pulled in', counts && (grew ? mix.count() >= want : mix.count() === want), detail || mix.count() + ' grains, ' + holds + ' holds');
-  check('after each settle no pile is taller than 1', layers && tallest(mix) === 1, settles + ' settles');
+  check('each settle comes to rest', rested && last < 20000 && !mix.busy, settles + ' settles, the longest ' + longest + ' frames, ' + piled + ' left a pile taller than 1');
   check('and every grain lies on the tray, in its pile', onTray && strays(mix) === 0);
 }
 
@@ -503,13 +512,15 @@ function heldRight(mix) {
   return picked === mix.tn;
 }
 {
-  const most = MIX.FULL * area(16);
-  check('a tray keeps FULL of the biggest pen\'s worths', drier(120).most === most, drier(120).most);
-  // two more of the biggest globs than it keeps, put down apart, and then left to dry
-  const globs = MIX.FULL + 2;
+  check('a tray keeps FULL of the biggest pen\'s worths, or a grain a pixel where that is less', drier(120).most === Math.min(MIX.FULL * area(16), W * H), drier(120).most);
+  const small = new Mix(COLOURS, 20, 20, UP, mulberry32(123));
+  check('so a small tray keeps its area', small.most === 20 * 20, small.most);
+  // a tray that keeps six of the biggest pen's worths: eight of the
+  // biggest globs put down apart, two more than it keeps, and then left to dry
+  const most = 6 * area(16), globs = 8;
   const wet = (seed) => {
     const mix = tray(seed);
-    for (let i = 0; i < globs; i++) glob(mix, 2 + i, 10 + 20 * (i % 5), 10 + 20 * Math.floor(i / 5), 16);
+    for (let i = 0; i < globs; i++) glob(mix, 2 + i, 14 + 24 * (i % 4), 30 + 60 * (i >> 2), 16);
     mix.most = most;
     return mix;
   };
@@ -598,8 +609,8 @@ function heldRight(mix) {
   air.lift();
   rest(air);
   check('and let go there it all goes home', !air.busy && air.count() === 0 && air.colour === -1 && flown(air).length === 0);
-  // the biggest pen's flow into a tray that dries
-  const big = drier(133), c = cell(9);
+  // the biggest pen's flow into a tray that dries, keeping six of its worths
+  const big = Object.assign(drier(133), { most: 6 * area(16) }), c = cell(9);
   big.hold(9, c.cx, c.cy, c.box, 16);
   big.move(50, 66);
   let sound = true;
@@ -661,30 +672,194 @@ function heldRight(mix) {
   check('and clear() leaves none', mix.mixed === -1);
 }
 
+// --- the blob ------------------------------------------------------------------------
+// the tray pixels whose top grain is marked in flags, in order
+function pixelsOf(mix, flags) {
+  const out = [];
+  for (let i = 0; i < W * H; i++) if (mix.top[i] >= 0 && flags[mix.top[i]]) out.push(i);
+  return out;
+}
+// tray pixel i and all the paint touching it, eight ways: their pixels, in order
+function touching(mix, i) {
+  const out = new Set([i]), todo = [i];
+  while (todo.length) {
+    const j = todo.pop(), x = j % W, y = (j - x) / W;
+    for (let c = 0; c < 8; c++) {
+      const qx = x + MIX.DX[c], qy = y + MIX.DY[c], q = qy * W + qx;
+      if (qx >= 0 && qy >= 0 && qx < W && qy < H && mix.tall[q] && !out.has(q)) {
+        out.add(q);
+        todo.push(q);
+      }
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+// what shares(most) should be for these tray pixels: the colours they
+// show, by their pixels, the most first, the first's weight 255 and none
+// under 1; null for none
+function sharesOf(mix, pixels, most) {
+  const seen = shown(mix).px, counts = new Map();
+  for (const i of pixels) counts.set(seen[i], (counts.get(seen[i]) || 0) + 1);
+  if (!counts.size) return null;
+  const by = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, most);
+  return { colours: by.map((e) => e[0]), weights: by.map((e) => Math.max(1, Math.round(255 * e[1] / by[0][1]))) };
+}
+const json = (v) => JSON.stringify(v);
+
+{
+  // a and b, two globs side by side with a column of bare tray between them
+  const mix = tray(160);
+  glob(mix, 7, 30, 66, 8);
+  glob(mix, 10, 39, 66, 8);
+  const a = touching(mix, 66 * W + 30), b = touching(mix, 66 * W + 39);
+  const apart = a.every((i) => !b.includes(i)) && a.some((i) => i % W === 33) && b.some((i) => i % W === 35);
+  check('b, put down last, is the blob', apart && json(pixelsOf(mix, mix.blob)) === json(b), b.length + ' px');
+  // a tap on a's edge with a pen that reaches over the gap onto b
+  mix.press(33, 66, 16);
+  const tap = mix.lift().pick;
+  check('a tap on a, its pen over b too, makes a alone the blob', tap === 7 && json(pixelsOf(mix, mix.blob)) === json(a), pixelsOf(mix, mix.blob).length + ' px');
+  // a dot of paint put down up and left of a's top left, touching it only at that corner
+  let q = -1;
+  for (const i of a) {
+    const qx = i % W - 1, qy = (i - i % W) / W - 1;
+    if (!mix.tall[qy * W + qx] && [[-1, 0], [1, 0], [0, -1], [0, 1]].every(([ex, ey]) => !mix.tall[(qy + ey) * W + qx + ex])) { q = qy * W + qx; break; }
+  }
+  const was = a.map((i) => mix.top[i]).join();
+  glob(mix, 4, q % W, (q - q % W) / W, 1);
+  const ad = [...a, q].sort((m, n) => m - n);
+  check('a dot put down touching a only at a corner makes the two the blob, eight ways', q >= 0 && mix.tall[q] === 1 && a.map((i) => mix.top[i]).join() === was && json(pixelsOf(mix, mix.blob)) === json(ad), q % W + ', ' + (q - q % W) / W);
+  mix.press(39, 66, 8);
+  mix.lift();
+  check('a tap on b makes it the blob again', json(pixelsOf(mix, mix.blob)) === json(b));
+  mix.dirty = false;
+  mix.press(q % W, (q - q % W) / W, 1);
+  mix.lift();
+  check('and one on the dot makes the dot and a, and the picture is to be painted again', json(pixelsOf(mix, mix.blob)) === json(ad) && mix.dirty);
+  // b pressed and dragged away from a
+  const before = json(mix.shares(32));
+  mix.press(39, 66, 8);
+  frames(mix, 3);
+  check('a press on paint leaves the blob as it was until it moves', json(mix.shares(32)) === before && before === json(sharesOf(mix, ad, 32)));
+  mix.dirty = false;
+  mix.move(41, 66);
+  const moved = mix.dirty;
+  frames(mix, 1);
+  drag(mix, 41, 66, 60, 90, 2);
+  const held = pixelsOf(mix, mix.picked), live = mix.shares(32);
+  check('dragged, the blob is the paint the pen has picked up, the picture painted again as it starts', moved && held.length > 0 && held.every((i) => !a.includes(i)) && json(live) === json(sharesOf(mix, held, 32)) && live.colours.join() === '10', held.length + ' px, ' + json(live));
+  mix.lift();
+  rest(mix);
+  const put = pixelsOf(mix, mix.blob);
+  check('put down, it is the paint where it shows the colour mixed and all the paint touching it', put.length > 0 && json(touching(mix, put[0])) === json(put) && put.some((i) => shown(mix).px[i] === mix.mixed) && put.every((i) => !ad.includes(i)), put.length + ' px');
+  // a glob let go in the air
+  const c = cell(3), sh = json(mix.shares(32));
+  mix.hold(3, c.cx, c.cy, c.box, 8);
+  drag(mix, c.cx, c.cy, c.cx + 30, c.cy, 3);
+  mix.lift();
+  rest(mix);
+  check('a glob let go in the air leaves the blob as it was', !mix.busy && json(pixelsOf(mix, mix.blob)) === json(put) && json(mix.shares(32)) === sh);
+  mix.press(90, 10, 16);
+  mix.lift();
+  check('and so does a tap on bare tray', json(pixelsOf(mix, mix.blob)) === json(put) && json(mix.shares(32)) === sh);
+  mix.clear();
+  check('clear() leaves none', mix.shares(32) === null && pixelsOf(mix, mix.blob).length === 0);
+  glob(mix, 5, 50, 66, 8);
+  check('and the next glob put down is the blob, all of it and only it', json(pixelsOf(mix, mix.blob)) === json(touching(mix, 66 * W + 50)) && mix.count() === area(8) && pixelsOf(mix, mix.blob).length === area(8));
+}
+
+{
+  // four globs apart, the bottom two first so none comes down through
+  // another, the second tapped, and then most of the paint dried away:
+  // grains of the blob and of the rest take each other's numbers as they go
+  const mix = tray(170);
+  for (let i = 0; i < 4; i++) glob(mix, 2 + i, 25 + 50 * (i % 2), 95 - 60 * (i >> 1), 16);
+  mix.press(75, 95, 16);
+  const tap = mix.lift().pick, blob = pixelsOf(mix, mix.blob);
+  mix.most = area(16);
+  let right = tap === 3 && blob.length === area(16) && json(blob) === json(touching(mix, 95 * W + 75)), left = blob;
+  for (let k = 0; k < 300; k++) {
+    mix.step(DT);
+    left = blob.filter((i) => mix.tall[i] > 0);
+    if (json(pixelsOf(mix, mix.blob)) !== json(left) || json(mix.shares(32)) !== json(sharesOf(mix, left, 32))) right = false;
+  }
+  check('the blob\'s grains drying away leave the rest of it the blob, its shares what that shows', right && left.length > 0 && left.length < blob.length && mix.count() < 4 * area(16) - blob.length + left.length, left.length + ' of ' + blob.length + ' px left, ' + mix.count() + ' grains');
+}
+
 // --- the tray's shares ---------------------------------------------------------------
 {
   const mix = tray(150);
   check('an empty tray has no shares', mix.shares(32) === null);
   glob(mix, 7, 30, 40, 16);
   const one = mix.shares(32);
-  check('one glob is one colour, its weight 255', one.colours.join() === '7' && one.weights.join() === '255');
+  check('one glob put down is the blob: its colour, its weight 255', one.colours.join() === '7' && one.weights.join() === '255', json(one));
   glob(mix, 10, 70, 100, 8);
-  const two = mix.shares(32), small = Math.round(255 * area(8) / area(16));
-  check('two apart are both, the bigger first, each by its pixels', two.colours.join() === '7,10' && two.weights.join() === '255,' + small, two.colours.join() + ' ' + two.weights.join());
-  check('no more than asked for, the most first', mix.shares(1).colours.join() === '7' && mix.shares(1).weights.join() === '255');
-  glob(mix, 3, 50, 70, 1);
-  const three = mix.shares(32);
-  check('and none weighs under 1', three.colours.join() === '7,10,3' && three.weights[2] === 1, three.weights.join());
-  // stirred: what it shares is what it shows
+  const two = mix.shares(32);
+  check('a second put down apart is the blob alone, the paint last touched', two.colours.join() === '10' && two.weights.join() === '255', json(two));
+  mix.press(30, 40, 16);
+  const tap = mix.lift().pick, first = mix.shares(32);
+  check('a tap on the first makes it the blob alone', tap === 7 && first.colours.join() === '7' && first.weights.join() === '255', json(first));
+  mix.press(90, 10, 16);
+  check('a tap on bare tray leaves it so', mix.lift().pick === -1 && json(mix.shares(32)) === json(first));
+  // a third glob far off, and then the first two stirred together and put down
+  glob(mix, 12, 90, 10, 4);
   mix.press(30, 40, 16);
   drag(mix, 30, 40, 70, 100, 2);
   drag(mix, 70, 100, 40, 60, 2);
   mix.lift();
   rest(mix);
-  const all = mix.shares(224), seen = shown(mix), counts = new Map();
-  for (const v of seen.px) if (v >= 0) counts.set(v, (counts.get(v) || 0) + 1);
-  const most = Math.max(...counts.values());
-  check('stirred, its shares are the colours it shows, by their pixels', all.colours.length === counts.size && all.colours.every((c, i) => all.weights[i] === Math.max(1, Math.round(255 * counts.get(c) / most))) && all.weights.every((w, i) => i === 0 || w <= all.weights[i - 1]), all.colours.length + ' colours');
+  const blob = pixelsOf(mix, mix.blob), far = touching(mix, 10 * W + 90);
+  const all = mix.shares(224), want = sharesOf(mix, blob, 224);
+  check('stirred and put down, its shares are the colours the blob shows, by their pixels, the most first, none under 1', all !== null && all.colours.length > 1 && json(all) === json(want) && all.weights.every((w, i) => w >= 1 && (i === 0 || w <= all.weights[i - 1])), all && all.colours.length + ' colours over ' + blob.length + ' px');
+  check('no more than asked for', json(mix.shares(1)) === json({ colours: [all.colours[0]], weights: [255] }));
+  check('and the paint not touching it is never counted', far.length === area(4) && far.every((i) => !blob.includes(i)) && json(all) !== json(sharesOf(mix, blob.concat(far), 224)), far.length + ' px apart');
+}
+
+// --- the outline ---------------------------------------------------------------------
+const V = -9;
+// the tray's picture as shown() makes it, as a plain array, so a write past either end of it would show
+const picture = (mix) => Array.from(shown(mix).px);
+const whole = (px) => px.length === W * H && Object.keys(px).length === W * H;
+// the bare tray pixels within r px, across and down, of these, in order
+function ring(mix, pixels, r) {
+  const out = new Set();
+  for (const i of pixels) {
+    const x = i % W, y = (i - x) / W;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const qx = x + dx, qy = y + dy;
+      if (qx >= 0 && qy >= 0 && qx < W && qy < H && !mix.tall[qy * W + qx]) out.add(qy * W + qx);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+// the pixels of px set to V
+const marked = (px) => px.reduce((o, v, i) => { if (v === V) o.push(i); return o; }, []);
+{
+  // b put down beside a, a column of bare tray between them: b is the blob
+  const mix = tray(180);
+  glob(mix, 7, 30, 66, 8);
+  glob(mix, 10, 39, 66, 8);
+  const b = pixelsOf(mix, mix.blob), px = picture(mix), was = px.slice();
+  mix.outline(px, V, 2);
+  const got = marked(px), want = ring(mix, b, 2);
+  check('outline() marks exactly the bare pixels within 2 px, across and down, of the blob', got.length > 0 && json(got) === json(want), got.length + ' px');
+  check('and none with paint, the blob\'s or the paint beside it', whole(px) && px.every((v, i) => v === was[i] || (v === V && was[i] === -1)) && got.some((i) => i % W === 34));
+  // the blob against the tray's corners
+  const edge = (x, y, seed) => {
+    const m = tray(seed);
+    glob(m, 7, x, y, 12);
+    const px = picture(m), b = pixelsOf(m, m.blob);
+    m.outline(px, V, 2);
+    const got = marked(px);
+    return { ok: b.length > 0 && whole(px) && json(got) === json(ring(m, b, 2)), got };
+  };
+  const tl = edge(0, 0, 181), br = edge(W - 1, H - 1, 182);
+  check('against the tray\'s edges it marks nothing past them, nor wraps to the far side', tl.ok && br.ok && tl.got.every((i) => i % W < W / 2) && br.got.every((i) => i % W >= W / 2), tl.got.length + ' and ' + br.got.length + ' px');
+  const fresh = tray(183), none = picture(fresh);
+  fresh.outline(none, V, 2);
+  mix.clear();
+  const cleared = picture(mix);
+  mix.outline(cleared, V, 2);
+  check('a tray with no blob, new or cleared, has no outline', marked(none).length === 0 && marked(cleared).length === 0);
 }
 
 check('nothing read the clock, set a timer or called Math.random', reads === 0);
