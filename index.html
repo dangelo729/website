@@ -7,8 +7,6 @@
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
-    /* black on a device set dark, where the page starts dark (the switch, in the script) */
-    @media (prefers-color-scheme: dark) { html, body { background: #000000; } }
     /* no system cursor over the document either, as over the canvas */
     html, body { cursor: none; }
     /* the document never scrolls: the page scrolls itself, in the script
@@ -2018,9 +2016,9 @@
     // its click pressing nothing. either presses nothing under it. the
     // switch and the ball are in the first tag colour while a mouse is
     // over them or the ball is held. the document behind the canvas is the
-    // paper's colour of the end the page is nearer. the page starts as
-    // the visitor's device is set, until they send the switch to an end:
-    // from then on the browser keeps which
+    // paper's colour of the end the page is nearer. the page starts
+    // light, until the visitor sends the switch to an end: from then on
+    // the browser keeps which
     const SWITCH = {
       GAP: 6,      // world px between it and the scroll hand
       SEED: 99200, // its wobble's, clear of the hand's
@@ -2034,14 +2032,10 @@
     let switchArt = null;            // the switch as { paper, ink } letters, its ball's bitmaps { paper, ink } or null, and reach, its px from its middle to the ball's at either end
     let switchHold = null;           // the press on it, { id, x, from, on }: where it went down, how dark the page was, and whether it has the ball; or null
 
-    // whether the page starts dark: as the browser keeps it or, with
-    // nothing kept, as the visitor's device is set
+    // whether the page starts dark: only if the browser keeps that the
+    // visitor sent it there
     function startsDark() {
-      try {
-        const kept = localStorage.getItem(SWITCH.KEY);
-        if (kept !== null) return kept === '1';
-      } catch (e) {}
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      try { return localStorage.getItem(SWITCH.KEY) === '1'; } catch (e) { return false; }
     }
 
     // the document behind the canvas in the paper's colour at the end the page is nearer
