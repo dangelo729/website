@@ -3516,8 +3516,9 @@
     // in the middle of what the button has left right of the bar, the button tall enough to
     // hold it and as wide as the open menu, its words at its left; open,
     // the first PICKS of the wall's colours under it in rows of COLS cells,
-    // CELL px square and GAP apart, the one picked filling its cell and
-    // the rest a little smaller, the first the paper's, which rubs out,
+    // CELL px square and GAP apart, each a little inside its place, the
+    // one picked outlined PICK px thick in the words' hover colour (the
+    // inventor's), the first the paper's, which rubs out,
     // along the bottom of them, its brush's slider, a
     // small ribbon as the demo's menu's are (drawBar): a bar with a tick
     // in the middle of each brush's zone and a dot on the line of the one
@@ -3539,9 +3540,11 @@
     // through the air over the cells and the slider, and over the tray is
     // pushed and stirred there; lifted, it is put down, a tap on a cell
     // picks its colour, and a tap on paint in the tray, or paint that was
-    // dragged, once it is put down (takeMixed), picks the tray's paint,
-    // all of it as one: a press on the wall then draws each pixel one of
-    // the colours the tray shows, by its share of the tray (wallInk), and
+    // dragged, once it is put down (takeMixed), picks the tray's paint:
+    // its blob (js/mix.js), the paint tapped or put down and all the paint
+    // touching it, as one, ringed PICK px round on the tray in the words'
+    // hover colour while it is picked. a press on the wall then draws each pixel one of
+    // the colours the blob shows, by its share of the blob (wallInk), and
     // the pen in the header shows it so. the
     // click it ends in presses nothing. a cell held goes on giving
     // paint as long as it is held (js/mix.js). the wall left
@@ -3552,8 +3555,8 @@
     // menu or shuts it; a primary press on the bar, or its row above and
     // below it, takes it, and while it is held the brush is the one whose
     // zone the pointer is in across the bar, and the click it ends in
-    // presses nothing. under the pointer a cell's outline, the bar, and
-    // CLEAR's outline and word are in the words' hover colour (the inventor's). where the opening is smaller than the wall it
+    // presses nothing. under the pointer a cell's outline, PICK px thick,
+    // the bar, and CLEAR's outline and word are in the words' hover colour (the inventor's). where the opening is smaller than the wall it
     // starts over the wall's middle and is moved over it by two fingers on
     // it, or by the wheel over it (the wheel, below): across by the
     // wheel's way across, down by its way down as far as the wall goes,
@@ -3582,6 +3585,7 @@
       COLS: 4,  // cells in a row of the menu
       CELL: 28, // world px, a cell, square
       GAP: 6,   // world px between cells, across and down
+      PICK: 1,  // the art's and the tray's px, how thick the outline of the colour picked (a cell's or the tray's blob's) and of a cell hovered is
       GROW: 1.1, // the wall, the tray's paint, the pen, and the cells', the slider's and CLEAR's art are drawn this many times their size, off the pixels' grid, so their edges shimmer as a letter's do
       TILE: 24, // world px, the squares over the wall and over the tray whose corners each wobble on their own (drawShimmer)
       SLOP: 4,  // world px a finger moves before it draws
@@ -3608,17 +3612,18 @@
       return { w, up, mw: Math.round(w / U.GROW), mh: Math.round(U.TRAY / U.GROW), mup: Math.ceil(up / U.GROW) };
     })();
     // a rounded box w x h as a sprite's ink, r round its corners: its
-    // inside (fill) and its outline BOX.LINE px thick (line)
-    function inkBox(w, h, r) {
+    // inside (fill) and its outline line px thick, BOX.LINE unless given (line)
+    function inkBox(w, h, r, line = BOX.LINE) {
       const f = new Framebuffer(w, h), l = new Framebuffer(w, h);
       f.roundRect(0, 0, w, h, r, 1, 1, BOX.LINE);
-      l.roundRect(0, 0, w, h, r, null, 1, BOX.LINE);
+      l.roundRect(0, 0, w, h, r, null, 1, line);
       return { fill: { ink: Uint8Array.from(f.bits), w, h }, line: { ink: Uint8Array.from(l.bits), w, h } };
     }
-    // the menu's art, a GROW'th of the size it is drawn: a cell's, the one
-    // picked filling its place (picked) and the rest 2 px in all round
-    // (rest), and the slider's bar with its ticks (drawBar), for one drawn
-    // w px wide (bar(w)), made the first time and kept
+    // the menu's art, a GROW'th of the size it is drawn: a cell's, 2 px in
+    // from its place all round (cell), and its outline PICK px thick for
+    // the one picked or hovered (ring), and the slider's bar with its
+    // ticks (drawBar), for one drawn w px wide (bar(w)), made the first
+    // time and kept
     const wallArt = (() => {
       const U = WALL_UI, a = Math.round(U.CELL / U.GROW), h = DEMO.SLIDER.H, bars = new Map();
       const bar = (w) => {
@@ -3630,7 +3635,7 @@
         }
         return bars.get(aw);
       };
-      return { picked: inkBox(a, a, 3), rest: inkBox(a - 4, a - 4, 3), bar };
+      return { cell: inkBox(a - 4, a - 4, 3), ring: inkBox(a - 4, a - 4, 3, U.PICK).line, bar };
     })();
     // the wall's server: the site's own, the deployed worker, from the
     // site's hosts (none, and the site's wall is offline), or one run beside the page,
@@ -3655,12 +3660,12 @@
       in: new Type(WALL_UI.IN, () => document.createElement('canvas'), TAG.FACE),
     };
     const wallMix = new Mix(WALL.COLOURS, wallTray.mw, wallTray.mh, wallTray.mup); // the paint in the tray, kept for the page's life
-    const wallMixed = { px: new Uint16Array(wallTray.mw * (wallTray.mup + wallTray.mh)), w: wallTray.mw, h: wallTray.mup + wallTray.mh }; // the paint in the air and, under it, the tray's, as a picture, painted again when either has changed
+    const wallMixed = { px: new Uint16Array(wallTray.mw * (wallTray.mup + wallTray.mh)), w: wallTray.mw, h: wallTray.mup + wallTray.mh, lit: false }; // the paint in the air and, under it, the tray's, as a picture, painted again when either has changed, and whether it holds the blob's ring (trayNow)
     let wallMixer = null;          // the pointer holding the tray's paint, or null
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
-    let wallColour = 1, wallBrush = 12; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, all of it as one
+    let wallColour = 1, wallBrush = 12; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
     let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
-    let wallSet = null;            // the tray's paint as the pen takes it, { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
+    let wallSet = null;            // the tray's paint as the pen takes it, its blob's { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
     let wallFromCell = false;      // whether the press holding the tray's paint came down on a cell
     let wallPainted = false;       // whether paint has been dragged into the tray: the words asking for it are gone for good
     const wallNib = { px: null, w: 0, h: 0, brush: 0, colour: -2, set: null }; // the pen as a picture, and the brush and colour it was made for
@@ -3691,7 +3696,9 @@
     // left on the middle of its height and nib the top left of the pen's
     // place, in the middle of the room right of the bar; and, open, down from it
     // round the colours' cells under the header, each { x0, y0, x1, y1,
-    // colour }, the slider's row under them, the tray a GAP under that
+    // colour, fill, line, ring }, its place and its art's inside, outline
+    // and thin outline (wallArt) as letters, the slider's row under them,
+    // the tray a GAP under that
     // and CLEAR's row a GAP under the tray, MARGIN round them all:
     // the slider's bar and the box a press takes it in (hit, its bar
     // across and its row down); the tray, { x0, y0, x1, y1 } on whole
@@ -3728,8 +3735,7 @@
         const art = (g) => makeLetter(g, cx + U.CELL / 2, cy + U.CELL / 2, seed + 130 + i, U.GROW);
         cells.push({
           x0: cx, y0: cy, x1: cx + U.CELL, y1: cy + U.CELL, colour: i,
-          picked: { fill: art(wallArt.picked.fill), line: art(wallArt.picked.line) },
-          rest: { fill: art(wallArt.rest.fill), line: art(wallArt.rest.line) },
+          fill: art(wallArt.cell.fill), line: art(wallArt.cell.line), ring: art(wallArt.ring),
         });
       }
       // the slider's row: the bar in its middle and PEN apart right of it, as a demo's menu's slider's words are, the two as wide as the cells
@@ -3875,24 +3881,29 @@
       wallScaleTo = to;
     }
 
-    // the tray's picture and its paint as the pen takes it (wallSet), made
-    // again when the paint has changed: the air's rows of the picture and,
-    // under them, the tray's
+    // the tray's picture and its paint as the pen takes it, its blob's
+    // (wallSet), made again when the paint has changed or the tray's paint
+    // is picked or no longer is: the air's rows of the picture and, under
+    // them, the tray's, with the blob ringed PICK px round on the bare
+    // tray in the words' hover colour while the tray's paint is picked
     function trayNow() {
-      if (!wallMix.dirty) return;
-      const M = wallMixed, air = wallTray.mup * M.w, ink = wallLut[wallMix.colour];
+      const M = wallMixed, lit = wallColour < 0;
+      if (!wallMix.dirty && lit === M.lit) return;
+      const air = wallTray.mup * M.w, ink = wallLut[wallMix.colour];
       wallMix.paint(M.px.subarray(air), wallLut, 0);
+      if (lit) wallMix.outline(M.px.subarray(air), HOVER, WALL_UI.PICK);
       M.px.fill(0, 0, air);
       wallMix.flying((x, y) => { M.px[air + y * M.w + x] = ink; });
       wallSet = wallMix.shares(WALL.SET);
       wallMix.dirty = false;
+      M.lit = lit;
     }
 
     // what a press on the wall draws in: the colour picked, or, the tray's
-    // paint picked, the colours the tray shows, each pixel drawn one of
-    // them by its share of the tray (js/wall.js's mixed stroke), seeded
+    // paint picked, the colours its blob shows, each pixel drawn one of
+    // them by its share of the blob (js/wall.js's mixed stroke), seeded
     // anew: the one colour where it shows only one, and the cell's last
-    // picked where it is empty
+    // picked where there is no blob
     function wallInk() {
       if (wallColour >= 0) return wallColour;
       trayNow();
@@ -3926,13 +3937,15 @@
     // (nibNow) in the middle of its place, and, while it is open at all,
     // its cells, its slider's bar (drawBar) with its dot where it has
     // got to, the tray's paint (js/mix.js) as a picture painted again
-    // when it has changed, over HINT and its hand until paint is first
+    // when it has changed, its blob ringed while it is picked (trayNow),
+    // over HINT and its hand until paint is first
     // dragged into it, the paint in the air over them all and CLEAR,
     // its ring outlined as a button of the shop's is (drawShop), into qfb over
     // its skin's box, then qfb copied into pfb through the skin and the
     // skin outlined over it, in the links' hover colour while the header
-    // is hovered; a hovered cell's outline, the bar hovered or held, and
-    // CLEAR hovered, in the words'
+    // is hovered; the cell picked and a hovered one with a thin outline
+    // (ring) in place of their own, the bar hovered or held, and CLEAR
+    // hovered, in the words'
     function drawWall(it, t, d, hover) {
       const a = it.wallAt, b = a.box, dy = Math.round(d), U = WALL_UI, ui = a.menu, m = wallMenu;
       wallPicture.px = wall.shown;
@@ -3970,9 +3983,10 @@
       if (m.p > 0) {
         const on = hover && hover.it === it && hover.wall ? hover : null;
         for (let i = 0; i < ui.cells.length; i++) {
-          const c = ui.cells[i], art = c.colour === wallColour ? c.picked : c.rest;
-          art.fill.draw(t, dy, qfb, 0, wallLut[c.colour]);
-          art.line.draw(t, dy, qfb, 0, on && on.cell === c ? HOVER : 1);
+          const c = ui.cells[i];
+          c.fill.draw(t, dy, qfb, 0, wallLut[c.colour]);
+          if (c.colour === wallColour || (on && on.cell === c)) c.ring.draw(t, dy, qfb, 0, HOVER);
+          else c.line.draw(t, dy, qfb, 0, 1);
         }
         // the slider's bar, and its dot as far across the bar as it has got to, where the bar is drawn
         const sv = wallSlide || (on && on.width) ? HOVER : 1, bar = ui.slider.art;
@@ -4025,7 +4039,8 @@
     }
 
     // paint dragged and put down since this was last asked (js/mix.js),
-    // lifted and not called off: the tray's paint is the one picked
+    // lifted and not called off: the tray's paint, the blob it was put
+    // down in, is the one picked
     function takeMixed() {
       if (wallMix.mixed < 0) return;
       if (wallTake) wallColour = -1;
@@ -4114,7 +4129,7 @@
         wallMix.settle();
         takeMixed();
         if (c) {
-          const inset = c.colour === wallColour ? 0 : 2, g = WALL_UI.GROW;
+          const inset = 2, g = WALL_UI.GROW;
           wallMix.hold(c.colour, q.x, q.y, { x0: Math.ceil((c.x0 + inset - tr.x0) / g), y0: Math.ceil((c.y0 + inset - tr.y0) / g), x1: Math.floor((c.x1 - inset - tr.x0) / g), y1: Math.floor((c.y1 - inset - tr.y0) / g) }, wallBrush);
         } else wallMix.press(q.x, q.y, wallBrush);
       }

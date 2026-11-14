@@ -16,21 +16,28 @@
 // each step every grain picked up that answers the pen's grip takes a step
 // toward it, the nearest first, into an empty spot nearer it or round a
 // corner; one that runs into paint not picked up picks it up; one on a
-// pile slides off outward; one kept from its spot may rub the one in it,
-// a step of that for each px the pen has come. a grain that slides rubs
-// the one it slid off, the one it lands on and the one it comes up
-// against. let go, every grain answers, and once nothing moves the paint
-// is put down: a glob out of a cell that picked nothing else up takes the
-// pen's exact shape, and the colour the paint shows nearest the pen is
-// kept as the one mixed. a tap on a cell or on paint picks that colour.
-// shares() is the tray as one paint: the colours it shows, each with its
-// share of the tray's pixels.
+// pile slides off onto a lower one beside it, one farther out if it can,
+// and once the pen is let go only one farther out, so the paint always
+// comes to rest, what is shut in still piled; one kept from its spot may
+// rub the one in it, a step of that for each px the pen has come. a grain
+// that slides rubs the one it slid off, the one it lands on and the one
+// it comes up against. let go, every grain answers, and once nothing
+// moves the paint is put down: a glob out of a cell that picked nothing
+// else up takes the pen's exact shape, and the colour the paint shows
+// nearest the pen is kept as the one mixed. a tap on a cell or on paint
+// picks that colour.
+// the blob is the paint last touched: the paint a tap lands on, or the
+// paint put down where it shows the colour mixed, and all the paint
+// touching it, eight ways; while the pen drags paint it has picked up
+// on the tray, that paint. shares() is the blob as one paint: the
+// colours it shows, each with its share of its pixels. outline() rings
+// it, in a picture of the tray, on the bare tray round it.
 // a cell held goes on giving paint, FLOW pens' worths a second: a new
 // grain in each of the glob's places in the cell left empty, no more in
 // the air at once than a second's worth. the tray keeps FULL of the
-// biggest pen's worths of paint: what is over that dries away, DRY of
-// it a second, a grain at a time off the paint's edges, what sticks out
-// first.
+// biggest pen's worths of paint, but never more than a grain a pixel of
+// it: what is over that dries away, DRY of it a second, a grain at a
+// time off the paint's edges, what sticks out first.
 // nothing here keeps time or draws: step(dt) takes FOLLOW steps a 1/60 s
 // of the dt given, and paint() and flying() hand the picture over.
 
@@ -40,7 +47,7 @@ const MIX = {
   GRIP: 0.6,      // the chance a grain answers the pen's pull each step while it is down; let go, all do
   PULL: 24,       // px out of its cell at which the pointer has drawn a whole glob out
   FLOW: 2,        // pens' worths a second a cell held gives, and the most of them in the air at once
-  FULL: 18,       // the paint the tray keeps, in the biggest pen's worths (WALL.SIZES)
+  FULL: 72,       // the paint the tray keeps, in the biggest pen's worths (WALL.SIZES), no more than a grain a pixel of it
   DRY: 0.2,       // the share of the paint over that which dries away a second
   PRESS: 0.12,    // the chance a grain kept from its spot rubs the one in it, each step the pen's travel pays for
   TRAVEL: 64,     // the most of those steps the pen's travel banks
@@ -83,7 +90,7 @@ class Mix {
     this.colour = -1;     // the colour of the glob in the air, -1 when none
     this.dirty = true;
     this.feet = {};
-    this.most = MIX.FULL * this.foot(WALL.SIZES[WALL.SIZES.length - 1]).n; // the grains the tray keeps
+    this.most = Math.min(MIX.FULL * this.foot(WALL.SIZES[WALL.SIZES.length - 1]).n, w * h); // the grains the tray keeps
     this.drying = 0;      // a grain not yet dried away, as a fraction
     this.mixed = -1;      // the colour the paint last dragged shows nearest where the pen left it, once it is put down: the page's to take, and to set back to -1
     this.nk = new Float64Array(8); // a grain's spots nearer the pen, by distance plus a jitter
@@ -132,6 +139,7 @@ class Mix {
     this.seen = re(this.seen, Int32Array, 1); // the list colour it shows, when not stale
     this.stale = re(this.stale, Uint8Array, 1);
     this.picked = re(this.picked, Uint8Array, 1); // picked up by the pen
+    this.blob = re(this.blob, Uint8Array, 1);     // of the blob as it was last flagged (blobAt)
     this.below = re(this.below, Int32Array, 1);   // the grain under it, -1 for none
     this.tg = re(this.tg, Int32Array, 1);
     this.keys = new Float64Array(cap);
@@ -215,6 +223,7 @@ class Mix {
       this.seen[g] = this.seen[l];
       this.stale[g] = this.stale[l];
       this.picked[g] = this.picked[l];
+      this.blob[g] = this.blob[l];
       below[g] = below[l];
     }
     this.dirty = true;
@@ -276,7 +285,40 @@ class Mix {
       this.tg[this.tn++] = g;
       fresh = true;
     }
+    if (fresh) this.dirty = true;
     return fresh;
+  }
+
+  // the paint at (x, y) and all the paint touching it are flagged as the
+  // blob, and nothing else is
+  blobAt(x, y) {
+    const w = this.w, h = this.h, top = this.top, below = this.below, blob = this.blob, stack = this.stack, DX = MIX.DX, DY = MIX.DY;
+    blob.fill(0, 0, this.n);
+    this.dirty = true;
+    // every grain of pile i flagged, unless its top already is: whether it was not
+    const flag = (i) => {
+      if (top[i] < 0 || blob[top[i]]) return false;
+      for (let g = top[i]; g >= 0; g = below[g]) blob[g] = 1;
+      return true;
+    };
+    if (!flag(y * w + x)) return;
+    let s = 0;
+    stack[s++] = y * w + x;
+    while (s) {
+      const i = stack[--s], cx = i % w, cy = (i - cx) / w;
+      for (let c = 0; c < 8; c++) {
+        const qx = cx + DX[c], qy = cy + DY[c];
+        if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        if (flag(qy * w + qx)) stack[s++] = qy * w + qx;
+      }
+    }
+  }
+
+  // each grain's flag, 1 where it is of the blob: while the pen on the
+  // tray has moved with paint picked up, the paint it has picked up;
+  // otherwise the paint flagged (blobAt)
+  of() {
+    return this.tip && this.tip.moved && this.tn > 0 ? this.picked : this.blob;
   }
 
   // the paint at (x, y) is picked up, and all the paint touching it
@@ -311,6 +353,7 @@ class Mix {
     y = Math.max(0, Math.min(this.h - 1, y));
     const x0 = t.x, y0 = t.y, n = Math.max(Math.abs(x - x0), Math.abs(y - y0));
     t.travel = Math.min(MIX.TRAVEL, t.travel + n);
+    if (n) this.dirty = true;
     for (let k = 1; k <= n; k++) {
       t.x = Math.round(x0 + (x - x0) * k / n);
       t.y = Math.round(y0 + (y - y0) * k / n);
@@ -341,8 +384,9 @@ class Mix {
   // every grain picked up that answers the pen's grip takes a step toward
   // it, the nearest first, into an empty spot nearer it. one that runs into
   // paint not picked up picks it up. one lying on another with nowhere
-  // nearer slides off outward. let go, every grain answers. returns how
-  // many moved
+  // nearer slides off onto a lower pile, one farther out if it can, and
+  // once the pen is let go only one farther out, so the paint comes to
+  // rest. let go, every grain answers. returns how many moved
   sweep() {
     const t = this.tip, w = this.w, h = this.h, rand = this.random, DX = MIX.DX, DY = MIX.DY;
     const gx = this.gx, gy = this.gy, top = this.top, tall = this.tall, picked = this.picked, tg = this.tg;
@@ -415,7 +459,8 @@ class Mix {
       }
       if (!went && ht > 1) {
         // onto one of the shortest piles beside it that is empty or picked
-        // up, one farther out if there is one
+        // up, one farther out if there is one; let go, only one farther
+        // out, and with none it stays
         let low = ht, no = 0, na = 0;
         for (let c = 0; c < 8; c++) {
           const qx = x + DX[c], qy = y + DY[c];
@@ -426,7 +471,7 @@ class Mix {
           anys[na++] = c;
           if ((qx - px) * (qx - px) + (qy - py) * (qy - py) > gd) outs[no++] = c;
         }
-        if (na) {
+        if (no || (na && !t.done)) {
           const c = no ? outs[Math.floor(rand() * no)] : anys[Math.floor(rand() * na)];
           this.go(g, DX[c], DY[c]);
           went = true;
@@ -558,6 +603,7 @@ class Mix {
     this.seen[g] = c;
     this.stale[g] = 0;
     this.picked[g] = 1;
+    this.blob[g] = 0;
     this.gx[g] = x;
     this.gy[g] = y;
     this.below[g] = this.top[p];
@@ -605,7 +651,8 @@ class Mix {
 
   // the paint picked up is put down. a glob out of a cell that picked
   // nothing else up takes the pen's shape: the grains outside it, or on
-  // another, take the empty places in it
+  // another, take the empty places in it. dragged, the paint where it
+  // shows the colour mixed is the blob
   putDown() {
     const t = this.tip, w = this.w, h = this.h, top = this.top, tall = this.tall;
     if (t.glob && this.tn === t.glob) {
@@ -640,7 +687,10 @@ class Mix {
         near = g;
       }
     }
-    if (near >= 0) this.mixed = this.shows(near);
+    if (near >= 0) {
+      this.mixed = this.shows(near);
+      this.blobAt(this.gx[near], this.gy[near]);
+    }
     this.tn = 0;
     this.tip = null;
   }
@@ -760,8 +810,12 @@ class Mix {
     if (t && !t.done) {
       if (t.moved) t.done = true;
       else {
+        // a tap on paint picks its colour, and that paint is the blob
         const g = this.top[t.y * this.w + t.x];
-        if (g >= 0) pick = this.shows(g);
+        if (g >= 0) {
+          pick = this.shows(g);
+          this.blobAt(t.x, t.y);
+        }
         this.putDown();
       }
     }
@@ -811,20 +865,36 @@ class Mix {
     for (let i = 0; i < top.length; i++) px[i] = top[i] < 0 ? empty : lut[this.shows(top[i])];
   }
 
-  // the colours the tray shows, the one on the most pixels first and no
-  // more of them than most, each with its share of those pixels as a
-  // weight, the first's 255 and none under 1: { colours, weights }, or
-  // null with no paint
+  // the colours the blob shows, the one on the most of its pixels first
+  // and no more of them than most, each with its share of those pixels
+  // as a weight, the first's 255 and none under 1: { colours, weights },
+  // or null with no blob
   shares(most) {
-    const top = this.top, counts = new Map();
+    const top = this.top, of = this.of(), counts = new Map();
     for (let i = 0; i < top.length; i++) {
-      if (top[i] < 0) continue;
+      if (top[i] < 0 || !of[top[i]]) continue;
       const c = this.shows(top[i]);
       counts.set(c, (counts.get(c) || 0) + 1);
     }
     if (!counts.size) return null;
     const by = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, most);
     return { colours: by.map((e) => e[0]), weights: by.map((e) => Math.max(1, Math.round(255 * e[1] / by[0][1]))) };
+  }
+
+  // px, a picture of the tray as paint() fills it, with each pixel that
+  // has no paint and is within r px across and down of the blob set to v
+  outline(px, v, r) {
+    const w = this.w, h = this.h, top = this.top, of = this.of();
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const g = top[y * w + x];
+        if (g < 0 || !of[g]) continue;
+        const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r), y1 = Math.min(h - 1, y + r);
+        for (let qy = Math.max(0, y - r); qy <= y1; qy++) {
+          for (let qx = x0; qx <= x1; qx++) if (top[qy * w + qx] < 0) px[qy * w + qx] = v;
+        }
+      }
+    }
   }
 
   // fn(x, y) for each grain in the air outside its cell, all of them this.colour
