@@ -30,7 +30,7 @@ const TEXT = {
     ],
     "Third Dimension": [
       "A small 3D renderer for microcontrollers and the tiny screens they drive. Hand it a model and it frames it, lights it and draws it: shaded, in flat bands like a cartoon, as a wireframe, or as an outline with the hidden lines removed, like a pen drawing.",
-      "It's highly configurable, and super fun to mess around with. I built it for various embedded projects I'm working on, in the hopes that I'll be able to continue to iterate and improve it for whatever 3d rendering needs I have."
+      "It's highly configurable, and super fun to mess around with. I built it for various embedded projects I'm working on, in the hopes that I'll be able to continue to iterate and improve it for whatever 3D rendering needs I have."
     ],
     "Second Dimension": [
       "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens.",
