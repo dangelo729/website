@@ -3860,7 +3860,8 @@
     // shimmer as the letters do.
     // a primary press on a cell takes up a pen's worth of its paint, and
     // one on the tray the paint under the pen and all the paint touching
-    // it: while it is held the paint follows the pointer, out of the cell
+    // it, the pen for both the biggest there is, whatever brush is picked
+    // (wallDab): while it is held the paint follows the pointer, out of the cell
     // through the air over the cells and the slider, and over the tray is
     // pushed and stirred there; lifted, it is put down, a tap on a cell
     // picks its colour, and a tap on paint in the tray, or paint that was
@@ -3999,7 +4000,8 @@
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
     let wallEraser = null;         // the press holding the eraser, { id, x, y }: its pointer, and where on the page as laid out it took hold, from where the eraser is at its place; or null
     const wallOut = { x: 0, y: 0 }; // how far the eraser is from its place under the tray, world px
-    let wallColour = 1, wallBrush = 12; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
+    let wallColour = 1, wallBrush = 4; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
+    const wallDab = WALL.SIZES[WALL.SIZES.length - 1]; // the pen the tray's paint is taken up and stirred with: the biggest, whatever brush is picked
     let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
     let wallSet = null;            // the tray's paint as the pen takes it, its blob's { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
     let wallFromCell = false;      // whether the press holding the tray's paint came down on a cell
@@ -4508,8 +4510,8 @@
         takeMixed();
         if (c) {
           const inset = 2, g = WALL_UI.GROW;
-          wallMix.hold(c.colour, q.x, q.y, { x0: Math.ceil((c.x0 + inset - tr.x0) / g), y0: Math.ceil((c.y0 + inset - tr.y0) / g), x1: Math.floor((c.x1 - inset - tr.x0) / g), y1: Math.floor((c.y1 - inset - tr.y0) / g) }, wallBrush);
-        } else wallMix.press(q.x, q.y, wallBrush);
+          wallMix.hold(c.colour, q.x, q.y, { x0: Math.ceil((c.x0 + inset - tr.x0) / g), y0: Math.ceil((c.y0 + inset - tr.y0) / g), x1: Math.floor((c.x1 - inset - tr.x0) / g), y1: Math.floor((c.y1 - inset - tr.y0) / g) }, wallDab);
+        } else wallMix.press(q.x, q.y, wallDab);
       }
       // the eraser taken hold of where it is: paint still settling is put down first, and its colour taken
       if (h.eraser && e.isPrimary && !wallEraser && wallMixer === null) {
