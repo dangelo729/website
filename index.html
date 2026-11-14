@@ -3927,7 +3927,7 @@
       TRAY: 132, // world px, the mixing tray's height: it is as wide as the row of cells
       ERASER: 'eraser', // what the button under the tray says: dragged, it rubs out the tray's paint it goes over
       ERASER_RATE: 0.2, // of the way left to its place under the tray it goes, let go, each 60 hz frame
-      HINT: 'drag paint here', // what the tray says in its middle until paint is first dragged into it
+      HINT: 'drag and mix paint here', // what the tray says in its middle until paint is first dragged into it
       HINT_GAP: 4, // world px between those words and the hand under them, pointing down into the tray
       PEN: 'pen size', // what the slider's words say
       OUT: '−', IN: '+', // what the two small buttons in the opening's bottom right corner say: the wall drawn smaller, and bigger
@@ -4095,14 +4095,18 @@
         ring: makeLetter(art.line, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
         letters: line(ct, gx + S.PAD_X * size, cy + size * (S.PAD_Y + S.CAP), seed + 120),
       };
-      // HINT in the tray's middle and HINT_GAP under it the scroll hand's
-      // first frame, pointing down, the two centred in it together: the
-      // hand a letter with nothing to draw where its top is, for its wobble
+      // HINT in the tray's middle, in lines no wider than the tray, each
+      // centred across it and a caption's lead under the last, and
+      // HINT_GAP under them the scroll hand's first frame, pointing down,
+      // all centred in it together: the hand a letter with nothing to draw
+      // where its top is, for its wobble
       const hw = wallWords.hint, hr = (iconRows.hand || [])[0], hh = hr ? Framebuffer.ink(hr).h * HAND.SCALE : 0;
-      const hb = Math.round((tray.y0 + tray.y1 + size * S.CAP - U.HINT_GAP - hh) / 2);
+      const lines = wrapType(hw, (tray.x1 - tray.x0) / k), lead = BOX.CAP_LEAD * size, under = (lines.length - 1) * lead;
+      const hb = Math.round((tray.y0 + tray.y1 + size * S.CAP - under - U.HINT_GAP - hh) / 2); // the first line's baseline
       const hint = {
-        words: line(hw, (tray.x0 + tray.x1 - wide(hw)) / 2, hb, seed + 190),
-        hand: makeLetter(null, (tray.x0 + tray.x1) / 2, hb + U.HINT_GAP, seed + 210, HAND.SCALE),
+        words: lines.flatMap((ln, j) => ln.glyphs.map((gl) =>
+          makeLetter(gl.g, (tray.x0 + tray.x1 - k * (ln.left + ln.right)) / 2 + k * (gl.x + gl.dx), hb + j * lead + k * gl.dy, seed + 190 + gl.at, k, WOBBLE))),
+        hand: makeLetter(null, (tray.x0 + tray.x1) / 2, hb + under + U.HINT_GAP, seed + 230, HAND.SCALE),
       };
       // OUT and IN, small square buttons in the opening's bottom right
       // corner, as far in from its bottom and right as the menu is from
