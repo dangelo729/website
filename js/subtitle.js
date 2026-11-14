@@ -1,6 +1,7 @@
 // --- subtitles ---------------------------------------------------------------
-// what the bubble says, as words beside him (index.html). a line's text
-// (js/voice.js) is split into syllables by the spaces between its words
+// what the bubble says, and what monk mouth's face sings, as words beside
+// them (index.html). a line's text (js/voice.js, js/monk.js) is split into
+// syllables by the spaces between its words
 // and a | inside one ('talk|ing a|bout'), one for each vowel of its
 // phones, and shows one more syllable each time the voice begins one. the
 // line goes somewhere round him at random, clear of him, inside an area

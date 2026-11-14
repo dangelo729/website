@@ -10,7 +10,9 @@
 // engine, notes and breath and all; or a note sung (js/monk.js), struck
 // with a syllable, moved to other notes, a fresh syllable sung on it, and
 // let go. one line at a time: as it plays the port says how many of its
-// syllables have begun ({ t, heard }) each time one more has. as a line or
+// syllables have begun ({ t, heard }) each time one more has. a note struck
+// or a syllable sung says its syllable's phones ({ t, sung }) as it
+// begins. as a line or
 // a note plays the port says the mouth as the voice has it ({ t, mouth })
 // every MOUTH_EVERY blocks, t the context's time of the block, or, for a
 // node made with state in its processorOptions, the voice's raw state
@@ -85,7 +87,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
 
   // a message from the port: the voice set; a note struck at a velocity
   // with its syllable, playing from then; the note moved; a fresh syllable
-  // sung on it; the note let go; or a line spoken unless one is playing
+  // sung on it; the note let go; or a line spoken unless one is playing.
+  // a note's syllable and a fresh one each say their phones, at this
+  // block's time
   take(m) {
     const mm = this.mm;
     if (m.type === 'voice') return this.set(m.voice);
@@ -95,12 +99,14 @@ class VoiceProcessor extends AudioWorkletProcessor {
       mm.voice_syllable();
       this.playing = true;
       this.blocks = 0;
+      this.port.postMessage({ t: currentTime + this.lag, sung: m.phones });
       return;
     }
     if (m.type === 'pitch') return mm.voice_pitch(m.midi);
     if (m.type === 'syllable') {
       this.text(m.phones);
       mm.voice_syllable();
+      this.port.postMessage({ t: currentTime + this.lag, sung: m.phones });
       return;
     }
     if (m.type === 'off') return mm.voice_note_off();

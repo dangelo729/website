@@ -18,9 +18,13 @@
 // is taken up once the context's time at the speaker reaches it and is in
 // silence once the note is done, that a setting of the scale changed while
 // a note is held sends the new note and then a syllable, as a crossing
-// does, and that a voice drawn at random has every setting inside its
-// range and goes to the node. then loads js/voice-worklet.js with the real
-// monk_mouth/monk_mouth.wasm and checks a note: it sounds, says the
+// does, that a syllable is counted for the subtitles and spelled once its
+// phones come back and the speaker reaches them, and that the singing is
+// over once its done comes after the lift, and that a voice drawn at random
+// has every setting inside its range and goes to the node. then loads
+// js/voice-worklet.js with the real monk_mouth/monk_mouth.wasm and checks a
+// note: it says the phones of its
+// syllables as they begin, at their blocks' time, it sounds, says the
 // voice's raw state every three blocks while it does, each a copy of its
 // own as long as its tube says, says done only after it is let go, and
 // every syllable on every degree from c3 stays inside full scale through
@@ -109,6 +113,7 @@ const isSyllable = (phones) => {
   const picks = new Set();
   for (let i = 0; i < 2000; i++) picks.add(Monk.syllable());
   check('a syllable is a consonant and a vowel, every pair of them drawn', [...picks].every(isSyllable) && picks.size === Monk.CONSONANTS.length * Monk.VOWELS.length, picks.size);
+  check('every consonant and vowel has a spelling', [...Monk.CONSONANTS, ...Monk.VOWELS].every((p) => typeof Monk.SPELL[p] === 'string' && Monk.SPELL[p].length > 0));
   check('the voice is the engine\'s own, its tension the engine\'s 0.6, its glide 3 / 0.4 per second',
     Monk.VOICE.sections === 22 && Monk.VOICE.breathiness === 0 && Monk.VOICE.roughness === 0 && Monk.VOICE.diction === 1 && Monk.VOICE.tension === 0.6 && Monk.VOICE.wobble === 0.3 && Monk.VOICE.glide === 7.5);
   const home = Monk.VOICE;
@@ -164,6 +169,7 @@ const isSyllable = (phones) => {
   check('held through both, it is sung once both are: one note, its degree\'s, with a syllable',
     node.posted.length === 1 && note.type === 'note' && note.midi === 55 && note.vel === Monk.VEL && isSyllable(note.phones) && Monk.deg === 4,
     note && note.type + ' ' + note.midi + ' ' + note.phones);
+  check('nothing of it heard yet, for the subtitles, and the singing not over', Monk.said === 0 && Monk.text === null && Monk.endedAt === null);
   Monk.update(now += 16);
   check('and nothing more while the finger stays', node.posted.length === 1);
 
@@ -212,9 +218,24 @@ const isSyllable = (phones) => {
   Voice.ctx.currentTime = 1;
   Monk.update(now += 16);
   check('then is the state', Monk.state === state && Monk.coming.length === 0);
+  node.port.onmessage({ data: { t: 1.01, sung: 'B AA' } });
+  Monk.update(now += 16);
+  check('a syllable begun waits for the speaker to reach it', Monk.said === 0 && Monk.text === null && Monk.coming.length === 1);
+  Voice.ctx.currentTime = 1.01;
+  Monk.update(now += 16);
+  check('then it is counted and spelled, its first letter a capital', Monk.said === 1 && Monk.text === 'Bah' && Monk.coming.length === 0 && Monk.state === state, Monk.text);
+  node.port.onmessage({ data: { t: 1.01, sung: 'Y IY' } });
+  node.port.onmessage({ data: { t: 1.01, sung: 'Y IY' } });
+  Monk.update(now += 16);
+  check('each one counted, the same syllable twice as two, the last the one spelled', Monk.said === 3 && Monk.text === 'Yee', Monk.text);
+  const spelled = [];
+  for (const c of Monk.CONSONANTS) for (const v of Monk.VOWELS) spelled.push(Monk.spell(c + ' ' + v));
+  check('every syllable spells as its consonant\'s and its vowel\'s letters, a capital first',
+    spelled.every((s, i) => s === (Monk.SPELL[Monk.CONSONANTS[Math.floor(i / Monk.VOWELS.length)]] + Monk.SPELL[Monk.VOWELS[i % Monk.VOWELS.length]]).replace(/^./, (ch) => ch.toUpperCase())),
+    spelled.slice(0, 9).join(' '));
   node.port.onmessage({ data: 'done' });
   Monk.update(now += 16);
-  check('a done while a note is sung is the last note\'s: the state stays', Monk.state === state && Monk.busy);
+  check('a done while a note is sung is the last note\'s: the state stays', Monk.state === state && Monk.busy && Monk.endedAt === null);
 
   // --- the lift ----------------------------------------------------------------------------
   const sent = node.posted.length;
@@ -224,10 +245,11 @@ const isSyllable = (phones) => {
   Monk.update(now += 16);
   check('once', node.posted.length === sent + 1);
   check('the state stays while the breath falls', Monk.state === state);
-  node.port.onmessage({ data: { t: 1.01, state: new Float32Array(11 + 22) } });
+  node.port.onmessage({ data: { t: 1.015, state: new Float32Array(11 + 22) } });
   node.port.onmessage({ data: 'done' });
   Monk.update(now += 16);
   check('done, the state still to come waits', Monk.state === state && !Monk.busy);
+  check('and the singing is over', Monk.endedAt !== null);
   Voice.ctx.currentTime = 1.02;
   Monk.update(now += 16);
   check('and once it is heard, with nothing more to come, the state is in silence', Monk.state === null);
@@ -235,6 +257,7 @@ const isSyllable = (phones) => {
   Monk.update(now += 16);
   const again = node.posted[node.posted.length - 1];
   check('a press again sends a note again, the top degree\'s', again.type === 'note' && again.midi === 60 && Monk.deg === 7 && made.nodes.length === 2);
+  check('and the singing is not over', Monk.endedAt === null);
   Monk.mute(true);
   check('muted, its master goes to 0', Monk.out.gain.value === 0);
   Monk.mute(false);
@@ -329,6 +352,22 @@ const isSyllable = (phones) => {
     return { peak, held, after, done: said.includes('done') };
   };
   check('silent until a note', render(40) === 0);
+
+  said.length = 0;
+  const from = wctx.currentTime;
+  p.port.onmessage({ data: { type: 'note', midi: 55, vel: Monk.VEL, phones: 'B AA' } });
+  render(4);
+  p.port.onmessage({ data: { type: 'pitch', midi: 57 } });
+  p.port.onmessage({ data: { type: 'syllable', phones: 'D IY' } });
+  render(1);
+  const echoes = said.filter((m) => m.sung !== undefined);
+  check('a note and a syllable each say their syllable\'s phones as they begin, at their block\'s time, held late a block under the ceiling',
+    echoes.length === 2 && echoes[0].sung === 'B AA' && echoes[1].sung === 'D IY' && p.lag === BLOCK &&
+    Math.abs(echoes[0].t - (from + p.lag)) < 1e-9 && Math.abs(echoes[1].t - (from + 4 * BLOCK + p.lag)) < 1e-9,
+    echoes.map((m) => m.sung + '@' + m.t.toFixed(4)).join(' '));
+  p.port.onmessage({ data: { type: 'off' } });
+  for (let i = 0; i < 8 / BLOCK && !said.includes('done'); i++) render(1);
+  render(20);
 
   const hold = Math.round(0.6 / BLOCK);
   const r = sing(55, 'B AA', hold);

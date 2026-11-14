@@ -25,6 +25,11 @@
 // read (js/voice-worklet.js lays it out); it comes from the worklet as the
 // bubble's mouth does, a little before the sound reaches the speaker, and
 // waits (coming) until the context's time at the speaker has reached it.
+// what it sings is kept for the subtitles (index.html) a syllable at a
+// time: the worklet says each syllable's phones back as it begins, which
+// wait for the speaker as the state does, and once heard the syllable is
+// counted (said) and spelled (text); and when the singing was over
+// (endedAt).
 // randomize() draws a wild voice, and the node holds every sample under
 // CEILING through the master. the page sets down and calls update() once
 // a frame.
@@ -39,6 +44,12 @@ const Monk = {
   // arpabet phones as the voice takes them
   CONSONANTS: ['B', 'D', 'G', 'M', 'N', 'L', 'R', 'W', 'Y'],
   VOWELS: ['AA', 'AE', 'AH', 'AO', 'EH', 'ER', 'IH', 'IY', 'UW'],
+  // how each phone is spelled in the subtitles, a syllable its consonant's
+  // and then its vowel's, its first letter a capital
+  SPELL: {
+    B: 'b', D: 'd', G: 'g', M: 'm', N: 'n', L: 'l', R: 'r', W: 'w', Y: 'y',
+    AA: 'ah', AE: 'a', AH: 'uh', AO: 'aw', EH: 'eh', ER: 'er', IH: 'ih', IY: 'ee', UW: 'oo',
+  },
   // who is singing: the engine's own voice and its own tension (js/voice.js
   // has what each setting is), and the glide from note to note, per second,
   // 95% of the way there in 0.4 s
@@ -79,7 +90,10 @@ const Monk = {
   struck: 0,      // the note last struck with a syllable
   struckAt: 0,    // when, in update()'s ms
   crossed: false, // the note has moved since then
-  coming: [],     // the states the worklet has said and are still to be heard: { t, state }, oldest first
+  coming: [],     // what the worklet has said and is still to be heard: { t, state } and { t, sung }, oldest first
+  said: 0,        // syllables begun, as heard by now
+  text: null,     // the last of them, spelled, or null before the first
+  endedAt: null,  // when the singing was over, its breath fallen, Date.now()'s ms, or null from a press until then
 
   // once a frame, now in ms: the node asked for at the first press, the
   // state heard, and the note sung: struck at a press, moved and struck
@@ -112,25 +126,37 @@ const Monk = {
         node.connect(out);
         out.connect(ctx.destination);
         this.out = out;
-        // ready once; after that the state as a note plays, then done: it
-        // is over. a done that comes while a note is sung is the last
-        // one's, and the note sung plays on
+        // ready once; after that the state as a note plays and each
+        // syllable's phones as it begins, then done: it is over. a done
+        // that comes while a note is sung is the last one's, and the note
+        // sung plays on
         node.port.onmessage = (e) => {
           const m = e.data;
           if (m === 'ready') this.ready = true;
-          else if (m && m.state) this.coming.push(m);
-          else if (m === 'done' && this.deg < 0) this.busy = false;
+          else if (m && m.t !== undefined) this.coming.push(m);
+          else if (m === 'done' && this.deg < 0) {
+            this.busy = false;
+            this.endedAt = Date.now();
+          }
         };
         this.node = node;
       })
       .catch(() => {});
   },
 
-  // the states the speaker has reached by now taken up, the last of them
-  // the state; with nothing more to come and no note playing, silence
+  // what the speaker has reached by now taken up: the last state of it the
+  // state, and each syllable begun counted and spelled; with nothing more
+  // to come and no note playing, silence
   hear() {
     const at = Voice.heardAt();
-    while (this.coming.length && !(this.coming[0].t > at)) this.state = this.coming.shift().state;
+    while (this.coming.length && !(this.coming[0].t > at)) {
+      const m = this.coming.shift();
+      if (m.state) this.state = m.state;
+      else {
+        this.said++;
+        this.text = this.spell(m.sung);
+      }
+    }
     if (!this.busy && !this.coming.length) this.state = null;
   },
 
@@ -143,6 +169,7 @@ const Monk = {
     this.struckAt = now;
     this.crossed = false;
     this.busy = true;
+    this.endedAt = null;
     this.node.port.postMessage({ type: 'note', midi: this.note, vel: this.VEL, phones: this.syllable() });
   },
 
@@ -189,6 +216,13 @@ const Monk = {
     const c = this.CONSONANTS[Math.floor(Math.random() * this.CONSONANTS.length)];
     const v = this.VOWELS[Math.floor(Math.random() * this.VOWELS.length)];
     return c + ' ' + v;
+  },
+
+  // a syllable's phones as the subtitles show them: each phone's spelling,
+  // the first letter a capital
+  spell(phones) {
+    const s = phones.split(' ').map((p) => this.SPELL[p]).join('');
+    return s[0].toUpperCase() + s.slice(1);
   },
 
   // a new voice, each setting drawn evenly inside its RANDOM, kept as the
