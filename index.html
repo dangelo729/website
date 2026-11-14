@@ -4000,7 +4000,7 @@
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
     let wallEraser = null;         // the press holding the eraser, { id, x, y }: its pointer, and where on the page as laid out it took hold, from where the eraser is at its place; or null
     const wallOut = { x: 0, y: 0 }; // how far the eraser is from its place under the tray, world px
-    let wallColour = 1, wallBrush = 4; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
+    let wallColour = 1, wallBrush = 2; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
     const wallDab = WALL.SIZES[WALL.SIZES.length - 1]; // the pen the tray's paint is taken up and stirred with: the biggest, whatever brush is picked
     let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
     let wallSet = null;            // the tray's paint as the pen takes it, its blob's { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
