@@ -25,10 +25,10 @@
 // kept as the one mixed. a tap on a cell or on paint picks that colour.
 // shares() is the tray as one paint: the colours it shows, each with its
 // share of the tray's pixels.
-// while flow is on, a cell held goes on giving paint, FLOW pens' worths a
-// second: a new grain in each of the glob's places in the cell left empty,
-// no more in the air at once than a second's worth. the tray keeps FULL of
-// the biggest pen's worths of paint: what is over that dries away, DRY of
+// a cell held goes on giving paint, FLOW pens' worths a second: a new
+// grain in each of the glob's places in the cell left empty, no more in
+// the air at once than a second's worth. the tray keeps FULL of the
+// biggest pen's worths of paint: what is over that dries away, DRY of
 // it a second, a grain at a time off the paint's edges, what sticks out
 // first.
 // nothing here keeps time or draws: step(dt) takes FOLLOW steps a 1/60 s
@@ -39,8 +39,8 @@ const MIX = {
   FRICTION: 0.5,  // the share of their difference two grains that rub trade: 0.5 leaves both their even mix
   GRIP: 0.6,      // the chance a grain answers the pen's pull each step while it is down; let go, all do
   PULL: 24,       // px out of its cell at which the pointer has drawn a whole glob out
-  FLOW: 2,        // pens' worths a second a cell held gives while flow is on, and the most of them in the air at once
-  FULL: 6,        // the paint the tray keeps, in the biggest pen's worths (WALL.SIZES)
+  FLOW: 2,        // pens' worths a second a cell held gives, and the most of them in the air at once
+  FULL: 18,       // the paint the tray keeps, in the biggest pen's worths (WALL.SIZES)
   DRY: 0.2,       // the share of the paint over that which dries away a second
   PRESS: 0.12,    // the chance a grain kept from its spot rubs the one in it, each step the pen's travel pays for
   TRAVEL: 64,     // the most of those steps the pen's travel banks
@@ -83,7 +83,6 @@ class Mix {
     this.colour = -1;     // the colour of the glob in the air, -1 when none
     this.dirty = true;
     this.feet = {};
-    this.flow = false;    // whether a cell held goes on giving paint: the page's to set
     this.most = MIX.FULL * this.foot(WALL.SIZES[WALL.SIZES.length - 1]).n; // the grains the tray keeps
     this.drying = 0;      // a grain not yet dried away, as a fraction
     this.mixed = -1;      // the colour the paint last dragged shows nearest where the pen left it, once it is put down: the page's to take, and to set back to -1
@@ -650,7 +649,7 @@ class Mix {
   once() {
     let moved = 0;
     if (this.held) {
-      if (this.flow && !this.held.done) this.pour();
+      if (!this.held.done) this.pour();
       moved += this.airSweep();
       if (this.tip && !this.held.back) this.alight();
     }
@@ -693,7 +692,7 @@ class Mix {
       n,                            // grains still in the air, in list
       made: n, cap: n,              // the next grain's number, and the room there is for them
       sx: new Int32Array(n), sy: new Int32Array(n), // the glob's places in the cell
-      owed: 0, poured: false,       // of flow: a grain not yet given, as a fraction, and whether any has been
+      owed: 0, poured: false,       // of the pour: a grain not yet given, as a fraction, and whether any has been
       xs: new Int32Array(n), ys: new Int32Array(n),
       out: new Float64Array(n),     // how far out, of PULL, the pointer lets each go
       free: new Uint8Array(n),      // let go of the cell

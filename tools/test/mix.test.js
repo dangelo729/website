@@ -8,9 +8,10 @@
 // lifting, then stepping until it is no longer busy. checks that a tap on
 // a cell picks its colour and leaves the tray empty, a tap on paint picks
 // the colour it shows and moves nothing, and a tap on bare tray picks
-// nothing; that a glob pulled into the tray and let go lands as exactly
-// the pen's stamp at the let-go point, one layer, at every size; that a
-// glob let go before the tray leaves nothing on it and nothing held; that
+// nothing; that a glob dropped into the tray, the pointer there at once
+// and let go, lands as exactly the pen's stamp at the let-go point, one
+// layer, at every size, and one pulled in gives more paint on the way and
+// lands in its colour, one layer; that a glob let go before the tray leaves nothing on it and nothing held; that
 // random drags, fast, slow and out of the grid, never change the count
 // but by the globs pulled in, and each settle leaves one layer, all on the
 // tray; that a colour pulled into another mixes before anything is let go
@@ -22,10 +23,10 @@
 // FULL of the biggest pen's worths and what is over dries away off the
 // paint's edges, DRY of it a second at 60 and 120 a second, down to what
 // it keeps and no further, at rest and while it is dragged; and that a
-// cell held with flow on gives FLOW pens' worths a second, at 60 and 120 a
-// second, until flow is off, none while the pointer is still in the cell,
-// no more than a second's worth in the air, and all of it home again when
-// let go there; and that paint dragged, once it is put down, leaves the
+// cell held gives FLOW pens' worths a second, at 60 and 120 a second, all
+// of it put down when let go over the tray, none while the pointer is
+// still in the cell, no more than a second's worth in the air, and all of
+// it home again when let go there; and that paint dragged, once it is put down, leaves the
 // colour it shows nearest the pen as the one mixed, and a tap none; and
 // that the tray's shares are the colours it shows, the most first, each
 // weighed by its pixels. prints, not
@@ -96,8 +97,20 @@ function drag(mix, x0, y0, x1, y1, v) {
     mix.step(DT);
   }
 }
-// a glob of colour c pulled out of its cell to (x, y), let go there and settled
-function glob(mix, c, x, y, size, v = 3) {
+// a glob of colour c dropped at (x, y): the pointer from its cell straight
+// there and let go at once, so the cell gives no more than a pen's worth,
+// and settled
+function glob(mix, c, x, y, size) {
+  const b = cell(c);
+  mix.hold(c, b.cx, b.cy, b.box, size);
+  mix.move(x, y);
+  const r = mix.lift();
+  rest(mix);
+  return r;
+}
+// a glob of colour c pulled out of its cell to (x, y) in moves of at most
+// v px, the cell giving more as it goes, let go there and settled
+function pullIn(mix, c, x, y, size, v = 3) {
   const b = cell(c);
   mix.hold(c, b.cx, b.cy, b.box, size);
   drag(mix, b.cx, b.cy, x, y, v);
@@ -203,15 +216,24 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
       bad.push(size + ': ' + mix.count() + ' grains, ' + area(size) + ' wanted, ' + tallest(mix) + ' tall');
     }
   });
-  check('a glob pulled into the tray and let go lands as the pen\'s stamp, one layer, at every size', bad.length === 0, bad.join('; '));
+  check('a glob dropped into the tray lands as the pen\'s stamp, one layer, at every size', bad.length === 0, bad.join('; '));
+
+  // pulled in, the cell gives more as the glob goes
+  const more = [];
+  WALL.SIZES.forEach((size, k) => {
+    const mix = tray(10 + k), c = 2 + k % 14;
+    pullIn(mix, c, 50, 66, size);
+    const colours = shown(mix).set;
+    if (mix.count() <= area(size) || tallest(mix) !== 1 || strays(mix) || colours.length !== 1 || colours[0] !== c) {
+      more.push(size + ': ' + mix.count() + ' grains, more than ' + area(size) + ' wanted, ' + tallest(mix) + ' tall');
+    }
+  });
+  check('a glob pulled into the tray gives more than a pen\'s worth and lands in its colour, one layer, at every size', more.length === 0, more.join('; '));
 
   // let go while the pointer is still trailing well ahead of the glob
-  const fast = tray(30), c = cell(4);
-  fast.hold(4, c.cx, c.cy, c.box, 16);
-  drag(fast, c.cx, c.cy, 60, 90, 12);
-  fast.lift();
-  rest(fast);
-  check('and so does one flung in and let go at once', same(covered(fast), stamp(60, 90, 16)) && fast.count() === area(16) && tallest(fast) === 1);
+  const fast = tray(30);
+  pullIn(fast, 4, 60, 90, 16, 12);
+  check('and so does one flung in and let go at once', fast.count() > area(16) && tallest(fast) === 1 && strays(fast) === 0 && same(shown(fast).set, [4]), fast.count());
 }
 
 {
@@ -237,7 +259,7 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   glob(mix, 5, 75, 110, 10);
   glob(mix, 1, 20, 120, 8);
   glob(mix, 0, 60, 70, 14);
-  let want = mix.count(), counts = true, layers = true, onTray = true, detail = '', settles = 0, holds = 0;
+  let want = mix.count(), grew = false, counts = true, layers = true, onTray = true, detail = '', settles = 0, holds = 0;
   for (let t = 0; t < 120; t++) {
     const size = WALL.SIZES[int(WALL.SIZES.length)];
     let x, y, reached = false, n = 0;
@@ -265,8 +287,8 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
         y += int(2 * v + 1) - v;
       }
       mix.move(x, y);
-      // a glob whose pointer reaches the tray comes down on it whole
-      if (n && !reached && y >= 0) { reached = true; want += n; }
+      // a glob whose pointer reaches the tray comes down on it whole, and more with it
+      if (n && !reached && y >= 0) { reached = true; want += n; grew = true; }
       for (let s = int(3); s > 0; s--) mix.step(DT);
     }
     mix.lift();
@@ -274,13 +296,15 @@ const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
     if (int(4)) {
       rest(mix);
       settles++;
-      if (mix.count() !== want && counts) { counts = false; detail = 'drag ' + t + ': ' + mix.count() + ' grains, ' + want + ' wanted'; }
+      if ((grew ? mix.count() < want : mix.count() !== want) && counts) { counts = false; detail = 'drag ' + t + ': ' + mix.count() + ' grains, ' + want + (grew ? ' at least' : '') + ' wanted'; }
+      want = mix.count();
+      grew = false;
       if (tallest(mix) > 1) layers = false;
       if (strays(mix)) onTray = false;
     }
   }
   rest(mix);
-  check('random drags never change the count but by the globs pulled in', counts && mix.count() === want, detail || mix.count() + ' grains, ' + holds + ' holds');
+  check('random drags never change the count but by the globs pulled in', counts && (grew ? mix.count() >= want : mix.count() === want), detail || mix.count() + ' grains, ' + holds + ' holds');
   check('after each settle no pile is taller than 1', layers && tallest(mix) === 1, settles + ' settles');
   check('and every grain lies on the tray, in its pile', onTray && strays(mix) === 0);
 }
@@ -312,7 +336,7 @@ const off = (a, b) => Math.max(...a.map((v, k) => Math.abs(v - b[k])));
   mix.lift();
   rest(mix);
   const e2 = off(totals(mix), began(mix, [[nb, blue], [mix.count() - nb, yellow]]));
-  check('and kept once it is put down', e2 < 1e-9 && mix.count() === nb + area(16), e2.toExponential(1));
+  check('and kept once it is put down', e2 < 1e-9 && mix.count() > nb + area(16), e2.toExponential(1));
 }
 
 // --- still -------------------------------------------------------------------------
@@ -481,10 +505,11 @@ function heldRight(mix) {
 {
   const most = MIX.FULL * area(16);
   check('a tray keeps FULL of the biggest pen\'s worths', drier(120).most === most, drier(120).most);
-  // eight of the biggest globs put down apart, two more than it keeps, and then left to dry
+  // two more of the biggest globs than it keeps, put down apart, and then left to dry
+  const globs = MIX.FULL + 2;
   const wet = (seed) => {
     const mix = tray(seed);
-    for (let i = 0; i < 8; i++) glob(mix, 2 + i, 14 + 24 * (i % 4), 30 + 60 * (i >> 2), 16);
+    for (let i = 0; i < globs; i++) glob(mix, 2 + i, 10 + 20 * (i % 5), 10 + 20 * Math.floor(i / 5), 16);
     mix.most = most;
     return mix;
   };
@@ -531,45 +556,37 @@ function heldRight(mix) {
   const mid = stir.count();
   stir.lift();
   rest(stir);
-  check('paint picked up dries as it is dragged, every grain in its pile and the pen\'s its own', ok && held > area(16) && mid < 8 * area(16) && mid > most, held + ' held at most, ' + mid + ' grains left');
+  check('paint picked up dries as it is dragged, every grain in its pile and the pen\'s its own', ok && held > area(16) && mid < globs * area(16) && mid > most, held + ' held at most, ' + mid + ' grains left');
   check('and it is put down as ever', !stir.busy && stir.tn === 0 && strays(stir) === 0 && tallest(stir) === 1 && heldRight(stir));
 }
 
 // --- flow ----------------------------------------------------------------------------
 {
   const size = 8, pen = area(size), b = cell(5), total = (mix) => mix.count() + (mix.held ? mix.held.n : 0);
-  // a cell held with flow on, the pointer at once at the tray's middle and held there
+  // a cell held, the pointer at once at the tray's middle and held there
   const pour = (seed, dt, secs) => {
     const mix = tray(seed);
-    mix.flow = true;
     mix.hold(5, b.cx, b.cy, b.box, size);
     mix.move(50, 66);
     frames(mix, Math.round(secs / dt), dt);
     return mix;
   };
   const mix = pour(130, DT, 2), made = total(mix), want = pen * (1 + 2 * MIX.FLOW);
-  check('a cell held with flow on gives FLOW pens\' worths a second', made <= want + 1 && made >= want - pen / 2, made + ' grains after two seconds, ' + want + ' at most');
+  check('a cell held gives FLOW pens\' worths a second', made <= want + 1 && made >= want - pen / 2, made + ' grains after two seconds, ' + want + ' at most');
   const fast = total(pour(130, 1 / 120, 2));
   check('and as much at 120 steps a second', fast <= want + 1 && fast >= want - pen / 2, fast);
-  mix.flow = false;
-  frames(mix, 60);
-  const after = total(mix);
-  frames(mix, 120);
-  check('flow off, no more comes, and what was in the air has come down', total(mix) === after && mix.held.n === 0 && mix.count() === after, after);
   mix.lift();
   rest(mix);
   const seen = shown(mix);
-  check('let go, it is put down in its colour, one layer', !mix.busy && mix.colour === -1 && mix.count() === after && strays(mix) === 0 && tallest(mix) === 1 && same(seen.set, [5]));
+  check('let go, no more comes and all of it is put down in its colour, one layer', !mix.busy && mix.colour === -1 && mix.count() === made && strays(mix) === 0 && tallest(mix) === 1 && same(seen.set, [5]), mix.count());
   // the pointer still in the cell
   const still = tray(131);
-  still.flow = true;
   still.hold(5, b.cx, b.cy, b.box, size);
   frames(still, 120);
   const kept = still.held.n;
   check('with the pointer still in its cell it gives nothing more, and a tap picks as ever', kept === pen && still.lift().pick === 5 && still.count() === 0 && !still.busy, kept);
   // held in the air, off the tray
   const air = tray(132);
-  air.flow = true;
   air.hold(5, b.cx, b.cy, b.box, size);
   air.move(80, -40);
   let up = 0;
@@ -583,7 +600,6 @@ function heldRight(mix) {
   check('and let go there it all goes home', !air.busy && air.count() === 0 && air.colour === -1 && flown(air).length === 0);
   // the biggest pen's flow into a tray that dries
   const big = drier(133), c = cell(9);
-  big.flow = true;
   big.hold(9, c.cx, c.cy, c.box, 16);
   big.move(50, 66);
   let sound = true;
