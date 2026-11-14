@@ -37,7 +37,8 @@
 // the air at once than a second's worth. the tray keeps FULL of the
 // biggest pen's worths of paint, but never more than a grain a pixel of
 // it: what is over that dries away, DRY of it a second, a grain at a
-// time off the paint's edges, what sticks out first.
+// time off the paint's edges, what sticks out first. erase() takes the
+// paint in a box of the tray away, every grain of each pile there.
 // nothing here keeps time or draws: step(dt) takes FOLLOW steps a 1/60 s
 // of the dt given, and paint() and flying() hand the picture over.
 
@@ -847,16 +848,18 @@ class Mix {
     if (this.tip && this.tip.moved && this.tip.done && !moved && !this.held) this.putDown();
   }
 
-  clear() {
-    if (this.held) this.letGo();
-    this.tip = null;
-    this.tn = 0;
-    this.top.fill(-1);
-    this.tall.fill(0);
-    this.n = 0;
-    this.drying = 0;
-    this.mixed = -1;
-    this.dirty = true;
+  // the paint in the box of the tray's pixels from (x0, y0) to short of
+  // (x1, y1) gone, every grain of each pile there, as much of the box as
+  // is on the tray: how many grains went
+  erase(x0, y0, x1, y1) {
+    const w = this.w, top = this.top, was = this.n;
+    x0 = Math.max(0, x0);
+    x1 = Math.min(w, x1);
+    y1 = Math.min(this.h, y1);
+    for (let y = Math.max(0, y0); y < y1; y++) {
+      for (let i = y * w + x0; i < y * w + x1; i++) while (top[i] >= 0) this.gone(top[i]);
+    }
+    return was - this.n;
   }
 
   // the tray as a picture: each pixel lut[the colour its top grain shows], or empty

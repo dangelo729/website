@@ -149,16 +149,17 @@
             a: m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
           };
         },
-        // at time t, dy world px down from home (up, for a scroll), into
+        // at time t, dy world px down from home (up, for a scroll) and dx
+        // across, into
         // the page's framebuffer or another, turned turn radians more
         // (clockwise) than its tilt, in v if given rather than its own. its
         // pose is pose(t)'s, worked out in place with no object made for
         // it. a picture unturned at its own size with its top left (x0, y0)
         // on a whole pixel is blitted, which lands it pixel for pixel as
         // the sprite would
-        draw(t, dy = 0, into = fb, turn = 0, v = this.v) {
+        draw(t, dy = 0, into = fb, turn = 0, v = this.v, dx = 0) {
           const w = 2 * Math.PI * t, m = this.wob, g = this.g;
-          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh);
+          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh) + dx;
           const y = this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh) + dy;
           const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
           const a = m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn;
@@ -1680,8 +1681,8 @@
     // menu }, and, once the menu is over half open, one of its cells,
     // half the gap between them round it, { s, it, wall, cell }, its
     // slider's bar across and its row down, a little round them, { s, it,
-    // wall, width }, CLEAR's button, a little round it, { s, it, wall,
-    // clear }, its tray, { s, it, wall, tray }, or
+    // wall, width }, the eraser where it is now, a little round it, over
+    // the rest, { s, it, wall, eraser }, its tray, { s, it, wall, tray }, or
     // anywhere else in it, { s, it, wall }, OUT or IN in the opening's
     // bottom right corner, a little round it, { s, it, wall, zoom }, -1
     // or 1, and the wall itself, clear of its label, { s, it, wall, canvas }; a word whose box is not open, a little
@@ -1749,9 +1750,10 @@
               const wu = wa.menu, wb = wa.box, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
               if (inside(wu.shut, 2)) return { s, it, wall: true, menu: wallMenu };
               if (wallMenu.open && wallMenu.p > 0.5) {
+                const er = wu.eraser.rect, ex = x - wallOut.x, ey = iy - wallOut.y;
+                if (ex >= er.x0 - 2 && ex <= er.x1 + 2 && ey >= er.y0 - 2 && ey <= er.y1 + 2) return { s, it, wall: true, eraser: true };
                 for (const cell of wu.cells) if (inside(cell, WALL_UI.GAP / 2)) return { s, it, wall: true, cell };
                 if (inside(wu.slider.hit, 2)) return { s, it, wall: true, width: true };
-                if (inside(wu.clear.rect, 2)) return { s, it, wall: true, clear: true };
                 if (inside(wu.tray, 0)) return { s, it, wall: true, tray: true };
                 if (inside(wu.full, 0)) return { s, it, wall: true };
               }
@@ -1780,9 +1782,10 @@
     // piano's keys, played while they are held (the piano, below), nor the
     // wall, drawn on while it is held, nor its menu's cells and tray, their
     // paint mixed while it is held and a tap's colour picked as it lifts,
-    // nor its slider, set while it is held (the wall, below), though its
-    // menu's header opens and shuts it as the others' do, its CLEAR
-    // empties the tray, and OUT and IN in its opening's corner ask for
+    // nor its slider, set while it is held, nor its eraser, dragged while
+    // it is held (the wall, below), though its
+    // menu's header opens and shuts it as the others' do, and OUT and IN
+    // in its opening's corner ask for
     // the wall ZOOM_STEP times smaller or bigger (stepZoom)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
@@ -1796,10 +1799,6 @@
       else if (h.menu) {
         h.menu.open = !h.menu.open;
         if (h.menu.open) h.menu.v += SHOP_UI.KICK;
-      }
-      else if (h.clear) {
-        wallMix.clear();
-        if (wallColour < 0) wallColour = wallCell;
       }
       else if (h.zoom) wallScaleTo = Math.min(WALL_UI.ZOOM_MOST, wallScaleTo * Math.pow(WALL_UI.ZOOM_STEP, h.zoom));
       else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall) return;
@@ -3578,8 +3577,8 @@
     // bare paper with its paint on it, the paint's px GROW world px each,
     // and until paint is first dragged into it HINT in its middle over a
     // hand pointing down into it;
-    // and under the tray, at the cells' left, CLEAR, a button drawn as
-    // the shop's are. the cells, the bar and CLEAR's outline are ink
+    // and under the tray, at the cells' left, ERASER, a button drawn as
+    // the shop's are, paper inside. the cells, the bar and ERASER's outline are ink
     // drawn as letters are, each with a letter's wobble, GROW times the
     // size its art is made (wallArt), and the pen in the header and the
     // tray's paint are drawn GROW times their size too, so all of them
@@ -3599,14 +3598,23 @@
     // click it ends in presses nothing. a cell held goes on giving
     // paint as long as it is held (js/mix.js). the wall left
     // or the menu shut while it is held lets it go, picking nothing. a
-    // click on CLEAR empties the tray, the pen back in the cell's colour
-    // last picked if it was the tray's; otherwise its paint stays for the
+    // primary press on ERASER takes hold of it, and while it is held it
+    // follows the pointer from where it was taken, over the rest of the
+    // menu and kept inside it under the header, and the tray's paint it
+    // goes over is gone, every px of the tray whose middle it covers, all
+    // the way from where it was (eraserTo); the pen is back in the cell's
+    // colour last picked once none of the blob picked is left. let go, or
+    // the wall left or the menu shut while it is held, it goes back to
+    // its place under the tray by the house approach, ERASER_RATE of the
+    // way left each 60 hz frame (stepEraser), rubbing nothing out on the
+    // way, and the click it ends in presses nothing. the tray's paint
+    // otherwise stays for the
     // page's life, but that what is over the tray's fill dries away. a press on the header opens the
     // menu or shuts it; a primary press on the bar, or its row above and
     // below it, takes it, and while it is held the brush is the one whose
     // zone the pointer is in across the bar, and the click it ends in
     // presses nothing. under the pointer a cell's outline, PICK px thick,
-    // the bar, and CLEAR's outline and word are in the words' hover colour (the inventor's). where the opening is smaller than the wall it
+    // the bar, and ERASER's outline and word, held too, are in the words' hover colour (the inventor's). where the opening is smaller than the wall it
     // starts over the wall's middle and is moved over it by two fingers on
     // it, or by the wheel over it (the wheel, below): across by the
     // wheel's way across, down by its way down as far as the wall goes,
@@ -3616,8 +3624,8 @@
     // dot), so a second finger coming down before that moves the wall and
     // leaves no mark. while it is held the pen follows the pointer, kept
     // inside the opening; a lift ends the stroke and the click it ends in
-    // presses nothing. a press on the wall, or on the menu's cells, slider
-    // or tray, is never a swipe (the swipe, below). the pen runs dry when it draws faster than its ink
+    // presses nothing. a press on the wall, or on the menu's cells, slider,
+    // tray or eraser, is never a swipe (the swipe, below). the pen runs dry when it draws faster than its ink
     // comes back, and draws again as it does (js/wall.js). the page joins
     // the wall's server as it starts and stays with it, so the wall is
     // there behind its bubble before that is opened and is shown as the
@@ -3636,12 +3644,13 @@
       CELL: 28, // world px, a cell, square
       GAP: 6,   // world px between cells, across and down
       PICK: 1,  // the art's and the tray's px, how thick the outline of the colour picked (a cell's or the tray's blob's) and of a cell hovered is
-      GROW: 1.1, // the wall, the tray's paint, the pen, and the cells', the slider's and CLEAR's art are drawn this many times their size, off the pixels' grid, so their edges shimmer as a letter's do
+      GROW: 1.1, // the wall, the tray's paint, the pen, and the cells', the slider's and ERASER's art are drawn this many times their size, off the pixels' grid, so their edges shimmer as a letter's do
       TILE: 24, // world px, the squares over the wall and over the tray whose corners each wobble on their own (drawShimmer)
       SLOP: 4,  // world px a finger moves before it draws
       HOLD: 80, // ms a finger stays before it draws
       TRAY: 132, // world px, the mixing tray's height: it is as wide as the row of cells
-      CLEAR: 'clear', // what the button under the tray says
+      ERASER: 'eraser', // what the button under the tray says: dragged, it rubs out the tray's paint it goes over
+      ERASER_RATE: 0.2, // of the way left to its place under the tray it goes, let go, each 60 hz frame
       HINT: 'drag paint here', // what the tray says in its middle until paint is first dragged into it
       HINT_GAP: 4, // world px between those words and the hand under them, pointing down into the tray
       PEN: 'pen size', // what the slider's words say
@@ -3703,7 +3712,7 @@
       offline: new Type('the wall is offline', () => document.createElement('canvas'), TAG.FACE),
       title: new Type(WALL_UI.TITLE, () => document.createElement('canvas'), TAG.FACE),
       bar: new Type(SHOP_UI.BAR, () => document.createElement('canvas'), TAG.FACE),
-      clear: new Type(WALL_UI.CLEAR, () => document.createElement('canvas'), TAG.FACE),
+      eraser: new Type(WALL_UI.ERASER, () => document.createElement('canvas'), TAG.FACE),
       hint: new Type(WALL_UI.HINT, () => document.createElement('canvas'), TAG.FACE),
       pen: new Type(WALL_UI.PEN, () => document.createElement('canvas'), TAG.FACE),
       out: new Type(WALL_UI.OUT, () => document.createElement('canvas'), TAG.FACE),
@@ -3713,6 +3722,8 @@
     const wallMixed = { px: new Uint16Array(wallTray.mw * (wallTray.mup + wallTray.mh)), w: wallTray.mw, h: wallTray.mup + wallTray.mh, lit: false }; // the paint in the air and, under it, the tray's, as a picture, painted again when either has changed, and whether it holds the blob's ring (trayNow)
     let wallMixer = null;          // the pointer holding the tray's paint, or null
     let wallTake = false;          // whether the paint last let go was lifted, not called off: its colour, once it is put down, is the one picked
+    let wallEraser = null;         // the press holding the eraser, { id, x, y }: its pointer, and where on the page as laid out it took hold, from where the eraser is at its place; or null
+    const wallOut = { x: 0, y: 0 }; // how far the eraser is from its place under the tray, world px
     let wallColour = 1, wallBrush = 12; // the colour and the brush picked: the colour one of the cells', or -1, the tray's paint, its blob (js/mix.js) as one
     let wallCell = 1;              // the cell's colour last picked: the pen's again when the tray's paint is picked and the tray is emptied
     let wallSet = null;            // the tray's paint as the pen takes it, its blob's { colours, weights } (Mix.shares), or null with none: made again when the paint has changed (trayNow)
@@ -3741,7 +3752,7 @@
     // seed (offline); OUT and IN, two small square buttons in its bottom
     // right corner (zooms, each { rect, dir, fill, ring, letter }); and its menu, laid out as bubble bob's is
     // (shopNow), { room, size, shut, full, header: { caret, title, bar,
-    // nib }, cells, slider, tray, clear, hint }: its button in the opening's top right
+    // nib }, cells, slider, tray, eraser, hint }: its button in the opening's top right
     // corner, on whole px, as wide as the open menu, its words from its
     // left on the middle of its height and nib the top left of the pen's
     // place, in the middle of the room right of the bar; and, open, down from it
@@ -3749,12 +3760,12 @@
     // colour, fill, line, ring }, its place and its art's inside, outline
     // and thin outline (wallArt) as letters, the slider's row under them,
     // the tray a GAP under that
-    // and CLEAR's row a GAP under the tray, MARGIN round them all:
+    // and ERASER's row a GAP under the tray, MARGIN round them all:
     // the slider's bar and the box a press takes it in (hit, its bar
     // across and its row down); the tray, { x0, y0, x1, y1 } on whole
     // px, as wide as the cells and wallTray.up under their top; and
-    // CLEAR, a button as one of the shop's is, { rect, ring, letters },
-    // its left the cells' left; and HINT's words and the hand under them
+    // ERASER, a button as one of the shop's is, { rect, fill, ring,
+    // letters }, its left the cells' left; and HINT's words and the hand under them
     // in the tray's middle, { words, hand }. the opening is kept on the wall, over its
     // middle the first time
     function placeWall(x, y, w, h, bs, inset, seed) {
@@ -3797,13 +3808,14 @@
         art: makeLetter(wallArt.bar(bw), gx + bw / 2, by + DEMO.SLIDER.H / 2, seed + 150, U.GROW),
         words: line(pt, gx + bw + apart, ry + (U.CELL - th) / 2 + size * (S.PAD_Y + S.CAP), seed + 160),
       };
-      // the tray, bare paper, and under it CLEAR, a button as the shop's are
+      // the tray, bare paper, and under it ERASER, a button as the shop's are, its inside and its outline wobbling as one
       const ty = shut.y1 + wallTray.up, tray = { x0: gx, y0: ty, x1: gx + gw, y1: ty + U.TRAY };
-      const cy = tray.y1 + U.GAP, ct = wallWords.clear;
+      const cy = tray.y1 + U.GAP, ct = wallWords.eraser;
       const rect = { x0: gx, y0: cy, x1: Math.round(gx + wide(ct) + 2 * S.PAD_X * size), y1: cy + th };
-      const ring = inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round(th / U.GROW), S.RADIUS * size / U.GROW).line;
-      const clear = {
-        rect, ring: makeLetter(ring, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
+      const art = inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round(th / U.GROW), S.RADIUS * size / U.GROW);
+      const eraser = {
+        rect, fill: makeLetter(art.fill, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
+        ring: makeLetter(art.line, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
         letters: line(ct, gx + S.PAD_X * size, cy + size * (S.PAD_Y + S.CAP), seed + 120),
       };
       // HINT in the tray's middle and HINT_GAP under it the scroll hand's
@@ -3834,7 +3846,7 @@
       wallScaleTo = Math.max(wallScaleTo, wallLeast(w, h));
       if (!wallPan) wallPan = { x: (WALL.W - w / wallScale) / 2, y: (WALL.H - h / wallScale) / 2 };
       clampPan(w, h);
-      return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, clear, hint } };
+      return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, eraser, hint } };
     }
 
     // picture g into into, s times its size: the w x h box with its top
@@ -3989,13 +4001,14 @@
     // got to, the tray's paint (js/mix.js) as a picture painted again
     // when it has changed, its blob ringed while it is picked (trayNow),
     // over HINT and its hand until paint is first
-    // dragged into it, the paint in the air over them all and CLEAR,
+    // dragged into it, the paint in the air over them all and ERASER
+    // over that, as far from its place as it is (wallOut), paper inside
     // its ring outlined as a button of the shop's is (drawShop), into qfb over
     // its skin's box, then qfb copied into pfb through the skin and the
     // skin outlined over it, in the links' hover colour while the header
     // is hovered; the cell picked and a hovered one with a thin outline
-    // (ring) in place of their own, the bar hovered or held, and CLEAR
-    // hovered, in the words'
+    // (ring) in place of their own, the bar hovered or held, and ERASER
+    // hovered or held, in the words'
     function drawWall(it, t, d, hover) {
       const a = it.wallAt, b = a.box, dy = Math.round(d), U = WALL_UI, ui = a.menu, m = wallMenu;
       wallPicture.px = wall.shown;
@@ -4060,9 +4073,10 @@
         // the paint: the air's rows of its picture over the cells and the slider, the tray's on the tray
         const tr = ui.tray, M = wallMixed;
         drawShimmer(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, U.GROW, t, 93000, true);
-        const cv = on && on.clear ? HOVER : 1;
-        ui.clear.ring.draw(t, dy, qfb, 0, cv);
-        for (let i = 0; i < ui.clear.letters.length; i++) ui.clear.letters[i].draw(t, dy, qfb, 0, cv);
+        const E = ui.eraser, ev = wallEraser || (on && on.eraser) ? HOVER : 1, ex = wallOut.x, ey = dy + wallOut.y;
+        E.fill.draw(t, ey, qfb, 0, 0, ex);
+        E.ring.draw(t, ey, qfb, 0, ev, ex);
+        for (let i = 0; i < E.letters.length; i++) E.letters[i].draw(t, ey, qfb, 0, ev, ex);
       }
       const pts = m.skin.screen(dy), n = pts.length;
       pfb.fillPolygon(pts, qfb);
@@ -4082,10 +4096,10 @@
     }
 
     // whether a press is on the wall itself, or on its menu's cells,
-    // slider or tray
+    // slider, tray or eraser
     function onWall(e) {
       const p = worldPointer(e), h = !muteAt(p.x, p.y) && hitAt(p.x, p.y);
-      return !!(h && (h.canvas || h.cell || h.width || h.tray));
+      return !!(h && (h.canvas || h.cell || h.width || h.tray || h.eraser));
     }
 
     // paint dragged and put down since this was last asked (js/mix.js),
@@ -4102,6 +4116,43 @@
     function inTray(p) {
       const a = wallItem.wallAt, tr = a.menu.tray, dy = wallView().y - a.box.y0, g = WALL_UI.GROW;
       return { x: Math.floor((p.x - tr.x0) / g), y: Math.floor((p.y - (tr.y0 + dy)) / g) };
+    }
+
+    // the eraser held with the pointer at p, world px on the screen: as
+    // far from its place as the pointer is from where it took hold, on the
+    // page as laid out, and kept inside the open menu, under its header;
+    // and the tray's paint under it gone (js/mix.js), the tray's px whose
+    // middles it covers, at steps of half its height all the way from
+    // where it was, so none it passes over is left. with the tray's paint
+    // picked and none of its blob left, the pen is back in the cell's
+    // colour last picked
+    function eraserTo(p) {
+      const a = wallItem.wallAt, ui = a.menu, r = ui.eraser.rect, f = ui.full, tr = ui.tray, g = WALL_UI.GROW, o = wallOut;
+      const qy = p.y - (wallView().y - a.box.y0);
+      const x = Math.min(Math.max(p.x - wallEraser.x, f.x0 + BOX.LINE - r.x0), f.x1 - BOX.LINE - r.x1);
+      const y = Math.min(Math.max(qy - wallEraser.y, ui.shut.y1 - r.y0), f.y1 - BOX.LINE - r.y1);
+      const n = Math.max(1, Math.ceil(2 * Math.max(Math.abs(x - o.x), Math.abs(y - o.y)) / (r.y1 - r.y0)));
+      for (let k = 1; k <= n; k++) {
+        const ex = o.x + (x - o.x) * k / n - tr.x0, ey = o.y + (y - o.y) * k / n - tr.y0;
+        wallMix.erase(Math.round((r.x0 + ex) / g), Math.round((r.y0 + ey) / g), Math.round((r.x1 + ex) / g), Math.round((r.y1 + ey) / g));
+      }
+      o.x = x;
+      o.y = y;
+      if (wallColour < 0) {
+        trayNow();
+        if (!wallSet) wallColour = wallCell;
+      }
+    }
+
+    // the eraser, let go, dt on toward its place under the tray by the
+    // house approach; there within half a px, there
+    function stepEraser(dt) {
+      const o = wallOut;
+      if (wallEraser || (!o.x && !o.y)) return;
+      const left = Math.pow(1 - WALL_UI.ERASER_RATE, 60 * dt);
+      o.x *= left;
+      o.y *= left;
+      if (Math.abs(o.x) < 0.5 && Math.abs(o.y) < 0.5) o.x = o.y = 0;
     }
 
     // the opening moved (dx, dy) world px over the wall as it is drawn, no
@@ -4141,7 +4192,8 @@
     // again as they fall due (js/wall.js), and a finger that has stayed
     // HOLD ms put to the wall; while graffiti wall is not open in Doodles'
     // open box the pen is up and the slider and the fingers let go; the
-    // tray's paint let go, picking nothing, once the wall is left or its
+    // tray's paint let go, picking nothing, and the eraser let go, once
+    // the wall is left or its
     // menu shuts while it is held; and once the tray has paint, the words
     // asking for it gone for good
     function stepWall() {
@@ -4161,6 +4213,7 @@
         wallMixer = null;
         wallTake = false;
       }
+      if (wallEraser && (!on || !wallMenu.open)) wallEraser = null;
       wall.step(now);
       if (wallPen && !wallPen.on && now - wallPen.at >= WALL_UI.HOLD) penTo(wallPen);
       if (wallMix.count()) wallPainted = true;
@@ -4182,6 +4235,13 @@
           const inset = 2, g = WALL_UI.GROW;
           wallMix.hold(c.colour, q.x, q.y, { x0: Math.ceil((c.x0 + inset - tr.x0) / g), y0: Math.ceil((c.y0 + inset - tr.y0) / g), x1: Math.floor((c.x1 - inset - tr.x0) / g), y1: Math.floor((c.y1 - inset - tr.y0) / g) }, wallBrush);
         } else wallMix.press(q.x, q.y, wallBrush);
+      }
+      // the eraser taken hold of where it is: paint still settling is put down first, and its colour taken
+      if (h.eraser && e.isPrimary && !wallEraser && wallMixer === null) {
+        wallMix.settle();
+        takeMixed();
+        wallEraser = { id: e.pointerId, x: p.x - wallOut.x, y: p.y - (wallView().y - wallItem.wallAt.box.y0) - wallOut.y };
+        eraserTo(p);
       }
       if (h.width && e.isPrimary) {
         wallSlide = e.pointerId;
@@ -4223,6 +4283,7 @@
         const q = inTray(p);
         wallMix.move(q.x, q.y);
       }
+      if (wallEraser && e.pointerId === wallEraser.id) eraserTo(p);
       if (!wallPen || e.pointerId !== wallPen.id) return;
       if (!wallPen.on) {
         if (Math.hypot(p.x - wallPen.x, p.y - wallPen.y) < WALL_UI.SLOP) return;
@@ -4236,11 +4297,13 @@
     // go, its click pressing nothing either; and the tray's paint is let
     // go, a tap's colour, or paint's that was dragged once it is put
     // down, lifted and not called off, the one picked, its
-    // click pressing nothing either
+    // click pressing nothing either; and the eraser is let go, to go back
+    // to its place, its click pressing nothing either
     const wallGo = (e) => {
       const finger = wallFingers.delete(e.pointerId), pen = !!wallPen && e.pointerId === wallPen.id, slide = e.pointerId === wallSlide;
-      const mixer = e.pointerId === wallMixer;
+      const mixer = e.pointerId === wallMixer, eraser = !!wallEraser && e.pointerId === wallEraser.id;
       if (slide) wallSlide = null;
+      if (eraser) wallEraser = null;
       if (mixer) {
         // a tap: a cell's colour, or, on paint, the tray's
         const pick = wallMix.lift().pick;
@@ -4253,7 +4316,7 @@
         wall.lift();
         wallPen = null;
       }
-      if ((finger || pen || slide || mixer) && e.type === 'pointerup') grabbed = true;
+      if ((finger || pen || slide || mixer || eraser) && e.type === 'pointerup') grabbed = true;
     };
     canvas.addEventListener('pointerup', wallGo);
     canvas.addEventListener('pointercancel', wallGo);
@@ -4656,6 +4719,7 @@
       stepMenu(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
       wallMix.step(dt);
       takeMixed();
+      stepEraser(dt);
       stepZoom(dt);
       wallDot = dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
       // if (bubble) beard.step(dt, face.mouf, face.scale);
