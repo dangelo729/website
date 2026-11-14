@@ -2322,13 +2322,14 @@
     // head's centre in the face's part, for its wobble, at scale 1 so its
     // pose's scale is its breathe alone; the ribbon's box; the hand
     // pointing at it, a letter with nothing to draw at the scroll hand's
-    // scale, on the ribbon's left end, for its wobble; and the menu
-    // (placeSettings), { face, bar, hand, menu }
+    // scale, on the ribbon's left end, for its wobble; the menu
+    // (placeSettings); and the item's text size, its subtitles' (the
+    // subtitles, below), { size, face, bar, hand, menu }
     function placeDemo(x, y, bs, seed) {
       const D = DEMO, face = [], h = demoH(bs), top = y + h - D.H;
       for (let i = 0; i < D.FEATURES; i++) face.push(makeLetter(null, x + D.HEAD_X, top + D.HEAD_Y, seed + i, 1));
       const bar = { x0: x, y0: y + h - D.RIBBON.H, x1: x + D.W, y1: y + h };
-      return { face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(demoMenu, x, y, y + h, bs, seed) };
+      return { size: bs, face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(demoMenu, x, y, y + h, bs, seed) };
     }
 
     // settings menu m laid out for its box, S.W wide with its top left at
@@ -2397,6 +2398,8 @@
     // wobble's breathe, and turned by its wobble's tilt; the hand pointing
     // at the ribbon, until the ribbon has been pressed, turned a quarter
     // back from pointing down, its tip GAP and its bob left of the ribbon;
+    // the subtitle of the syllable the face is singing (the subtitles,
+    // below), over the item's text;
     // the menu over the face (drawSettings); and the ribbon (drawBar), its
     // dot where it has got to (dotAt) while it is held, in the links' hover
     // colour while hover is on it or a press holds it
@@ -2418,6 +2421,7 @@
         pfb.sprite(f.paper, x, y, p.s, turn, 0, CURSOR.MIN_HITS);
         pfb.sprite(f.ink, x, y, p.s, turn, 1, CURSOR.MIN_HITS);
       }
+      if (monkSub && monkSub.at === a) drawLine(monkSub, monkSub.ends.length, t, d, pfb);
       drawSettings(it, a.menu, demoMenu, t, dy, hover);
       drawBar(pfb, a.bar, dy, Monk.DEGREES, dotAt, v, DEMO.RIBBON);
     }
@@ -3277,17 +3281,45 @@
     // box and off bubble bob's caret and name, and stays there; with nowhere it fits, it
     // does not show. its letters warble more than the box text's, each its
     // own way: WOBBLE's sway, bob, breathe and tilt, depth and rate, each
-    // times its own 1 ± SPREAD at random
+    // times its own 1 ± SPREAD at random. what monk mouth's face sings
+    // (js/monk.js) has subtitles of its own, the same way but a syllable at
+    // a time: each syllable he begins, as it is heard, goes somewhere round
+    // his face at random, MONK_GAP clear of its features as they are then,
+    // inside his item's bubble EDGE in from its outline, over its text if
+    // that is where it lands, and off its caret and name, the demo's
+    // settings menu and its ribbon. it is gone as soon as he begins the
+    // next, LINGER seconds after he is done, or as his item or its box shuts
     const SUBS = {
-      GAP: 0.6,     // of its size, from his skin to the line's ink
+      GAP: 0.6,       // of its size, from his skin to the line's ink
+      MONK_GAP: 0.15, // of its size, from monk mouth's face to a syllable's ink
       EDGE: 0.6,    // of its size, from the room's edge to the line's ink, and round bubble bob's caret and name
       LINGER: 0.75, // seconds it stays once he is done
       SPREAD: 0.5,
       WOBBLE: { SWAY_PX: 0.5, SWAY_HZ: 1.2, BOB_PX: 0.5, BOB_HZ: 0.7, BREATHE: 0.03, BREATHE_HZ: 0.9, TILT_RAD: 0.03, TILT_HZ: 0.5 },
     };
-    const subTypes = new Map(); // a line's text as shown, to its Type, made the first time it is said
+    const subTypes = new Map(); // a line's or a syllable's text as shown, to its Type, made the first time it is said
     let subSaid = 0; // the voice's lines said, as of the last frame
     let sub = null;  // the line shown, { room, ends, letters: [{ L, at }] }, or null
+    let monkSaid = 0;   // monk mouth's syllables begun, as of the last frame
+    let monkSub = null; // his syllable shown, { at, ends, letters: [{ L, at }] }, at the demo as laid out, or null
+
+    // a line of type at size, its syllables ending at ends, placed round a
+    // circle of radius r about (cx, cy), inside area and off every box of
+    // keep (js/subtitle.js), each of its letters warbling its own way:
+    // { ends, letters: [{ L, at }] }, or null with nowhere it fits
+    function placeLine(type, ends, size, cx, cy, r, area, keep) {
+      const k = size / TYPE.EM;
+      const at = Subtitle.place(k * (type.left + type.right), k * (type.ascent + type.descent), cx, cy, r, area, keep);
+      if (!at) return null;
+      const ox = at.x + k * type.left, base = at.y + k * type.ascent; // the line's origin, on its baseline
+      const vary = () => 1 + SUBS.SPREAD * (2 * Math.random() - 1);
+      const letters = type.glyphs.map((gl) => {
+        const wob = {};
+        for (const key in SUBS.WOBBLE) wob[key] = SUBS.WOBBLE[key] * vary();
+        return { at: gl.at, L: makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, Math.floor(Math.random() * 1e6), k, wob) };
+      });
+      return { ends, letters };
+    }
 
     // a line's subtitle, placed round him in his room as laid out, or null
     function makeSubtitle(line) {
@@ -3296,7 +3328,7 @@
       let type = subTypes.get(whole);
       if (!type) subTypes.set(whole, type = new Type(whole, () => document.createElement('canvas'), TAG.FACE));
       if (!type.glyphs.length) return null;
-      const room = bubbleHome.room, size = room.size, k = size / TYPE.EM, edge = SUBS.EDGE * size;
+      const room = bubbleHome.room, size = room.size, edge = SUBS.EDGE * size;
       let reach = 0; // his skin's furthest from his lock
       for (const p of bubble.points) reach = Math.max(reach, Math.hypot(p.x - bubble.lockX, p.y - bubble.lockY));
       const h = bubbleItem.hit, keep = [{ x0: h.x0 - edge, y0: h.y0 - edge, x1: h.x1 + edge, y1: h.y1 + edge }];
@@ -3306,17 +3338,9 @@
         keep.push({ x0: r.x0 - edge, y0: r.y0 - edge, x1: r.x1 + edge, y1: r.y1 + edge });
       }
       const area = { x0: room.x + edge, y0: room.y + edge, x1: room.x + room.w - edge, y1: room.y + room.h - edge };
-      const at = Subtitle.place(k * (type.left + type.right), k * (type.ascent + type.descent),
-        room.x + bubble.lockX, room.y + bubble.lockY, reach + BUBBLE_LINE + SUBS.GAP * size, area, keep);
-      if (!at) return null;
-      const ox = at.x + k * type.left, base = at.y + k * type.ascent; // the line's origin, on its baseline
-      const vary = () => 1 + SUBS.SPREAD * (2 * Math.random() - 1);
-      const letters = type.glyphs.map((gl) => {
-        const wob = {};
-        for (const key in SUBS.WOBBLE) wob[key] = SUBS.WOBBLE[key] * vary();
-        return { at: gl.at, L: makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, Math.floor(Math.random() * 1e6), k, wob) };
-      });
-      return { room, ends, letters };
+      const s = placeLine(type, ends, size, room.x + bubble.lockX, room.y + bubble.lockY, reach + BUBBLE_LINE + SUBS.GAP * size, area, keep);
+      if (s) s.room = room;
+      return s;
     }
 
     // each frame: a new line's subtitle made as he starts it, and the one
@@ -3334,10 +3358,71 @@
     // the subtitle sy up into into: as many syllables as he has begun, every
     // one once he is done
     function drawSubtitle(t, sy, into) {
-      const n = Voice.endedAt !== null ? sub.ends.length : Math.min(Voice.heard, sub.ends.length);
+      drawLine(sub, Voice.endedAt !== null ? sub.ends.length : Math.min(Voice.heard, sub.ends.length), t, -sy, into);
+    }
+
+    // a placed line's first n syllables, dy world px down from where it was
+    // placed, into into
+    function drawLine(line, n, t, dy, into) {
       if (!n) return;
-      const end = sub.ends[n - 1];
-      for (const s of sub.letters) if (s.at < end) s.L.draw(t, -sy, into);
+      const end = line.ends[n - 1];
+      for (const s of line.letters) if (s.at < end) s.L.draw(t, dy, into);
+    }
+
+    // how far monk mouth's face reaches from the head's centre now, world
+    // px, its wobble aside: the furthest any of its features' paper goes,
+    // at its place and its size as drawDemo draws it
+    function faceReach() {
+      let reach = 0;
+      for (const f of Moon.features) {
+        const g = f.paper, s = DEMO.FACE * f.scale;
+        let x0 = g.w, y0 = g.h, x1 = 0, y1 = 0; // its paper's ink box, bitmap px
+        for (let y = 0; y < g.h; y++) {
+          for (let x = 0; x < g.w; x++) {
+            if (!g.ink[y * g.w + x]) continue;
+            if (x < x0) x0 = x;
+            if (x + 1 > x1) x1 = x + 1;
+            if (y < y0) y0 = y;
+            if (y + 1 > y1) y1 = y + 1;
+          }
+        }
+        if (x1 <= x0) continue;
+        const cx = DEMO.FACE * f.x, cy = DEMO.FACE * f.y;
+        const ax = Math.max(Math.abs(cx + s * (x0 - g.w / 2)), Math.abs(cx + s * (x1 - g.w / 2)));
+        const ay = Math.max(Math.abs(cy + s * (y0 - g.h / 2)), Math.abs(cy + s * (y1 - g.h / 2)));
+        reach = Math.max(reach, Math.hypot(ax, ay));
+      }
+      return reach;
+    }
+
+    // a syllable's subtitle, its text as shown, placed round his face in his
+    // item's bubble as laid out, or null
+    function makeMonkSubtitle(text) {
+      const { whole, ends } = Subtitle.split(text);
+      if (!ends.length) return null;
+      let type = subTypes.get(whole);
+      if (!type) subTypes.set(whole, type = new Type(whole, () => document.createElement('canvas'), TAG.FACE));
+      if (!type.glyphs.length) return null;
+      const it = demoItem, a = it.demoAt, size = a.size, edge = SUBS.EDGE * size, m = BOX.LINE + edge;
+      const grow = (r) => ({ x0: r.x0 - edge, y0: r.y0 - edge, x1: r.x1 + edge, y1: r.y1 + edge });
+      const keep = [grow(it.hit), grow(demoMenu.p > 0 || demoMenu.open ? a.menu.full : a.menu.shut), grow(a.bar)];
+      const area = { x0: it.full.x0 + m, y0: it.full.y0 + m, x1: it.full.x1 - m, y1: it.full.y1 - m };
+      const s = placeLine(type, ends, size, a.face[0].cx, a.face[0].cy, faceReach() + SUBS.MONK_GAP * size, area, keep);
+      if (s) s.at = a;
+      return s;
+    }
+
+    // each frame: a syllable's subtitle made in place of the last as it is
+    // heard, while his item is open in its box and his face is in, and the
+    // one shown dropped once it has lingered, or his item or its box shuts
+    // or is laid out again
+    function stepMonkSubtitle() {
+      if (Monk.said !== monkSaid) {
+        monkSaid = Monk.said;
+        monkSub = demoItem && demoItem.demoAt && demoItem.open && demoHome.box.open && Moon.ready ? makeMonkSubtitle(Monk.text) : null;
+      }
+      if (monkSub && (demoItem.demoAt !== monkSub.at || !demoItem.open || !demoHome.box.open ||
+          (Monk.endedAt !== null && Date.now() - Monk.endedAt > SUBS.LINGER * 1000))) monkSub = null;
     }
 
     // --- the shop ------------------------------------------------------------------
@@ -4895,6 +4980,7 @@
       }
       stepWall();
       stepSubtitle();
+      stepMonkSubtitle();
       if (bubble) face.update(bubble, world, dt, Voice.mouth);
       for (const b of tagBubbles) {
         if (pointerAt) b.world.pointer(pointerAt.x, pointerAt.y);
