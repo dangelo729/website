@@ -150,7 +150,7 @@ constexpr int   kOverSteps  = 26;
 // --- the table and the hand -----------------------------------------------------------
 constexpr float   kMid      = 32.0f;  // squares from each of the box's walls to its middle, where the board's is: the table, as good as endless
 constexpr float   kSlab     = 4.4f;   // squares from the board's middle to the slab's sides (pieces.py),
-constexpr float   kSlabR    = 0.45f;  //   its corners' radius,
+constexpr float   kSlabR    = 0.25f;  //   its corners' radius,
 constexpr float   kThick    = 0.35f;  //   and how thick it is: the board's top over the table
 constexpr float   kHalf     = 5.4f;   // squares the hand reaches from the board's middle each way: a square past the slab
 constexpr float   kTall     = 12.0f;  // squares to the box's ceiling, out of reach

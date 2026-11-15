@@ -9,7 +9,8 @@
 // (js/match.js) the set also keeps to whose pieces may be taken (mover),
 // borders the squares the piece held may be put on and fills the nearest
 // of them to the pointer or the one the page picks (mark, near, aimed,
-// spot, square), draws a piece let go down onto a square or leads
+// spot, square), says where a point of the board is drawn, for what the
+// page draws over it (point), draws a piece let go down onto a square or leads
 // one there (go), has a piece taken knocked off the board by the one that
 // takes it (off) or leads it back onto a square (back), and crowns a pawn
 // or makes it a pawn again (crown); it knows nothing of the rules.
@@ -187,6 +188,15 @@ const Chess = {
   // set picks it again
   spot(sq) {
     if (this.ready) this.mm.chess_spot(sq);
+  },
+
+  // the canvas px the board's point (x, y, z) is drawn at as of the last
+  // step, { x, y }: squares from its top's middle, x from the a file's
+  // side to the h file's, y up, z from white's side to black's
+  point(x, y, z) {
+    if (!this.ready) return { x: NaN, y: NaN };
+    const at = new Float32Array(this.mm.memory.buffer, this.mm.chess_point(x, y, z), 2);
+    return { x: at[0], y: at[1] };
   },
 
   // the square of the board under canvas px (x, y), or -1 for none

@@ -273,7 +273,7 @@ def knight():
 
 # the board: a slab half across, thick deep, its corners rounded round_
 # with n steps to a corner, its top at y = 0
-def slab(half=4.4, thick=0.35, round_=0.45, n=6):
+def slab(half=4.4, thick=0.35, round_=0.25, n=6):
     m = Mesh()
     ring = []
     for (sx, sz, a0) in ((1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270)):
