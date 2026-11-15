@@ -704,6 +704,34 @@ const between = (a, b) => a + (b - a) * rand();
       'sprite minHits: 1 lights more, 16 less, each inside the other');
   }
 
+  // spriteSkew: under a map that only scales and turns it, it lights what
+  // sprite() does, but for the odd pixel whose points sit on the edge of
+  // a rounding; under one that leans it, a column of ink leans; and one
+  // that flattens it to nothing, or is no number, draws nothing
+  {
+    let differ = 0, total = 0;
+    for (let n = 0; n < 200; n++) {
+      const g = Framebuffer.ink(randomRows(3 + Math.floor(rand() * 9), 3 + Math.floor(rand() * 9), 0.5));
+      const cx = 9 + 6 * rand(), cy = 9 + 6 * rand(), s = 0.6 + 1.2 * rand(), a = 2 * Math.PI * rand();
+      const want = new Framebuffer(24, 24), got = new Framebuffer(24, 24);
+      want.sprite(g, cx, cy, s, a);
+      got.spriteSkew(g, cx, cy, s * Math.cos(a), s * Math.sin(a), -s * Math.sin(a), s * Math.cos(a));
+      for (let i = 0; i < want.bits.length; i++) {
+        total += want.bits[i];
+        if (want.bits[i] !== got.bits[i]) differ++;
+      }
+    }
+    check(total > 0 && differ <= total / 500, 'spriteSkew, scaled and turned only, vs sprite, 200 poses: ' + differ + ' of ' + total + ' px differ');
+    const lean = new Framebuffer(12, 12), column = Framebuffer.ink(Array(6).fill('#'));
+    lean.spriteSkew(column, 6, 6, 1, 0, 1, 1);
+    check(JSON.stringify(lit(lean)) === JSON.stringify(pts([[3, 3], [4, 4], [5, 5], [6, 6], [7, 7], [8, 8]])), 'spriteSkew, a step down going across too: a column of ink leans, a pixel a row');
+    const none = new Framebuffer(12, 12);
+    none.spriteSkew(column, 6, 6, 1, 1, 2, 2);
+    none.spriteSkew(column, 6, 6, NaN, 0, 0, 1);
+    none.spriteSkew(column, NaN, 6, 1, 0, 0, 1);
+    check(lit(none).length === 0, 'spriteSkew flattened to nothing, or given no number, draws nothing');
+  }
+
   // a 1 px stroke at 0.8 never drops out: every pixel row (column) it
   // covers whole has a lit pixel in it, and never more than two
   {

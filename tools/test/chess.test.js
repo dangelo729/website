@@ -272,6 +272,8 @@ function room(pic) {
   const stand = (i, p, q) => Chess.mm.chess_put(i, p[0], p[1], p[2], q[0], q[1], q[2], q[3]);
   const leading = () => Chess.mm.chess_leading();
   check('and the canvas is the picture\'s: the middle of e2 and of e7 lands on their pixels', Chess.at(...mid(e2)) === e2 && Chess.at(...mid(e7)) === e7);
+  const spot = Chess.point(piece(e2).p[0], 0.4, piece(e2).p[2]);
+  check('the page is told the same canvas px for a point of the board', spot.x === mid(e2)[0] && spot.y === mid(e2)[1], spot.x.toFixed(1) + ', ' + spot.y.toFixed(1));
 
   // a press on a pawn takes it, and it rises straight up as high as the
   // hand carries it, hanging upright

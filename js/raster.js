@@ -307,6 +307,37 @@ Framebuffer.prototype.sprite = function (g, cx, cy, s, a, v = 1, minHits = SAMPL
   }
 };
 
+// g, a bitmap { ink, w, h }, with its centre at (cx, cy), drawn as
+// sprite() draws it but under any linear map: a step across the bitmap
+// goes (ax, ay) on the screen and a step down it (bx, by), so it can lie
+// on a plane seen at an angle. each pixel of the mapped box asks at its
+// points, carried back through the map's inverse, and one with minHits of
+// them on ink is written v. a map that flattens it to nothing, or one
+// that is no number, draws nothing
+Framebuffer.prototype.spriteSkew = function (g, cx, cy, ax, ay, bx, by, v = 1, minHits = SAMPLE.MIN_HITS) {
+  const det = ax * by - ay * bx;
+  if (!(Math.abs(det) > 1e-12)) return;
+  // a point tx, ty from the centre lands in the bitmap at (ix tx + jx ty + w / 2, iy tx + jy ty + h / 2)
+  const ix = by / det, jx = -bx / det, iy = -ay / det, jy = ax / det;
+  const gw = g.w, gh = g.h, ink = g.ink, mx = gw / 2, my = gh / 2, n = SAMPLE.GRID, bits = this.bits, w = this.w;
+  const ex = (Math.abs(ax) * gw + Math.abs(bx) * gh) / 2 + 1, ey = (Math.abs(ay) * gw + Math.abs(by) * gh) / 2 + 1;
+  const x0 = Math.max(0, Math.floor(cx - ex)), x1 = Math.min(this.w, Math.ceil(cx + ex));
+  const y0 = Math.max(0, Math.floor(cy - ey)), y1 = Math.min(this.h, Math.ceil(cy + ey));
+  for (let py = y0; py < y1; py++) {
+    for (let px = x0; px < x1; px++) {
+      let hits = 0;
+      for (let i = 0; i < n && hits < minHits; i++) {
+        const tx = px + 0.5 + SUB_AT[i] - cx;
+        for (let j = 0; j < n; j++) {
+          const ty = py + 0.5 + SUB_AT[j] - cy, fx = ix * tx + jx * ty + mx, fy = iy * tx + jy * ty + my;
+          if (fx >= 0 && fx < gw && fy >= 0 && fy < gh && ink[Math.floor(fy) * gw + Math.floor(fx)] === 1 && ++hits >= minHits) break;
+        }
+      }
+      if (hits >= minHits) bits[py * w + px] = v;
+    }
+  }
+};
+
 // g, a bitmap { px, w, h } of v's (a picture in the page's colours), with
 // its centre at (cx, cy), scaled by s and turned by a radians, as sprite()
 // takes a letter: each pixel whose middle lands on it is written the v it

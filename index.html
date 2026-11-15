@@ -4723,7 +4723,12 @@
     // the opening GROW times smaller, no more than W x H, and stands in the
     // opening's middle. its caret and name stay in its top left corner as
     // its label, on paper over the board, and a press there is still the
-    // item's. in
+    // item's. the board's files are lettered along white's side and its
+    // ranks numbered along the a file's, in its margin: the page's
+    // letters, wobbling as they do, but lying on the board's top as if
+    // printed there, to be read from white's side, each drawn as the
+    // board is where it lies, behind any piece drawn over it
+    // (drawLabels). in
     // its bottom right corner, as far in from the bottom and right as its
     // caret's ink is from its left, is RESET, a button drawn as the wall's
     // OUT and IN are, paper inside, in the links' hover colour (the
@@ -4835,6 +4840,9 @@
       PAWN: 0.6,    // of that, how tall the pawn in it is,
       PORTED: 0.15, // and of the way open, how far the pane is before it draws what it holds in the pawn's place
       SEED: 96000,  // the pawn's wobble's, clear of the letters'
+      FILES: 'abcdefgh', RANKS: '12345678', // the board's labels: its files', along white's side, and its ranks', along the a file's,
+      EDGE: 4.2,    // squares from the board's middle to their middles, half way across its margin,
+      LABEL: 0.4,   // and of a square, their em
       SIDES: ['white', 'black'],           // what a game's lines call the two sides
       MOVE: ' to move', CHECK: ' · check', // what its last line says after the side to move, and after that in check;
       MATE: 'checkmate · ', WINS: ' wins', // and over, round the winner at checkmate,
@@ -4877,7 +4885,12 @@
     // the board's opening with its top left at (x, y), w x h, world px on
     // the page as laid out, at the text's size bs, inset how far its
     // caret's ink is in from its left: the opening (box); the canvas it
-    // holds, GROW times smaller and no more than W x H (w, h); RESET in
+    // holds, GROW times smaller and no more than W x H (w, h); the board's
+    // labels (labels, each { x, z, up, letter }: the point of the board's
+    // top it lies at, how far its middle is under the middle of its
+    // row's, the files' or the ranks', its own bitmap's px, so a row's
+    // lie on one baseline, and its letter, for its wobble, at its
+    // bitmap's own size, placed as it is drawn, drawLabels); RESET in
     // its bottom right corner, as far in from its bottom and right as the
     // caret's ink is from its left, a button as the wall's ERASER is, as
     // wide as its word and its inside and outline wobbling as one, { rect,
@@ -4925,6 +4938,16 @@
         const cx = (rect.x0 + rect.x1) / 2, cy = (rect.y0 + rect.y1) / 2;
         return { rect, fill: makeLetter(art.fill, cx, cy, sd, U.GROW), ring: makeLetter(art.line, cx, cy, sd, U.GROW) };
       };
+      // the board's labels, a row for its files and one for its ranks
+      const label = (ch, lx, lz, sd) => {
+        const gl = chessType(ch).glyphs[0];
+        return { x: lx, z: lz, up: gl.dy, letter: makeLetter(gl.g, 0, 0, sd, 1, WOBBLE) };
+      };
+      const rows = [[...C.FILES].map((ch, f) => label(ch, f - 3.5, -C.EDGE, seed + 4000 + f)), [...C.RANKS].map((ch, r) => label(ch, -C.EDGE, r - 3.5, seed + 4100 + r))];
+      for (const of of rows) {
+        const mean = of.reduce((sum, L) => sum + L.up, 0) / of.length;
+        for (const L of of) L.up -= mean;
+      }
       const rt = chessType(C.RESET), reset = boxed({ x0: Math.round(right - wide(rt) - 2 * pad), y0: bottom - th, x1: right, y1: bottom }, seed + 10);
       reset.letters = letters(rt, reset.rect.x0 + pad, reset.rect.y0, seed + 20);
       // the menu: its button, its words at its left, and under it its two columns
@@ -4984,7 +5007,7 @@
       };
       return {
         box: room,
-        w: Math.min(C.W, Math.floor(w / U.GROW)), h: Math.min(C.H, Math.floor(h / U.GROW)),
+        w: Math.min(C.W, Math.floor(w / U.GROW)), h: Math.min(C.H, Math.floor(h / U.GROW)), labels: rows[0].concat(rows[1]),
         reset, menu: { room, size, shut, full, bottom: full.y1, header, cols }, panel,
       };
     }
@@ -5097,10 +5120,43 @@
       }
     }
 
+    // the board's labels of a chess set laid out as a, over its picture
+    // drawn at r, dy world px down, into pfb: each lying on the board's
+    // top at the point it labels, its em LABEL of a square, a step across
+    // it going toward the h file and a step down it toward white's side
+    // as those are drawn there (Chess.point), so it lies as the board
+    // does, its row's letters on one baseline; wobbled as a letter is,
+    // its sway and bob on the screen and its tilt and breath on the
+    // board; drawn apart into qfb (spriteSkew) and copied from there but
+    // where a piece is drawn over it (Chess.at). one not wholly on the
+    // picture is not drawn
+    function drawLabels(a, r, t, dy) {
+      const g = WALL_UI.GROW, bits = pfb.bits, from = qfb.bits, w = pfb.w, e = 2 * g * CHESS.LABEL / TYPE.EM;
+      for (const L of a.labels) {
+        const o = Chess.point(L.x, 0, L.z), u = Chess.point(L.x + 0.5, 0, L.z), v = Chess.point(L.x, 0, L.z + 0.5), le = L.letter;
+        const ax = e * (u.x - o.x), ay = e * (u.y - o.y), bx = -e * (v.x - o.x), by = -e * (v.y - o.y);
+        le.cx = r.x + g * o.x + bx * L.up;
+        le.cy = r.y + g * o.y + by * L.up;
+        const p = le.pose(t), cos = p.s * Math.cos(p.a), sin = p.s * Math.sin(p.a);
+        const mx = ax * cos + bx * sin, my = ay * cos + by * sin, nx = bx * cos - ax * sin, ny = by * cos - ay * sin;
+        const hw = Math.ceil((Math.abs(mx) * le.g.w + Math.abs(nx) * le.g.h) / 2) + 1, hh = Math.ceil((Math.abs(my) * le.g.w + Math.abs(ny) * le.g.h) / 2) + 1;
+        const x0 = Math.floor(p.x) - hw, x1 = Math.ceil(p.x) + hw, y0 = Math.floor(p.y) + dy - hh, y1 = Math.ceil(p.y) + dy + hh;
+        if (!(x0 >= r.x && x1 < r.x + r.w && y0 >= r.y + dy && y1 < r.y + dy + r.h && y0 >= 0 && y1 < pfb.h)) continue;
+        qfb.clearRows(y0, y1 + 1);
+        qfb.spriteSkew(le.g, p.x, p.y + dy, mx, my, nx, ny);
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            const i = y * w + x;
+            if (from[i] && Chess.at((x + 0.5 - r.x) / g, (y + 0.5 - r.y - dy) / g) < 0) bits[i] = from[i];
+          }
+        }
+      }
+    }
+
     // item it's chess set, d world px down from where it was laid out,
     // into pfb, hover what the pointer is on: once it is in, its picture
     // in the opening's middle, GROW times its size and shimmering
-    // (drawShimmer), and paper where its label stands, so a board zoomed
+    // (drawShimmer), its labels over that (drawLabels), and paper where its label stands, so a board zoomed
     // in never runs under the label's ink; its pane (drawPane); RESET
     // over the picture, paper inside, its outline and word in
     // the links' hover colour while the pointer is on it; and its menu,
@@ -5119,6 +5175,7 @@
       if (Chess.ready) {
         const r = chessRect(a);
         drawShimmer(pfb, Chess.picture, 0, 0, r.x, r.y + dy, r.w, r.h, WALL_UI.GROW, t, 95000, false);
+        drawLabels(a, r, t, dy);
         pfb.roundRect(it.shut.x0, it.shut.y0 + dy, it.shut.x1, it.shut.y1 + dy, it.shut.r, 0, 0, BOX.LINE);
       }
       drawPane(a, t, dy, on);
