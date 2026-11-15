@@ -1,9 +1,18 @@
 // --- the chess set ---------------------------------------------------------------
 // chess, in doodles, is a chess set drawn in 3d by third_dimension in its
-// outline look: a board floating in space with the 32 pieces on it, and a
-// camera turned round it and over it; the pieces are rigid bodies that
-// can be picked up, carried, dropped and knocked over (take, carry, drop),
-// and the piece under the pointer is drawn in the hover colour (hover).
+// outline look: a board with the 32 pieces on it, lying on a table that is
+// never drawn, and a camera turned round it and over it and zoomed in on
+// it; the pieces are rigid bodies that can be picked up, carried, dropped
+// and knocked over (take, carry, drop), and led back to where they start,
+// meeting each other on the way (reset), and the piece under the pointer
+// is drawn in the hover colour (hover). for a game played on it
+// (js/match.js) the set also keeps to whose pieces may be taken (mover),
+// borders the squares the piece held may be put on and fills the nearest
+// of them to the pointer or the one the page picks (mark, near, aimed,
+// spot, square), draws a piece let go down onto a square or leads
+// one there (go), has a piece taken knocked off the board by the one that
+// takes it (off) or leads it back onto a square (back), and crowns a pawn
+// or makes it a pawn again (crown); it knows nothing of the rules.
 // all of it is chess/chess.wasm,
 // built by tools/chess-web, run on the main thread a step a frame. the
 // wasm is checked with the server before any copy is used, as the ship's
@@ -71,7 +80,7 @@ const Chess = {
     if (this.ready) this.mm.chess_look(n);
   },
 
-  // the canvas w x h px (the wasm holds it to 800 x 600), drawn at that
+  // the canvas w x h px (the wasm holds it to 1280 x 720), drawn at that
   // size from the next step
   size(w, h) {
     if (w === this.want.w && h === this.want.h) return;
@@ -122,9 +131,95 @@ const Chess = {
     if (this.ready) this.mm.chess_turn(round, over);
   },
 
-  // every piece where it starts, asleep, nothing held, drawn so at the
-  // next step
+  // the camera zoomed by times as far in again (under 1, out), no further
+  // out than the whole board in the canvas and no further in than the set
+  // lets it; the drawn zoom eases there over the next steps. whether that
+  // moved it
+  zoom(by) {
+    return this.ready && this.mm.chess_zoom(by) === 1;
+  },
+
+  // every piece led back to where it starts over the steps that follow,
+  // nothing held, no square marked, the pieces taken off the board led
+  // back from where they lie and every pawn crowned a pawn again
   reset() {
     if (this.ready) this.mm.chess_reset();
+  },
+
+  // whose pieces a press may take: -1 anyone's, as it starts, 0 white's, 1
+  // black's, 2 no one's. but for anyone's, a piece knocked off the square
+  // it stands on is led back to it
+  mover(side) {
+    if (this.ready) this.mm.chess_mover(side);
+  },
+
+  // the piece held, 0 .. 31 (0 to 7 white's back rank a to h, 8 to 15 its
+  // pawns, 16 to 31 black's the same), or -1 for none
+  held() {
+    return this.ready ? this.mm.chess_held() : -1;
+  },
+
+  // square sq (file + 8 * rank, a1 0 .. h8 63) bordered in the hover
+  // colour, one the piece held may be put on; and none bordered
+  mark(sq) {
+    if (this.ready) this.mm.chess_mark(sq);
+  },
+  unmark() {
+    if (this.ready) this.mm.chess_unmark();
+  },
+
+  // the square filled in the hover colour as of the last step, while white
+  // or black holds a piece: the one it stands on, or, once the pointer has
+  // moved from where it took it, the nearest to the pointer on the board of
+  // the squares bordered and that one; or -1
+  near() {
+    return this.ready ? this.mm.chess_near() : -1;
+  },
+
+  // whether the pointer has moved from where it took the piece held, far
+  // enough to pick the square filled: false for a press still where it began
+  aimed() {
+    return this.ready && this.mm.chess_aimed() === 1;
+  },
+
+  // while a piece is held, the square filled is sq, the page's pick in the
+  // pointer's place, until the piece is let go or another taken; -1, the
+  // set picks it again
+  spot(sq) {
+    if (this.ready) this.mm.chess_spot(sq);
+  },
+
+  // the square of the board under canvas px (x, y), or -1 for none
+  square(x, y) {
+    return this.ready ? this.mm.chess_square(x, y) : -1;
+  },
+
+  // piece i stands on square sq from now: held, it is let go and drawn
+  // down onto it; not held, it is led there over the others
+  go(i, sq) {
+    if (this.ready) this.mm.chess_go(i, sq);
+  },
+
+  // piece i taken off the board by piece by (-1 for none): it stands
+  // where it is, light, until by comes down on it and shoves it, then is
+  // thrown off the board to lie on the table, until a reset leads it back
+  off(i, by = -1) {
+    if (this.ready) this.mm.chess_off(i, by);
+  },
+
+  // piece i, taken off the board, a piece on it again, standing on square
+  // sq from now: led there over the others from wherever it lies
+  back(i, sq) {
+    if (this.ready) this.mm.chess_back(i, sq);
+  },
+
+  // pawn i a queen where it is, until a reset, or, on false, a pawn again
+  crown(i, on = true) {
+    if (this.ready) this.mm.chess_crown(i, on ? 1 : 0);
+  },
+
+  // whether any piece is being led to where it stands
+  leading() {
+    return this.ready && this.mm.chess_leading() === 1;
   },
 };

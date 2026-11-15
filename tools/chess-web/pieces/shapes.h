@@ -23,6 +23,8 @@ static const ChessShape slab_shape = { 0.000000f, -0.175000f, 0.000000f, 6.03868
 static const ChessShape dark_shape = { 0.000000f, 0.000000f, 0.000000f, 5.656854f, 0.000000f };
 static const ChessShape frame_shape = { 0.000000f, 0.000000f, 0.000000f, 5.656854f, 0.000000f };
 static const ChessShape ring_shape = { 0.000000f, 0.000000f, 0.000000f, 1.000000f, 0.000000f };
+static const ChessShape tile_shape = { 0.000000f, 0.000000f, 0.000000f, 0.664680f, 0.000000f };
+static const ChessShape band_shape = { 0.000000f, 0.000000f, 0.000000f, 0.664680f, 0.000000f };
 
 static const pb::Rim pawn_rims[2] = { { 0.0f, 0.280000f }, { 0.080000f, 0.280000f } };
 static const pb::Ball pawn_balls[4] = {

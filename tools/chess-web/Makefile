@@ -27,11 +27,11 @@ CPPFLAGS := -I$(PB)/src -I$(TD)/src -I$(BUILD) -I.
 # no entry, no runtime: the glue's functions and the memory are the exports,
 # the memory fixed, so the page needs nothing of emscripten's and its view
 # of the picture never moves
-EXPORTS := _chess_init,_chess_colours,_chess_look,_chess_size,_chess_step,_chess_px,_chess_w,_chess_h,_chess_at,_chess_take,_chess_carry,_chess_drop,_chess_turn,_chess_reset,_chess_stirring,_chess_piece,_chess_point,_chess_meet,_chess_hit,_chess_hover,_chess_tip
-LDFLAGS := -O2 -sSTANDALONE_WASM=1 --no-entry -sFILESYSTEM=0 -sINITIAL_MEMORY=8mb \
+EXPORTS := _chess_init,_chess_colours,_chess_look,_chess_size,_chess_step,_chess_px,_chess_w,_chess_h,_chess_at,_chess_take,_chess_carry,_chess_drop,_chess_turn,_chess_reset,_chess_stirring,_chess_piece,_chess_point,_chess_meet,_chess_hit,_chess_hover,_chess_tip,_chess_put,_chess_leading,_chess_mover,_chess_held,_chess_mark,_chess_unmark,_chess_near,_chess_aimed,_chess_spot,_chess_square,_chess_go,_chess_off,_chess_back,_chess_crown,_chess_zoom,_chess_kind,_chess_shown,_chess_state
+LDFLAGS := -O2 -sSTANDALONE_WASM=1 --no-entry -sFILESYSTEM=0 -sINITIAL_MEMORY=16mb \
            -sEXPORTED_FUNCTIONS=$(EXPORTS)
 
-MESHES  := pawn rook knight bishop queen king slab dark frame ring
+MESHES  := pawn rook knight bishop queen king slab dark frame ring tile band
 HEADERS := $(patsubst %,$(BUILD)/meshes/%.h,$(MESHES))
 
 # of physics_box, the rigid bodies alone

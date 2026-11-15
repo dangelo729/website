@@ -11,8 +11,10 @@
 # in a profile sharper than the renderer's crease (60 degrees) inks as a
 # ring; a curve is cut finer than that and inks only at its silhouette.
 # the board is a slab with rounded corners, the 32 dark squares, one open
-# mesh flat on its top, and the field's frame, one quad that fills nothing
-# and inks its edge. shapes.h holds, for each mesh, what
+# mesh flat on its top, the field's frame, one quad that fills nothing
+# and inks its edge, and the two the glue lays on a square to mark it: the
+# tile, all of it but a little round its edge, and the band, the tile's
+# border. shapes.h holds, for each mesh, what
 # third_dimension's tools/obj2mesh.py takes away from its obj (the middle
 # of its bounds and its radius about that) and how tall it stands over y =
 # 0. the objs are the sources: a piece modelled by hand is its obj put in
@@ -317,8 +319,30 @@ def ring(n=24):
     return m
 
 
+# a square lying flat with its middle at the origin, facing up, side across:
+# laid on a square of the board to fill it, all but a little round its edge
+def tile(side=0.94):
+    a = side / 2
+    m = Mesh()
+    m.add([(-a, 0, -a), (a, 0, -a), (a, 0, a), (-a, 0, a)], [[3, 2, 1, 0]])
+    return m
+
+
+# the tile's border, wide across, facing up: four faces, one a side, each
+# from the tile's edge in, so the band's own edges, outside and in, are all
+# that inks
+def band(side=0.94, wide=0.08):
+    a, b = side / 2, side / 2 - wide
+    m = Mesh()
+    ring = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    verts = [(a * x, 0, a * z) for (x, z) in ring] + [(b * x, 0, b * z) for (x, z) in ring]
+    m.add(verts, [[4 + k, 4 + (k + 1) % 4, (k + 1) % 4, k] for k in range(4)])
+    return m
+
+
 MESHES = [("pawn", pawn), ("rook", rook), ("knight", knight), ("bishop", bishop), ("queen", queen),
-          ("king", king), ("slab", slab), ("dark", dark), ("frame", frame), ("ring", ring)]
+          ("king", king), ("slab", slab), ("dark", dark), ("frame", frame), ("ring", ring), ("tile", tile),
+          ("band", band)]
 
 # --- the pieces as bodies ------------------------------------------------------
 # what the solver (physics_box's pb::Bodies) knows of each piece: two rims,
@@ -443,7 +467,7 @@ def header(fits, bodies):
     return "\n".join(lines) + "\n"
 
 
-# the meshes that must be closed: the dark squares, the frame and the ring are open
+# the meshes that must be closed: the dark squares, the frame, the ring, the tile and the band are open
 CLOSED = {"pawn", "rook", "knight", "bishop", "queen", "king", "slab"}
 
 
