@@ -409,8 +409,8 @@
     // words down the page under the header (the name and its tag), each a
     // section that opens (SECTIONS, below): Work, Doodles, About and
     // Contact. Work's box holds two sections of its own, Professional and
-    // Personal: their words down it under its x, the same size, and each
-    // its own box, opening out of its o inside Work's (layoutSubs).
+    // Personal: their words down it under its x, SUB of its word's size,
+    // and each its own box, opening out of its o inside Work's (layoutSubs).
     // they are in the name's helvetica at SIZE of the name's size, or less
     // when the widest would not fit across the screen, their ink's left
     // INDENT in from the name's (each centred, stacked), the first's top BELOW of the
@@ -432,6 +432,7 @@
     // and rides down with the box as it opens and back up as it shuts.
     const ABOUT = {
       SIZE: 0.6,   // of the name's world px to the em, the most
+      SUB: 0.75,   // of the words' size: a word's in another's box
       BELOW: 1,    // the name's ems from the header's ink to the first word's ink
       SPACE: 1.8,  // of the words' size: from a word's ink, or its box, to the next word's ink
       INDENT: 0.4, // of the words' size: their ink's left in from the name's, wide
@@ -708,9 +709,8 @@
       rest: 0,
       restX1: 0,
       // with sections in its box, rest and restX1 are its bottom and right
-      // with every one of theirs shut, and pad how far in from its own
-      // edges theirs keep (layoutSubs)
-      pad: 0,
+      // with every one of theirs shut (layoutSubs)
+      pad: 0,           // its word's ink to its box's edge, world px (layoutBox)
       // with the photo, the slideshow: which slide it shows, from 0, and,
       // laid out, the photo's frame, its top left and size, whole px, with
       // every slide's caption's letters (captions) and count (counts) and
@@ -1029,9 +1029,10 @@
       const laid = name ? tops.filter((s) => s.type.glyphs.length) : [];
       if (laid.length) {
         // one size for them all, the most the widest leaves room for, and
-        // the widest in another's box, its ink a PAD further in either side
+        // the widest in another's box, at SUB of it and its ink a PAD of
+        // its own further in either side
         const widest = Math.max(...laid.map(ems)), inner = Math.max(0, ...laid.flatMap((s) => s.subs.map(ems)));
-        const size = Math.min(ABOUT.SIZE * name.size, stacked ? NAME.NARROW * W / widest : (W - 2 * NAME.X) / (widest + ABOUT.INDENT), (W - 2 * NAME.X) / (inner + 2 * BOX.PAD));
+        const size = Math.min(ABOUT.SIZE * name.size, stacked ? NAME.NARROW * W / widest : (W - 2 * NAME.X) / (widest + ABOUT.INDENT), (W - 2 * NAME.X) / (ABOUT.SUB * (inner + 2 * BOX.PAD)));
         let y = bottom + ABOUT.BELOW * name.size; // the next word's ink's top
         for (const s of laid) {
           layoutWord(s, stacked ? (W - ems(s) * size) / 2 : name.left + ABOUT.INDENT * size, y, size);
@@ -1053,7 +1054,7 @@
     // the insides of the box it is in, and its insides laid out in it,
     // wide or stacked
     function layoutBox(s, name, size, stacked, x0, x1) {
-      const box = s.box, seed = BOX.FIRST + 10000 * s.n, pad = BOX.PAD * size;
+      const box = s.box, seed = BOX.FIRST + 10000 * s.n, pad = s.pad = BOX.PAD * size;
       // rest: the window's bottom, x0 in, as far under this word as it is under the first of them
       const y0 = s.ink.y0 - pad, rest = H - x0 + s.ink.y0 - sections.find((o) => o.ink).ink.y0;
       const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = s.ink.y1 + BOX.GAP * size;
@@ -1418,24 +1419,24 @@
     }
 
     // a box's sections down it from top, under the x, as the words are
-    // down the page: each its word at the box's word's size, its ink PAD
-    // in from ix0, the first's PAD under top and each next one's SPACE
-    // under the one before's, and its own box laid out round it (layoutBox)
-    // from ix0 to no further than ix1, so it opens inside this one, PAD
-    // clear of its edges. with every one of them shut this box is only as
-    // big as their words, SLACK past the widest, or its own word if that
-    // is wider, so it covers the word; it grows down by each of their
-    // boxes as it opens, and across to the widest open (growSubs)
+    // down the page: each its word at SUB of the box's word's size, its
+    // ink a PAD of its own in from ix0, the first's as far under top and
+    // each next one's SPACE of their size under the one before's, and its
+    // own box laid out round it at that size (layoutBox) from ix0 to no
+    // further than ix1, so it opens inside this one, this one's PAD clear
+    // of its edges. with every one of them shut this box is only as big
+    // as their words, SLACK past the widest, or its own word if that is
+    // wider, so it covers the word; it grows down by each of their boxes
+    // as it opens, and across to the widest open (growSubs)
     function layoutSubs(s, name, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1) {
-      const laid = s.subs.filter((o) => o.type.glyphs.length);
-      let y = top + pad; // the next word's ink's top
+      const laid = s.subs.filter((o) => o.type.glyphs.length), sub = ABOUT.SUB * size, inset = BOX.PAD * sub;
+      let y = top + inset; // the next word's ink's top
       for (const o of laid) {
-        layoutWord(o, ix0 + pad, y, size);
-        y = o.ink.y1 + ABOUT.SPACE * size;
+        layoutWord(o, ix0 + inset, y, sub);
+        y = o.ink.y1 + ABOUT.SPACE * sub;
       }
-      for (const o of laid) layoutBox(o, name, size, stacked, ix0, ix1);
-      s.pad = pad;
-      s.rest = laid[laid.length - 1].ink.y1 + 2 * pad;
+      for (const o of laid) layoutBox(o, name, sub, stacked, ix0, ix1);
+      s.rest = laid[laid.length - 1].ink.y1 + inset + pad;
       s.restX1 = Math.min(x1, Math.max(s.ink.x1, ...laid.map((o) => o.ink.x1)) + BOX.SLACK * bs + pad);
       s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       growSubs(s);
@@ -1449,11 +1450,11 @@
     }
 
     // how far a box's sections' boxes have its bottom down, each pushing
-    // as far as push has it: the last a PAD less, so its box's bottom
-    // comes PAD clear of this one's, as its sides are, where its word's
-    // ink was two
+    // as far as push has it: the last a PAD of its own less, so its box's
+    // bottom comes this one's PAD clear of this one's, as its sides are,
+    // where its word's ink was that and its own
     function subsPush(s, push) {
-      return s.subs.reduce((a, o, i) => a + (i < s.subs.length - 1 ? push(o) : Math.max(0, push(o) - s.pad)), 0);
+      return s.subs.reduce((a, o, i) => a + (i < s.subs.length - 1 ? push(o) : Math.max(0, push(o) - o.pad)), 0);
     }
 
     // a box's sections' boxes where they have got to: its bottom down by
