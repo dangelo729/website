@@ -60,9 +60,12 @@
   <script src="js/mix.js"></script>
   <script src="js/chess.js"></script>
   <script src="js/rules.js"></script>
-  <script src="js/match.js"></script>
   <script src="js/games.js"></script>
   <script src="js/replay.js"></script>
+  <script src="js/clack.js"></script>
+  <script src="js/scrub.js"></script>
+  <script src="js/films.js"></script>
+  <script src="js/film.js"></script>
   <script src="js/subtitle.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
@@ -469,9 +472,8 @@
     // from wherever it has got to. while it is open the word, under it, is
     // not pressed; while it is shrinking a press on the word opens it again.
     //
-    // Doodles' box holds items as the work boxes do, three of them: graffiti
-    // wall, whose bubble opens into the wall itself (the wall, below),
-    // chess, whose bubble opens round a chess set (chess, below), and
+    // Doodles' box holds items as the work boxes do, two of them: graffiti
+    // wall, whose bubble opens into the wall itself (the wall, below), and
     // bubble bob, whose o is the bubble's (below), a ring BOB of
     // Doodles' o across and up, sitting on the baseline and bigger than
     // the name round it. it is his item's bubble shut, so his item has no
@@ -604,13 +606,13 @@
         { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
         { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
         { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
-        { title: 'Cicada' },
+        { title: 'Chebble',           chess: true, links: [['github.com/dangelo729/chebble', 'https://github.com/dangelo729/chebble']] },
+        { title: 'Cicada',            film: true },
         { title: 'This website!',     links: [['github.com/dangelo729/website', 'https://github.com/dangelo729/website']] },
       ] },
       { title: 'Doodles',           photo: false, o: 0, items: [
         { title: 'Bubble Bob', game: true },
         { title: 'Graffiti Wall', wall: true },
-        { title: 'Chess', chess: true },
       ] },
       { title: 'About',             photo: true,  o: 0 },
       { title: 'Contact',           photo: false, o: 0 },
@@ -662,15 +664,17 @@
       // body, below). piano: it holds upright's keys and their menu over
       // its text, laid out as pianoAt (the piano, below). wall: it is the
       // graffiti wall, its bubble open a box round the wall and its menu,
-      // laid out as wallAt (the wall, below). chess: it is the chess set,
-      // its bubble open a box round the board, laid out as chessAt (chess,
-      // below). menu is its
+      // laid out as wallAt (the wall, below). chess: it holds chebble's
+      // chess set over its text, laid out as chessAt (chess, below). film:
+      // it holds cicada's film over its text, laid out as filmAt (the
+      // film, below). menu
+      // is its
       // demo's settings menu as laid out and that menu's state,
       // { ui, m }, monk mouth's or upright's, and push how far its menu
       // has what is under it pushed down now (pushItem)
       items: (s.items || []).map((x, i) => ({
         title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, daedalus: !!x.daedalus, daedalusAt: null,
-        piano: !!x.piano, pianoAt: null, wall: !!x.wall, wallAt: null, chess: !!x.chess, chessAt: null, menu: null, push: 0, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        piano: !!x.piano, pianoAt: null, wall: !!x.wall, wallAt: null, chess: !!x.chess, chessAt: null, film: !!x.film, filmAt: null, menu: null, push: 0, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1182,27 +1186,6 @@
           base += BOX.ROW * is;
           return;
         }
-        if (it.chess) {
-          // shut, round its caret and name as the others' are; open, a
-          // box round the board's opening, the whole inside of its
-          // outline (chess, below): across the insides and, down, as
-          // tall as graffiti wall's box, in whole px
-          const like = sections.find((o) => o.photo && o.box.full), fy = base - (BOX.ITEM_CAP + BOX.ITEM_PAD_Y) * is;
-          const tall = 2 * BOX.BUBBLE * (like ? like.box.full.y1 - like.box.full.y0 : H - 2 * x0);
-          const qx = Math.ceil(ix0 + BOX.LINE), qy = Math.ceil(fy + BOX.LINE);
-          const ow = Math.floor(ix1 - BOX.LINE) - qx, oh = Math.floor(fy + tall - BOX.LINE) - qy;
-          it.shut = { x0: ix0, y0: fy, x1: it.hit.x1 + bx, y1: base + (BOX.ITEM_DESC + BOX.ITEM_PAD_Y) * is, r: BOX.ITEM_RADIUS * is };
-          it.full = { x0: ix0, y0: fy, x1: qx + ow + BOX.LINE, y1: qy + oh + BOX.LINE, r: BOX.ITEM_RADIUS * is };
-          it.right = it.full.x1;
-          it.ext = it.full.y1 - it.shut.y1;
-          it.base = base;
-          it.clip = base;
-          it.span = 0;
-          it.logosAt = [];
-          it.chessAt = placeChess(qx, qy, ow, oh, bs, ix0 + bx - qx, seed + 9000 + 10 * i + 5);
-          base += BOX.ROW * is;
-          return;
-        }
         if (ring) {
           // shut, round his caret and name as the others' are, from
           // ITEM_PAD_Y over the ring where that stands over the caps;
@@ -1241,7 +1224,13 @@
         // room the text has when that is narrower than he is, and so do
         // upright's keys and their menu (PIANO, below), a box PIANO.W wide
         // and as tall as pianoH has it at the text's size, the hand
-        // pointing at them in what the measure leaves right of them
+        // pointing at them in what the measure leaves right of them, and
+        // chebble's chess set (CHESS, below), its opening as far across as
+        // the text's measure, no more than CHESS.ACROSS, and CHESS.TALL of
+        // that down, no less than CHESS.LEAST nor more than CHESS.DOWN,
+        // and cicada's film (FILM, below), its picture as far across as
+        // the text's measure, no more than FILM.ACROSS, and as tall as
+        // filmH has it with its row under it
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1267,7 +1256,17 @@
           arts.unshift({ l: {}, demo: true, piano: true, w: PIANO.W, h: pianoH(bs) });
           colW = Math.max(colW, PIANO.W);
         }
-        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        if (it.chess) {
+          const across = Math.round(Math.min(CHESS.ACROSS, rx - nx, stacked ? Infinity : BOX.MEASURE * bs));
+          arts.unshift({ l: {}, demo: true, chess: true, w: across, h: Math.round(Math.max(CHESS.LEAST, Math.min(CHESS.DOWN, CHESS.TALL * across))) });
+          colW = Math.max(colW, across);
+        }
+        if (it.film) {
+          const across = Math.round(Math.min(FILM.ACROSS, rx - nx, stacked ? Infinity : BOX.MEASURE * bs));
+          arts.unshift({ l: {}, demo: true, film: true, w: across, h: filmH(across, bs) });
+          colW = Math.max(colW, across);
+        }
+        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && !it.chess && !it.film && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
@@ -1287,11 +1286,15 @@
         it.shipAt = null;
         it.daedalusAt = null;
         it.pianoAt = null;
+        it.chessAt = null;
+        it.filmAt = null;
         it.menu = null;
         for (const a of arts) {
-          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano || a.chess || a.film) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
           if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
+          else if (a.chess) it.chessAt = placeChess(x, y, a.w, a.h, bs, seed + 9000 + 10 * i + 5);
+          else if (a.film) it.filmAt = placeFilm(x, y, a.w, bs, seed + 9000 + 10 * i + 5);
           else if (a.piano) {
             it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5, nx + tw);
             it.menu = { ui: it.pianoAt.menu, m: pianoMenu };
@@ -1366,9 +1369,9 @@
       s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
       grow(s);
       // each item's skin settled where its bubble is now: laid out again,
-      // it is put straight there, as a box's is. bubble bob's, graffiti
-      // wall's and chess's open as big as a box, so they bow as a box's skin does
-      for (const it of s.items) it.skin = new Skin(itemAt(it), it.game || it.wall || it.chess ? SKIN.SPREAD : BOX.ITEM_SPREAD);
+      // it is put straight there, as a box's is. bubble bob's and graffiti
+      // wall's open as big as a box, so they bow as a box's skin does
+      for (const it of s.items) it.skin = new Skin(itemAt(it), it.game || it.wall ? SKIN.SPREAD : BOX.ITEM_SPREAD);
     }
 
     // a box's accordions where they have got to: each item pushed down by
@@ -1535,8 +1538,10 @@
       // the items, each pushed down by the texts above it, its caret
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, its logos, its demo
-      // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus) and
-      // its piano (drawPiano) with it, its text and its links as far down
+      // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus), its
+      // piano (drawPiano), its chess set (drawChess) and its film
+      // (drawFilm) with it, its text
+      // and its links as far down
       // as its menu pushes them (push), all into pfb over its
       // skin's box; then pfb copied into cfb through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
@@ -1546,14 +1551,13 @@
       // world, and his caret and name go over his skin, so it never cuts
       // them as it bows open and shut. graffiti wall's insides are the
       // wall and its menu (drawWall), wiped in as its bubble opens, and
-      // its caret and name over them, and chess's are the board and its
-      // button (drawChess), the same
+      // its caret and name over them
       for (const it of s.items) {
         if (!it.skin) continue;
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess && !hover.film ? HOVER_ITEM : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1568,10 +1572,9 @@
           continue;
         }
         if (it.wall && it.p > 0) drawWall(it, t, d, hover);
-        if (it.chess && it.p > 0) drawChess(it, t, d, hover);
         if (it.caret) it.caret.draw(t, d, pfb, it.turn * Math.PI / 2, v);
         for (const L of it.letters) L.draw(t, d, pfb, 0, v);
-        if (it.p > 0 && !it.wall && !it.chess) {
+        if (it.p > 0 && !it.wall) {
           const end = it.clip + it.p * it.span + d, dp = d + it.push;
           const see = (L) => L.cy + dp > lo && L.cy + dp < Math.min(hi, end + BOX.MOST);
           for (const L of it.text) if (see(L)) L.draw(t, dp, pfb);
@@ -1584,6 +1587,8 @@
           if (it.shipAt) drawShip(it, t, d);
           if (it.daedalusAt) drawDaedalus(it, t, d);
           if (it.pianoAt) drawPiano(it, t, d, hover);
+          if (it.chessAt) drawChess(it, t, d, hover);
+          if (it.filmAt) drawFilm(it, t, d, hover);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1733,9 +1738,9 @@
     // { s, it, settings, slider }, its button if it has one, { s, it,
     // settings, randomize }, or anywhere else in it, { s, it, settings }; one of the
     // box's items, its caret, its name
-    // or right of them to the box's edge (bubble bob's, graffiti wall's
-    // and chess's only as far as the bubble's right shut, so the game, the
-    // wall or the board beside it is free), a little above
+    // or right of them to the box's edge (bubble bob's and graffiti
+    // wall's only as far as the bubble's right shut, so the game or the
+    // wall beside it is free), a little above
     // and below,
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; an item's demo's
@@ -1754,21 +1759,23 @@
     // the rest, { s, it, wall, eraser }, its tray, { s, it, wall, tray }, or
     // anywhere else in it, { s, it, wall }, OUT or IN in the opening's
     // bottom right corner, a little round it, { s, it, wall, zoom }, -1
-    // or 1, and the wall itself, clear of its label, { s, it, wall, canvas }; chess, as far as its
-    // bubble has opened: its menu's header, a little round it, { s, it,
-    // chess, menu }, and, once the menu is over half open, in either of
-    // its columns, col, its button that picks, a little round it, or,
-    // once that is over half open, one of the rows under it, { s, it,
-    // chess, option, col }, the row; the button under it where it is
-    // now, a little round it, { s, it, chess, button, col }; or
-    // anywhere else in it, { s, it, chess }; RESET in its opening's bottom right
-    // corner, a little round it, { s, it, chess, reset }; its pane, in
-    // the bottom left: once it is over half open round a famous game's
-    // controls, one of their buttons, a little round it, { s, it, chess,
-    // pane }, its key, the scrubber's bar and a little over and under
-    // it, { s, it, chess, scrub }, or anywhere else in it, and before
-    // that its porthole, { s, it, chess }; and the board's opening,
-    // clear of its label, { s, it, chess, board }; a word whose box is not open, a little
+    // or 1, and the wall itself, clear of its label, { s, it, wall, canvas }; an item's chess
+    // set, as far as its text has opened to show it: its menu's header, a
+    // little round it, { s, it, chess, menu }, and, once the menu is over
+    // half open, its button that picks, a little round it, or, once that
+    // is over half open, one of the rows under it, { s, it, chess, option
+    // }, the row; GO where it is now, a little round it, { s, it, chess,
+    // button }; or anywhere else in it, { s, it, chess }; RESET in its
+    // opening's bottom right corner, a little round it, { s, it, chess,
+    // reset }; its pane, in the bottom left: once it is over half open
+    // round a famous game's controls, one of their buttons, a little
+    // round it, { s, it, chess, pane }, its key, the scrubber's bar and a
+    // little over and under it, { s, it, chess, scrub }, or anywhere else
+    // in it, and before that its porthole, { s, it, chess }; and anywhere
+    // else in its opening, { s, it, chess, board }; an item's film, as
+    // far as its text has opened to show it: its button, a little round
+    // it, or its picture, { s, it, film, play }, and the row its bar lies
+    // in, { s, it, film, reel }; a word whose box is not open, a little
     // round it, { s }; or null
     function hitAt(x, y) {
       const sy = scrolled();
@@ -1812,7 +1819,7 @@
                 if (inside(sm.full, 0)) return { s, it, settings: true };
               }
             }
-            if (x >= h.x0 - 4 && x <= (it.game || it.wall || it.chess ? it.shut.x1 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            if (x >= h.x0 - 4 && x <= (it.game || it.wall ? it.shut.x1 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
               if (!k) continue;
@@ -1843,27 +1850,32 @@
               for (const z of wa.zooms) if (inside(z.rect, WALL_UI.GAP / 2)) return { s, it, wall: true, zoom: z.dir };
               if (x >= wb.x0 && x < wb.x1 && iy >= wb.y0 && iy < wb.y1 && (x > it.shut.x1 || iy > it.shut.y1)) return { s, it, wall: true, canvas: true };
             }
-            const ca = it.chessAt && it.p > 0 ? it.chessAt : null, co = ca && itemAt(it);
-            if (ca && x <= co.x1 && iy + it.shift <= co.y1) {
+            const ca = it.chessAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.chessAt : null;
+            if (ca) {
               const cu = ca.menu, cb = ca.box, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
               if (inside(cu.shut, 2)) return { s, it, chess: true, menu: chessMenu };
               if (chessMenu.open && chessMenu.p > 0.5) {
-                for (let c = 0; c < cu.cols.length; c++) {
-                  const rows = cu.cols[c].pick.rows, b = cu.cols[c].button, br = b.rect, gy = iy - chessGrown(cu, c), pm = chessPicks[c];
-                  if (inside(rows[0].rect, 2)) return { s, it, chess: true, option: rows[0], col: c };
-                  if (pm.open && pm.p > 0.5) for (let j = 1; j < rows.length; j++) if (inside(rows[j].rect, 0)) return { s, it, chess: true, option: rows[j], col: c };
-                  if (x >= br.x0 - 2 && x <= br.x1 + 2 && gy >= br.y0 - 2 && gy <= br.y1 + 2) return { s, it, chess: true, button: b, col: c };
-                }
+                const rows = cu.pick.rows, b = cu.button, br = b.rect, gy = iy - chessGrown(cu);
+                if (inside(rows[0].rect, 2)) return { s, it, chess: true, option: rows[0] };
+                if (chessPick.open && chessPick.p > 0.5) for (let j = 1; j < rows.length; j++) if (inside(rows[j].rect, 0)) return { s, it, chess: true, option: rows[j] };
+                if (x >= br.x0 - 2 && x <= br.x1 + 2 && gy >= br.y0 - 2 && gy <= br.y1 + 2) return { s, it, chess: true, button: b };
                 if (inside(cu.full, 0)) return { s, it, chess: true };
               }
               if (inside(ca.reset.rect, WALL_UI.GAP / 2)) return { s, it, chess: true, reset: true };
               const cp = ca.panel, wide = chessPane.p > 0.5;
-              if (wide && chessPane.replay && Replay.on) {
+              if (wide && Replay.on) {
                 for (const b of cp.replay.buttons) if (inside(b.rect, 2)) return { s, it, chess: true, pane: b.key };
                 if (inside(cp.replay.hit, 0)) return { s, it, chess: true, scrub: true };
               }
               if (inside(wide ? cp.full : cp.shut, 0)) return { s, it, chess: true };
-              if (x >= cb.x0 && x < cb.x1 && iy >= cb.y0 && iy < cb.y1 && (x > it.shut.x1 || iy > it.shut.y1)) return { s, it, chess: true, board: true };
+              if (x >= cb.x0 && x < cb.x1 && iy >= cb.y0 && iy < cb.y1) return { s, it, chess: true, board: true };
+            }
+            const fa = it.filmAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.filmAt : null;
+            if (fa) {
+              const inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              if (inside(fa.button.rect, 2)) return { s, it, film: true, play: true };
+              if (inside(fa.hit, 0)) return { s, it, film: true, reel: true };
+              if (x >= fa.box.x0 && x < fa.box.x1 && iy >= fa.box.y0 && iy < fa.box.y1) return { s, it, film: true, play: true };
             }
           }
           continue;
@@ -1894,15 +1906,17 @@
     // in its opening's corner ask for
     // the wall ZOOM_STEP times smaller or bigger (stepZoom); nor the
     // chess set's board, turned or its pieces carried while it is held
-    // (chess, below), though RESET in its corner ends a game, or a
-    // famous game played back, and leads every piece back to where it
-    // starts, its menu's header opens and shuts it as the others' do, a
-    // column's button that picks opens, kicked, and shuts, one of the
-    // others under it changes places with the one picked and shuts it,
-    // PLAY begins a game with the time control picked and GO plays the
-    // famous game picked back, each ending the other and shutting the
-    // menu, and the buttons of a famous game's controls show it a move
-    // back or on, stop and start it and pick its speed (js/replay.js)
+    // (chess, below), though RESET in its corner ends a famous game
+    // played back and leads every piece back to where it starts, anyone's
+    // to take, its menu's header opens and shuts it as the others' do, its
+    // button that picks opens, kicked, and shuts, one of the others under
+    // it changes places with the one picked and shuts it, GO plays the
+    // famous game picked back and shuts the menu, and the buttons of a
+    // famous game's controls show it a move back or on, stop and start it
+    // and pick its speed (js/replay.js); and the film's button, or its
+    // picture, plays it, or stops it while it plays (js/film.js), though
+    // its bar presses nothing, the film sought while it is held (the
+    // film, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = worldPointer(e);
@@ -1920,29 +1934,26 @@
       else if (h.zoom) wallScaleTo = Math.min(WALL_UI.ZOOM_MOST, wallScaleTo * Math.pow(WALL_UI.ZOOM_STEP, h.zoom));
       else if (h.reset) {
         Replay.stop();
-        Match.reset();
+        Chess.reset();
+        Chess.mover(-1);
       }
       else if (h.option && h.option.j) {
-        const j = h.option.j, order = chessOrders[h.col], was = order[0];
-        order[0] = order[j];
-        order[j] = was;
-        chessPicks[h.col].open = false;
+        const j = h.option.j, was = chessOrder[0];
+        chessOrder[0] = chessOrder[j];
+        chessOrder[j] = was;
+        chessPick.open = false;
       }
       else if (h.option) {
-        const m = chessPicks[h.col];
-        m.open = !m.open;
-        if (m.open) m.v += SHOP_UI.KICK;
+        chessPick.open = !chessPick.open;
+        if (chessPick.open) chessPick.v += SHOP_UI.KICK;
       }
       else if (h.button) {
-        Replay.stop();
-        if (h.col) {
-          Match.reset();
-          Replay.watch(GAMES[chessOrders[1][0]]);
-        } else Match.play(Match.CONTROLS[chessOrders[0][0]]);
+        Replay.watch(GAMES[chessOrder[0]]);
         chessMenu.open = false;
       }
       else if (h.pane) Replay[h.pane]();
-      else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall || h.chess) return;
+      else if (h.play) Film.toggle();
+      else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall || h.chess || h.film) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -2003,6 +2014,8 @@
     canvas.addEventListener('pointerleave', () => { nameOn = -1; });
     Piano.listen(window);
     Voice.listen(window);
+    Clack.listen(window);
+    Scrub.listen(window);
 
     // --- the mute button ---------------------------------------------------------
     // a speaker MUTE.GAP world px clear of the window's bottom-right corner,
@@ -2012,9 +2025,11 @@
     // sprites on one seed so they wobble as one: its paper, with its ink in
     // it so nothing between the two shows through, then its ink over that,
     // in the first tag colour while a mouse is over it. a press on it, or a
-    // little round it, eases the piano, the voice and the demo's voice
-    // (js/piano.js, js/voice.js, js/monk.js) to silence or brings them back,
-    // and presses nothing under it. the browser keeps it, so a visitor who
+    // little round it, eases the piano, the voice, the demo's voice and
+    // the chess set's sound (js/piano.js, js/voice.js, js/monk.js,
+    // js/clack.js) and the film's (js/film.js, js/scrub.js) to silence or
+    // brings them back, and presses nothing
+    // under it. the browser keeps it, so a visitor who
     // muted the page finds it muted the next time
     const MUTE = {
       GAP: 21,             // world px clear of the right and bottom edges, as the tag is of the right
@@ -2091,6 +2106,8 @@
       Piano.mute(on);
       Voice.mute(on);
       Monk.mute(on);
+      Clack.mute(on);
+      Film.mute(on);
       try { localStorage.setItem(MUTE.KEY, on ? '1' : '0'); } catch (e) {}
     }
     try { if (localStorage.getItem(MUTE.KEY) === '1') setMuted(true); } catch (e) {}
@@ -4709,130 +4726,112 @@
     canvas.addEventListener('pointercancel', wallGo);
 
     // --- chess -------------------------------------------------------------------
-    // chess, in Doodles, is a chess set (js/chess.js): a board floating in
-    // space with the 32 pieces on it, drawn in 3d by third_dimension in its
-    // outline look, in the page's paper and ink: black's pieces ink with
-    // paper lines, or, in the other look LOOK can pick, TONE with ink
-    // lines. its bubble shut goes round its caret and name
-    // as the others' do; open, it is a box round the board's opening
-    // (layoutItems), across the box's insides and as tall as graffiti
-    // wall's, the whole inside of its outline. the picture is drawn there
-    // as the wall is, GROW times its size (WALL_UI.GROW) and still, each of
-    // its px off the framebuffer's grid and wobbling a little where it is,
-    // so its ink shimmers as the letters do (drawShimmer): its canvas is
-    // the opening GROW times smaller, no more than W x H, and stands in the
-    // opening's middle. its caret and name stay in its top left corner as
-    // its label, on paper over the board, and a press there is still the
-    // item's. the board's files are lettered along white's side and its
+    // chebble's item, in personal work, holds chebble's chess set
+    // (js/chess.js): a board with the 32 pieces on it, drawn in 3d by
+    // third_dimension in its outline look, in a paper and ink of its own,
+    // the light page's on the dark page too (PAPER, INK): black's pieces
+    // ink with paper lines, or, in the other look LOOK can pick, TONE with
+    // ink lines. its opening is a box over the item's text (layoutItems),
+    // as far across as the text's measure, no more than ACROSS, and TALL
+    // of that down, no less than LEAST nor more than DOWN. the picture is
+    // drawn there as the wall is, GROW times its size (WALL_UI.GROW) and
+    // still, each of its px off the framebuffer's grid and wobbling a
+    // little where it is, so its ink shimmers as the letters do
+    // (drawShimmer): its canvas is the opening GROW times smaller. the
+    // table the board lies on is the page's own paper and is never drawn,
+    // so the opening has no edge but where a piece lying on the table is
+    // cut by it. the board's files are lettered along white's side and its
     // ranks numbered along the a file's, in its margin: the page's
     // letters, wobbling as they do, but lying on the board's top as if
     // printed there, to be read from white's side, each drawn as the
     // board is where it lies, behind any piece drawn over it
-    // (drawLabels). in
-    // its bottom right corner, as far in from the bottom and right as its
-    // caret's ink is from its left, is RESET, a button drawn as the wall's
-    // OUT and IN are, paper inside, in the links' hover colour (the
-    // musician's) under the pointer: a press on it leads every piece back
-    // to where it starts. the pieces are rigid bodies, and the board lies
-    // on a table that is never drawn and has no end to speak of: knocked,
-    // they fall, roll, go off the board's edge onto the table, and come to
-    // rest. a mouse's pointer over a piece draws it
-    // in the links' hover colour where it would have the ink (Chess.hover),
+    // (drawLabels). in its bottom right corner, a menu's margin in, is
+    // RESET, a button drawn as the wall's OUT and IN are, paper inside, in
+    // the links' hover colour (the musician's) under the pointer: a press
+    // on it ends a famous game played back and leads every piece back to
+    // where it starts. the pieces are rigid bodies, and the table has no
+    // end to speak of: knocked, they fall, roll, go off the board's edge
+    // onto the table, and come to rest. what the set's solver finds
+    // touched, a piece and a piece, the board or the table, is heard
+    // (js/clack.js): its words (Chess.words) said to the sound after each
+    // step of the set (stepChess), and nothing while the page is muted
+    // (the mute button, above). a mouse's pointer over a piece draws it in
+    // the links' hover colour where it would have the ink (Chess.hover),
     // and a piece held stays so. a primary press on the opening takes the
-    // piece drawn under it (Match.take) by its head, and while it is held
+    // piece drawn under it (Chess.take) by its head, and while it is held
     // each move carries it there, over the others, a ring on the table
     // under it, and the lift lets it go; a press on no piece takes hold of
     // the view, and while it is held each move turns the camera DRAG
     // radians a world px across round the board and down over it, the
     // board's near side going the way the pointer goes. the click either
     // ends in presses nothing. the opening left while a piece is held, or
-    // chess shut, calls the hold off. a press on the opening is never a
-    // swipe (the swipe, below). the wheel over the board, a wheel held
-    // with ctrl or cmd or safari's pinch there (the wheel, below), and two
-    // fingers on it coming apart or together zoom the camera in and out,
-    // from the whole board in its picture however it is turned to as far
-    // in as the set lets it (Chess.zoom); the wheel scrolls the page over
-    // the rest of the opening as anywhere, and over the board too in a run
-    // whose first event has no zoom left to make.
+    // the item shut, lets it go. a press on the opening is never a swipe
+    // (the swipe, below). the wheel over the board, a wheel held with ctrl
+    // or cmd or safari's pinch there (the wheel, below), and two fingers
+    // on it coming apart or together zoom the camera in and out, from the
+    // whole board in its picture however it is turned to as far in as the
+    // set lets it (Chess.zoom); the wheel scrolls the page over the rest
+    // of the opening as anywhere, and over the board too in a run whose
+    // first event has no zoom left to make.
     //
     // in its top right corner is its menu, built as the wall's is and
     // moved as bubble bob's (the shop, above): shut, a button with a caret
-    // and TITLE at its left; open, down and to the left round two
-    // columns: the time control's button with PLAY under it and, to
-    // their right, the famous game's button with GO under it. each of
-    // those two buttons is a menu of
-    // its own, moved the same way: shut, round the one picked, of the
-    // match's time controls (js/match.js) or of the famous games
-    // (js/games.js), the first at first; pressed, it opens down
-    // round the others, pushing the button under it and the menu's
-    // bottom down as far as
-    // it has opened, and a press on one of the others puts it where the
-    // one picked was, that one where it was, and shuts the button. under
-    // the pointer the button and the one picked are in the words'
-    // hover colour (the inventor's) and another of them in the items'
-    // (the software engineer's). PLAY shuts the menu and
-    // begins a game with the control picked, two people at the one screen
-    // by the rules (js/rules.js): the pieces are led home, then white is
-    // to move, the clocks starting with its first move. only the side to
-    // move's pieces light under the pointer and
-    // can be taken; one taken has the squares it may go to bordered on the
-    // board in the links' hover colour, and of those and its own the one
-    // nearest the pointer on the board filled, its own until the pointer
-    // has moved from where it took it. let go, it is drawn down
-    // onto that square and the move is made, the clock passing to the
-    // other side, or, nearest its own, it goes back and no move is made,
-    // as it does when its hold is called off. let go where it was pressed,
-    // the pointer not moved SLOP, it stays up over its square instead, the
-    // square a press under the pointer would pick filled (Match.aim), and
-    // a press on the board that takes nothing and is let go within SLOP of
-    // where it began sends it there (Match.tap), or back down; chess shut
-    // puts it back. a piece it takes it comes
-    // down on and knocks off the board, to lie on the table until the
-    // pieces are next led home. the camera is turned only by
-    // hand, whoever is to move. GO shuts the menu and plays the famous
-    // game picked back on the set (js/replay.js), no piece to be taken:
-    // the pieces are led home, then its moves are made one after
-    // another, each piece led to its square over the others and the
-    // piece it takes knocked off the board as it comes down on it. RESET
-    // ends either.
+    // and TITLE at its left; open, down round the button that picks the
+    // famous game, with GO under it. that button is a menu of its own,
+    // moved the same way: shut, round the one picked of the famous games
+    // (js/games.js), the first at first; pressed, it opens down round the
+    // others, pushing GO and the menu's bottom down as far as it has
+    // opened, and a press on one of the others puts it where the one
+    // picked was, that one where it was, and shuts the button. under the
+    // pointer the button and the one picked are in the words' hover
+    // colour (the inventor's) and another of them in the items' (the
+    // software engineer's). GO shuts the menu and plays the famous game
+    // picked back on the set (js/replay.js), no piece to be taken: the
+    // pieces are led home, then its moves are made one after another,
+    // each piece led to its square over the others and the piece it takes
+    // knocked off the board as it comes down on it, to lie on the table
+    // until the pieces are next led home, the squares the move made last
+    // went from and to bordered in the items' hover colour. RESET ends it,
+    // and the pieces are anyone's again.
     //
     // in the opening's bottom left corner, as far in as RESET is from its
-    // corner, is its pane, a skin moved as the menus are: with nothing
-    // on, a porthole, PORT of a button's height across, with ICONS.pawn
-    // (js/icons.js) in it, wobbling as a letter does. while a game is on
-    // it is open round the game's lines (chessSays): with a clock, each
-    // side's name and its time, the side to move's in the links' hover
-    // colour, and under them who is to move and whether in check, or how
-    // the game ended. while a famous game is played back it is open
-    // round that game's controls: a line saying what the set is shown
-    // after (chessSaid), the game's name before its first move, the move
-    // made last from then, and its result too after its last; under it
-    // BACK and NEXT, a move back and a move on, between them PLAY or,
-    // while it plays, PAUSE, and at the right its speed, a press picking
-    // the next; and under those the scrubber, a bar with a dot as far
-    // along it as the game is through its moves, which a press on the
-    // bar, held and moved, takes to the move under the pointer, the set
-    // shown after that many moves as it goes. a button under the
-    // pointer, and the scrubber under it or held, are in the words'
-    // hover colour. shutting, the pane draws what it held until it is
-    // PORTED of the way open, and the pawn from there.
+    // corner, is its pane, a skin moved as the menus are: with no famous
+    // game played back, a porthole, PORT of a button's height across,
+    // with ICONS.pawn (js/icons.js) in it, wobbling as a letter does.
+    // while a famous game is played back it is open round that game's
+    // controls: a line saying what the set is shown after (chessSaid),
+    // the game's name before its first move, the move made last from
+    // then, and its result too after its last; under it BACK and NEXT, a
+    // move back and a move on, between them PLAY or, while it plays,
+    // PAUSE, and at the right its speed, a press picking the next; and
+    // under those the scrubber, a bar with a dot as far along it as the
+    // game is through its moves, which a press on the bar, held and
+    // moved, takes to the move under the pointer, the set shown after
+    // that many moves as it goes. the arrow keys do as BACK and NEXT do,
+    // and up and down show it before its first move and after its last.
+    // a button under the pointer, and the scrubber under it or held, are
+    // in the words' hover colour. shutting, the pane draws what it held
+    // until it is PORTED of the way open, and the pawn from there.
     //
-    // the set is stepped each frame while chess is at least partly open in
-    // a box out of its o and its opening is on the screen (the frame,
-    // below), its canvas sized to the opening first, and a step draws only
-    // when something has changed; a game's clocks run only then
+    // the set is stepped each frame while chebble is at least partly open
+    // in a box out of its o and its opening is on the screen (the frame,
+    // below), its canvas sized to the opening first, and a step draws
+    // only when something has changed; a famous game is played back only
+    // then
     const CHESS = {
-      W: 1280, H: 720, // canvas px, the most its picture is across and down: past that the opening holds it in its middle
+      ACROSS: 640,    // world px, the most its opening is across: it is as far across as its item's text,
+      TALL: 0.6875,   // and of that, how far down,
+      LEAST: 380,     // no less than this
+      DOWN: 440,      // nor more than this
       DRAG: 0.01,     // radians a world px of a held press turns the camera, round it across and over it down
-      SLOP: 5,        // world px a press may go from where it began and still, let go, be a press in one place
       WHEEL: 0.003,   // a px of the wheel over the board zooms the camera in or out e to this
       LOOK: 1,        // black's pieces: 1 in ink with paper lines, 0 in the tone with ink lines
-      TONE: ['#787068', '#8a837c'], // the tone, on the light page and on the dark
+      PAPER: '#fbf6f0', INK: '#000000', // the board's and its pieces' paper and ink, the light page's, on the dark page too,
+      TONE: '#787068',                  // and the tone
       RESET: 'reset', // what the button in the opening's bottom right corner says
-      TITLE: 'settings', // what the menu's header says,
-      PLAY: 'play',      // on its first column's last button,
-      GO: 'go',          // and on its second's
-      BACK: '<', NEXT: '>', PAUSE: 'pause', // a famous game's controls: a move back, a move on, and what PLAY says while it plays;
+      TITLE: 'historical games', // what the menu's header says,
+      GO: 'go',                  // and the button under its button that picks
+      BACK: '<', NEXT: '>', PLAY: 'play', PAUSE: 'pause', // a famous game's controls: a move back, a move on, and what the button between them says, stopped and while it plays;
       TIMES: 'x',                           // what follows its speed;
       ENDS: ' · ',                          // what stands between its last move and its result;
       WIDEST: '88... Qh4xg1+ · 1/2-1/2',    // and a line as wide as any its line says
@@ -4843,36 +4842,37 @@
       FILES: 'abcdefgh', RANKS: '12345678', // the board's labels: its files', along white's side, and its ranks', along the a file's,
       EDGE: 4.2,    // squares from the board's middle to their middles, half way across its margin,
       LABEL: 0.4,   // and of a square, their em
-      SIDES: ['white', 'black'],           // what a game's lines call the two sides
-      MOVE: ' to move', CHECK: ' · check', // what its last line says after the side to move, and after that in check;
-      MATE: 'checkmate · ', WINS: ' wins', // and over, round the winner at checkmate,
-      STALE: 'stalemate · a draw',         // at stalemate,
-      TIME: ' wins on time',               // and after the winner when a clock has run out
     };
     const chessHome = sections.find((s) => s.items.some((it) => it.chess)) || null; // the section whose box holds the set
-    const chessItem = chessHome ? chessHome.items.find((it) => it.chess) : null;       // chess, the item it is
+    const chessItem = chessHome ? chessHome.items.find((it) => it.chess) : null;       // chebble, the item it is in
     const chessTypes = new Map(); // a line of the set's text, to its Type
     const chessType = (text) => {
       let t = chessTypes.get(text);
       if (!t) chessTypes.set(text, t = new Type(text, () => document.createElement('canvas'), TAG.FACE));
       return t;
     };
-    let chessHold = null; // the press on the opening, { id, x, y, held, far, from }: its pointer, where it was last, world px on the screen, 1 while it holds a piece, 0 the view, -1 neither, the furthest it has been from where it began, and where that was; or null
-    // what each of the menu's columns picks from, as its button lists them, each its place in Match.CONTROLS or in GAMES: the first is the one picked
-    const chessOrders = [Match.CONTROLS.map((c, i) => i), GAMES.map((g, i) => i)];
+    let chessHold = null; // the press on the opening, { id, x, y, held }: its pointer, where it was last, world px on the screen, and 1 while it holds a piece, 0 the view, -1 neither; or null
+    // what the menu's button that picks picks from, as it lists them, each its place in GAMES: the first is the one picked
+    const chessOrder = GAMES.map((g, i) => i);
     // a menu as bubble bob's is (menu, above), shut
     const chessShut = () => ({
       open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
       warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
     });
-    const chessMenu = chessShut();                 // the menu,
-    const chessPicks = [chessShut(), chessShut()]; // each of its columns' buttons that pick, menus too,
-    const chessPane = Object.assign(chessShut(), { replay: false }); // and the pane: replay, it holds a famous game's controls, not a game's lines
+    const chessMenu = chessShut(); // the menu,
+    const chessPick = chessShut(); // its button that picks, a menu too,
+    const chessPane = chessShut(); // and the pane
     let chessScrub = null; // the pointer holding the scrubber, or null
     let chessDot = null;   // how far along the scrubber's bar its dot has got to, 0 .. 1, or null with no famous game played back
     const chessFingers = new Map(); // each finger down on the board, by its pointer, where it was last, world px on the screen
     let chessPinch = null;          // safari's pinch over the board: its scale as last heard, or null
-    Chess.colours(0, 1, Framebuffer.colour(CHESS.TONE[0], CHESS.TONE[1]), HOVER_LINK);
+    // the set's colours: its paper, ink and tone (CHESS), the same on the
+    // light page and the dark; a piece under the pointer, or held, in the
+    // links' hover colour; the squares the move made last went from and to
+    // bordered in the items'; and the table round the board the page's own
+    // paper, the ring under a piece held the page's ink on it
+    const CHESS_PAPER = Framebuffer.colour(CHESS.PAPER), CHESS_INK = Framebuffer.colour(CHESS.INK), CHESS_TONE = Framebuffer.colour(CHESS.TONE);
+    Chess.colours(CHESS_PAPER, CHESS_INK, CHESS_TONE, HOVER_LINK, HOVER, HOVER_ITEM, 0, 1);
     Chess.look(CHESS.LOOK);
 
     // the pawn (ICONS.pawn, js/icons.js) as a letter in the middle of
@@ -4883,52 +4883,47 @@
     }
 
     // the board's opening with its top left at (x, y), w x h, world px on
-    // the page as laid out, at the text's size bs, inset how far its
-    // caret's ink is in from its left: the opening (box); the canvas it
-    // holds, GROW times smaller and no more than W x H (w, h); the board's
+    // the page as laid out, at the text's size bs, what stands in its
+    // corners a menu's MARGIN in from its edges: the opening (box); the
+    // canvas it holds, GROW times smaller (w, h); the board's
     // labels (labels, each { x, z, up, letter }: the point of the board's
     // top it lies at, how far its middle is under the middle of its
     // row's, the files' or the ranks', its own bitmap's px, so a row's
     // lie on one baseline, and its letter, for its wobble, at its
     // bitmap's own size, placed as it is drawn, drawLabels); RESET in
-    // its bottom right corner, as far in from its bottom and right as the
-    // caret's ink is from its left, a button as the wall's ERASER is, as
+    // its bottom right corner, a button as the wall's ERASER is, as
     // wide as its word and its inside and outline wobbling as one, { rect,
     // fill, ring, letters }; its menu, laid out as the wall's is
     // (placeWall), { room, size, shut, full, bottom, header: { caret,
-    // title }, cols }: its button in the opening's top right corner, as
-    // wide as its first column and the margins round it, its caret and
-    // TITLE from its left, and, open, down from there and out to the left
-    // round its two columns, MARGIN apart and round them, the second to
-    // the right of the first, each as wide as the widest thing it says,
-    // bottom where it ends with their buttons that pick shut. a column is
-    // { pick, button }. pick, its button that picks, is a menu of its own
-    // ({ room, size, shut, full, rows }): shut, round one row, a button's
-    // height less the room under its words for descenders, so it stands a
-    // little less tall than the button under it; open, down round a row
-    // for each of the things it picks from, the match's time controls or
-    // the famous games, rows[j] its place and, for each of them, the
-    // letters that say it there, { j, rect, says }. button, ROW under it,
-    // is { rect, letters }: PLAY's, or GO's. and its pane in its bottom
-    // left corner (panel, { room, size, shut, full, pawn, box, words,
+    // title }, pick, button }: its button in the opening's top right
+    // corner, as wide as its column and the margins round it, its caret
+    // and TITLE from its left, and, open, down from there round its
+    // column, MARGIN round it, as wide as the widest thing it says, or as
+    // its header needs if that is wider, bottom where it ends with its
+    // button that picks shut. pick, its button that picks, is a menu of
+    // its own ({ room, size, shut, full, rows }): shut, round one row, a
+    // button's height less the room under its words for descenders, so it
+    // stands a little less tall than the button under it; open, down
+    // round a row for each of the famous games, rows[j] its place and,
+    // for each of them, the letters that say it there, { j, rect, says }.
+    // button, ROW under it, is { rect, letters }: GO's. and its pane in
+    // its bottom left corner (panel, { room, size, shut, full, pawn,
     // replay, said }), a menu too: shut, its porthole, PORT of a button's
     // height across and round, the pawn in its middle (chessPawn); open,
-    // full, whichever of these it is given (stepChessMenu): box[n], round
-    // n of a game's lines, as wide as the widest thing a line says and as
-    // tall as its lines, a caption's lead apart, words(n, j, text) the
-    // letters of line j of n saying text; or replay.rect, round a famous
-    // game's controls, MARGIN round them and ROW apart: its line,
-    // said(text) its letters saying text, as wide as the widest it says;
-    // under it its buttons (replay.buttons, each { key, rect, says }: what
-    // Replay does at a press on it, and the letters of each thing it
-    // says, in its middle), BACK, PLAY or PAUSE and NEXT from the left and
-    // its speeds at the right; and under those the scrubber's bar
-    // (replay.bar), as tall as a slider's, and where a press takes hold
-    // of it (replay.hit), from ROW over it down to the pane's bottom. a
-    // line's letters are made the first time it is said and kept
-    function placeChess(x, y, w, h, bs, inset, seed) {
+    // full, round a famous game's controls, MARGIN round them and ROW
+    // apart: its line, said(text) its letters saying text, as wide as the
+    // widest it says; under it its buttons (replay.buttons, each { key,
+    // rect, says }: what Replay does at a press on it, and the letters of
+    // each thing it says, in its middle), BACK, PLAY or PAUSE and NEXT
+    // from the left and its speeds at the right; and under those the
+    // scrubber's bar (replay.bar), as tall as a slider's, and where a
+    // press takes hold of it (replay.hit), from ROW over it down to the
+    // pane's bottom. a line's letters are made the first time it is said
+    // and kept
+    function placeChess(x, y, w, h, bs, seed) {
       const U = WALL_UI, S = SHOP_UI, C = CHESS, size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), k = size / TYPE.EM, th = Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC));
-      const left = Math.round(x + inset), top = Math.round(y + inset), right = Math.round(x + w - inset), bottom = Math.round(y + h - inset);
+      const margin = Math.round(S.MARGIN * size), row = Math.round(S.ROW * size);
+      const left = Math.round(x + margin), top = Math.round(y + margin), right = Math.round(x + w - margin), bottom = Math.round(y + h - margin);
       const wide = (t) => k * (t.left + t.right), pad = S.PAD_X * size;
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
       const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (S.PAD_Y + S.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
@@ -4950,37 +4945,28 @@
       }
       const rt = chessType(C.RESET), reset = boxed({ x0: Math.round(right - wide(rt) - 2 * pad), y0: bottom - th, x1: right, y1: bottom }, seed + 10);
       reset.letters = letters(rt, reset.rect.x0 + pad, reset.rect.y0, seed + 20);
-      // the menu: its button, its words at its left, and under it its two columns
+      // the menu: its button, its words at its left, and under it its column
       const tt = chessType(C.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
-      const margin = Math.round(S.MARGIN * size), row = Math.round(S.ROW * size);
-      const names = Match.CONTROLS.map((c) => chessType(c.name)), games = GAMES.map((g) => chessType(g.name)), pt = chessType(C.PLAY), gt = chessType(C.GO);
-      const bw = Math.max(Math.round(Math.max(wide(pt), ...names.map(wide)) + 2 * pad), Math.round(cw + apart + wide(tt) + 2 * pad) - 2 * margin);
-      const gw = Math.round(Math.max(wide(gt), ...games.map(wide)) + 2 * pad);
-      const shut = { x0: right - bw - 2 * margin, y0: top, x1: right, y1: top + th }, hx = shut.x0 + pad;
+      const games = GAMES.map((g) => chessType(g.name)), pt = chessType(C.PLAY), gt = chessType(C.GO);
+      const col = Math.max(Math.round(Math.max(wide(gt), ...games.map(wide)) + 2 * pad), Math.round(cw + apart + wide(tt) + 2 * pad) - 2 * margin);
+      const shut = { x0: right - col - 2 * margin, y0: top, x1: right, y1: top + th }, hx = shut.x0 + pad;
       const header = {
         caret: cg ? makeLetter(cg.g, hx + cw / 2, top + size * (S.PAD_Y + S.CAP) + k * cg.dy, seed + 50, k, WOBBLE) : null,
         title: letters(tt, hx + cw + apart, top, seed + 60),
       };
       const room = { x0: x, y0: y, x1: x + w, y1: y + h };
-      // a column from x0, across wide: its button that picks, a row for each of types, each a button's height less its descenders', and under it the button saying says
-      const py = shut.y1, ph = Math.round(size * (2 * S.PAD_Y + S.CAP));
-      const column = (x0, across, types, says, sd) => {
-        const rows = types.map((nt, j) => ({
-          j, rect: { x0, y0: py + j * ph, x1: x0 + across, y1: py + (j + 1) * ph },
-          says: types.map((ct) => letters(ct, x0 + pad, py + j * ph, sd + 100 * j)),
-        }));
-        const br = { x0, y0: py + ph + row, x1: x0 + across, y1: py + ph + row + th };
-        return { pick: { room, size, shut: rows[0].rect, full: { x0, y0: py, x1: x0 + across, y1: py + types.length * ph }, rows }, button: { rect: br, letters: letters(says, x0 + pad, br.y0, sd + 90) } };
-      };
-      const cols = [column(right - 2 * margin - gw - bw, bw, names, pt, seed + 200), column(right - margin - gw, gw, games, gt, seed + 3000)];
-      const full = { x0: right - bw - gw - 3 * margin, y0: top, x1: right, y1: cols[0].button.rect.y1 + margin };
-      // the pane: its porthole, and open round a game's lines, the widest of all they can say, one line and three
-      const lead = Math.round(BOX.CAP_LEAD * size), say = [C.STALE];
-      for (const sd of C.SIDES) say.push(sd + ' 00:00', sd + C.MOVE + C.CHECK, C.MATE + sd + C.WINS, sd + C.TIME);
-      const pw = Math.round(Math.max(...say.map((text) => wide(chessType(text)))) + 2 * pad), box = {};
-      for (const n of [1, 3]) box[n] = { x0: left, y0: bottom - th - (n - 1) * lead, x1: left + pw, y1: bottom };
+      // its button that picks, a row for each of the games, each a button's height less its descenders', and under it GO
+      const cx = right - margin - col, py = shut.y1, ph = Math.round(size * (2 * S.PAD_Y + S.CAP));
+      const picks = games.map((nt, j) => ({
+        j, rect: { x0: cx, y0: py + j * ph, x1: cx + col, y1: py + (j + 1) * ph },
+        says: games.map((ct) => letters(ct, cx + pad, py + j * ph, seed + 3000 + 100 * j)),
+      }));
+      const pick = { room, size, shut: picks[0].rect, full: { x0: cx, y0: py, x1: cx + col, y1: py + games.length * ph }, rows: picks };
+      const gr = { x0: cx, y0: py + ph + row, x1: cx + col, y1: py + ph + row + th };
+      const go = { rect: gr, letters: letters(gt, cx + pad, gr.y0, seed + 3090) };
+      const full = { x0: shut.x0, y0: top, x1: right, y1: gr.y1 + margin };
+      // the pane: its porthole, and open round a famous game's controls: its line, its buttons and the scrubber
       const port = Math.round(C.PORT * th), hole = { x0: left, y0: bottom - port, x1: left + port, y1: bottom, r: port / 2 };
-      // and round a famous game's controls: its line, its buttons and the scrubber
       const bt = chessType(C.BACK), nt = chessType(C.NEXT), ut = chessType(C.PAUSE), speeds = Replay.SPEEDS.map((v) => chessType(v + C.TIMES));
       const aw = Math.round(Math.max(wide(bt), wide(nt)) + 2 * pad), tw = Math.round(Math.max(wide(pt), wide(ut)) + 2 * pad), sw = Math.round(Math.max(...speeds.map(wide)) + 2 * pad);
       const iw = Math.max(Math.round(Math.max(wide(chessType(C.WIDEST)), ...games.map(wide)) + 2 * pad), 2 * aw + tw + sw + 3 * row), sh = DEMO.SLIDER.H;
@@ -4994,21 +4980,20 @@
         button('next', rx + aw + tw + 2 * row, aw, [nt], seed + 830), button('faster', rr.x1 - margin - sw, sw, speeds, seed + 840),
       ];
       const bar = { x0: rx, y0: by + th + row, x1: rr.x1 - margin, y1: by + th + row + sh };
-      const kept = new Map(), keep = (key, make) => {
-        let line = kept.get(key);
-        if (!line) kept.set(key, line = make());
-        return line;
-      };
+      const kept = new Map();
       const panel = {
-        room, size, shut: hole, full: box[1], pawn: chessPawn(hole), box,
-        words: (n, j, text) => keep(n + ' ' + j + ' ' + text, () => letters(chessType(text), left + pad, box[n].y0 + j * lead, seed + 700 + 100 * j)),
+        room, size, shut: hole, full: rr, pawn: chessPawn(hole),
         replay: { rect: rr, buttons, bar, hit: { x0: bar.x0, y0: bar.y0 - row, x1: bar.x1, y1: rr.y1 } },
-        said: (text) => keep(': ' + text, () => letters(chessType(text), rx + pad, rr.y0 + margin, seed + 900)),
+        said: (text) => {
+          let line = kept.get(text);
+          if (!line) kept.set(text, line = letters(chessType(text), rx + pad, rr.y0 + margin, seed + 900));
+          return line;
+        },
       };
       return {
         box: room,
-        w: Math.min(C.W, Math.floor(w / U.GROW)), h: Math.min(C.H, Math.floor(h / U.GROW)), labels: rows[0].concat(rows[1]),
-        reset, menu: { room, size, shut, full, bottom: full.y1, header, cols }, panel,
+        w: Math.floor(w / U.GROW), h: Math.floor(h / U.GROW), labels: rows[0].concat(rows[1]),
+        reset, menu: { room, size, shut, full, bottom: full.y1, header, pick, button: go }, panel,
       };
     }
 
@@ -5020,54 +5005,31 @@
       return { x: b.x0 + Math.floor((b.x1 - b.x0 - w) / 2), y: b.y0 + Math.floor((b.y1 - b.y0 - h) / 2), w, h };
     }
 
-    // how far down column c's button that picks has opened past its
+    // how far down the menu's button that picks has opened past its
     // bottom shut, world px, in a menu laid out as ui
-    function chessGrown(ui, c) {
-      const pick = ui.cols[c].pick;
-      return Math.max(0, menuAt(chessPicks[c], pick, chessPicks[c].p).y1 - pick.shut.y1);
+    function chessGrown(ui) {
+      return Math.max(0, menuAt(chessPick, ui.pick, chessPick.p).y1 - ui.pick.shut.y1);
     }
 
-    // chess's menu dt on: each column's button that picks toward open or
-    // shut (stepMenu), shut once the menu is, and the menu itself, as much
-    // taller as the further open of them has opened; its pane, toward
-    // open, kicked as it starts, round a game's lines while one is on or
-    // a famous game's controls while one is played back, and toward its
-    // porthole with neither; and the scrubber's dot toward as far along
-    // its bar as the famous game is through its moves (dotTo), the
-    // scrubber let go once none is played back
+    // chess's menu dt on: its button that picks toward open or shut
+    // (stepMenu), shut once the menu is, and the menu itself, as much
+    // taller as that has opened; its pane, toward open, kicked as it
+    // starts, round a famous game's controls while one is played back,
+    // and toward its porthole with none; and the scrubber's dot toward
+    // as far along its bar as the famous game is through its moves
+    // (dotTo), the scrubber let go once none is played back
     function stepChessMenu(dt, t) {
       const a = chessItem && chessItem.chessAt, ui = a && a.menu;
       if (!ui) return;
-      for (let c = 0; c < chessPicks.length; c++) {
-        if (!chessMenu.open) chessPicks[c].open = false;
-        stepMenu(chessPicks[c], ui.cols[c].pick, dt, t);
-      }
-      ui.full.y1 = ui.bottom + Math.max(chessGrown(ui, 0), chessGrown(ui, 1));
+      if (!chessMenu.open) chessPick.open = false;
+      stepMenu(chessPick, ui.pick, dt, t);
+      ui.full.y1 = ui.bottom + chessGrown(ui);
       stepMenu(chessMenu, ui, dt, t);
-      const pane = chessPane, on = Replay.on || Match.on;
-      if (on) {
-        pane.replay = Replay.on;
-        a.panel.full = Replay.on ? a.panel.replay.rect : a.panel.box[Match.control.ms ? 3 : 1];
-        if (!pane.open) pane.v += SHOP_UI.KICK;
-      }
-      pane.open = on;
-      stepMenu(pane, a.panel, dt, t);
+      if (Replay.on && !chessPane.open) chessPane.v += SHOP_UI.KICK;
+      chessPane.open = Replay.on;
+      stepMenu(chessPane, a.panel, dt, t);
       chessDot = Replay.on ? dotTo(chessDot, Replay.at / Math.max(1, Replay.line.length), dt) : null;
       if (!Replay.on) chessScrub = null;
-    }
-
-    // what a game's lines say, top to bottom, each { text, v }: with a
-    // clock, each side's name and the time it has left, the side to move's
-    // in the links' hover colour while its clock runs; and, last, the side
-    // to move, and CHECK after it in check, or, the game over, how it ended
-    function chessSays() {
-      const M = Match, C = CHESS, o = M.over, lines = [];
-      if (M.control.ms) for (let sd = 0; sd < 2; sd++) lines.push({ text: C.SIDES[sd] + ' ' + M.figure(M.clock[sd]), v: M.live && !o && M.pos.turn === sd ? HOVER_LINK : 1 });
-      lines.push({
-        text: !o ? C.SIDES[M.pos.turn] + C.MOVE + (M.check ? C.CHECK : '') : o.how === 'checkmate' ? C.MATE + C.SIDES[o.winner] + C.WINS : o.how === 'time' ? C.SIDES[o.winner] + C.TIME : C.STALE,
-        v: 1,
-      });
-      return lines;
     }
 
     // what a famous game's controls' line says: the game's name before
@@ -5082,10 +5044,10 @@
     // on what the pointer is on of the set: what it holds drawn into qfb
     // over its skin's box, then qfb copied into pfb through the skin and
     // the skin outlined over it, as a menu is. it holds the pawn until it
-    // is PORTED of the way open, and from there a game's lines
-    // (chessSays), or a famous game's controls: its line (chessSaid), its
-    // buttons, each outlined round what it says now, in the words' hover
-    // colour under the pointer, and the scrubber's bar with its dot
+    // is PORTED of the way open, and from there the controls of the
+    // famous game played back, or played back last: its line (chessSaid),
+    // its buttons, each outlined round what it says now, in the words'
+    // hover colour under the pointer, and the scrubber's bar with its dot
     // where it has got to, between the bar's ends' middles, in that
     // colour under the pointer or held
     function drawPane(a, t, dy, on) {
@@ -5095,7 +5057,7 @@
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
       if (m.p < CHESS.PORTED) {
         if (ui.pawn) ui.pawn.draw(t, dy, qfb, 0, 1);
-      } else if (m.replay) {
+      } else {
         const R = Replay, line = ui.said(chessSaid());
         for (let i = 0; i < line.length; i++) line[i].draw(t, dy, qfb, 0, 1);
         for (const b of ui.replay.buttons) {
@@ -5105,12 +5067,6 @@
         }
         const bar = ui.replay.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
         drawBar(qfb, bar, dy, 0, chessDot === null ? null : end + chessDot * (1 - 2 * end), chessScrub !== null || (on && on.scrub) ? HOVER : 1, DEMO.SLIDER);
-      } else {
-        const lines = chessSays(), n = lines.length;
-        for (let j = 0; j < n; j++) {
-          const line = ui.words(n, j, lines[j].text);
-          for (let i = 0; i < line.length; i++) line[i].draw(t, dy, qfb, 0, lines[j].v);
-        }
       }
       const pts = m.skin.screen(dy), n = pts.length;
       pfb.fillPolygon(pts, qfb);
@@ -5127,9 +5083,9 @@
     // as those are drawn there (Chess.point), so it lies as the board
     // does, its row's letters on one baseline; wobbled as a letter is,
     // its sway and bob on the screen and its tilt and breath on the
-    // board; drawn apart into qfb (spriteSkew) and copied from there but
-    // where a piece is drawn over it (Chess.at). one not wholly on the
-    // picture is not drawn
+    // board; drawn apart into qfb (spriteSkew) and copied from there in
+    // the set's ink (CHESS_INK) but where a piece is drawn over it
+    // (Chess.at). one not wholly on the picture is not drawn
     function drawLabels(a, r, t, dy) {
       const g = WALL_UI.GROW, bits = pfb.bits, from = qfb.bits, w = pfb.w, e = 2 * g * CHESS.LABEL / TYPE.EM;
       for (const L of a.labels) {
@@ -5147,7 +5103,7 @@
         for (let y = y0; y <= y1; y++) {
           for (let x = x0; x <= x1; x++) {
             const i = y * w + x;
-            if (from[i] && Chess.at((x + 0.5 - r.x) / g, (y + 0.5 - r.y - dy) / g) < 0) bits[i] = from[i];
+            if (from[i] && Chess.at((x + 0.5 - r.x) / g, (y + 0.5 - r.y - dy) / g) < 0) bits[i] = CHESS_INK;
           }
         }
       }
@@ -5156,19 +5112,18 @@
     // item it's chess set, d world px down from where it was laid out,
     // into pfb, hover what the pointer is on: once it is in, its picture
     // in the opening's middle, GROW times its size and shimmering
-    // (drawShimmer), its labels over that (drawLabels), and paper where its label stands, so a board zoomed
-    // in never runs under the label's ink; its pane (drawPane); RESET
-    // over the picture, paper inside, its outline and word in
+    // (drawShimmer), and its labels over that (drawLabels); its pane
+    // (drawPane); RESET over the picture, paper inside, its outline and
+    // word in
     // the links' hover colour while the pointer is on it; and its menu,
     // drawn as drawSettings draws a demo's: its header and, while it is
-    // open at all, each column's button that picks, its skin
-    // outlined round the one picked and, as far down as it has opened,
-    // the others under it, and the button under it, as far down as that
-    // has pushed it,
+    // open at all, its button that picks, its skin outlined round the one
+    // picked and, as far down as it has opened, the others under it, and
+    // GO under it, as far down as that has pushed it,
     // into qfb over the menu's skin's box, then qfb copied into pfb through
     // the skin and the skin outlined over it, in the links' hover colour
-    // while the header is hovered. under the pointer a button that picks,
-    // its outline and the one picked, and the button under it are in the
+    // while the header is hovered. under the pointer the button that picks,
+    // its outline and the one picked, and GO are in the
     // words' hover colour, and another of those it picks from in the items'
     function drawChess(it, t, d, hover) {
       const a = it.chessAt, dy = Math.round(d), on = hover && hover.it === it && hover.chess ? hover : null;
@@ -5176,7 +5131,6 @@
         const r = chessRect(a);
         drawShimmer(pfb, Chess.picture, 0, 0, r.x, r.y + dy, r.w, r.h, WALL_UI.GROW, t, 95000, false);
         drawLabels(a, r, t, dy);
-        pfb.roundRect(it.shut.x0, it.shut.y0 + dy, it.shut.x1, it.shut.y1 + dy, it.shut.r, 0, 0, BOX.LINE);
       }
       drawPane(a, t, dy, on);
       const k = a.reset, kv = on && on.reset ? HOVER_LINK : 1;
@@ -5189,21 +5143,21 @@
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
       if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
       for (let i = 0; i < ui.header.title.length; i++) ui.header.title[i].draw(t, dy, qfb, 0, v);
-      for (let c = 0; m.p > 0 && c < ui.cols.length; c++) {
-        const P = ui.cols[c].pick, pm = chessPicks[c], grown = chessGrown(ui, c), pv = on && on.option === P.rows[0] ? HOVER : 1;
+      if (m.p > 0) {
+        const P = ui.pick, grown = chessGrown(ui), pv = on && on.option === P.rows[0] ? HOVER : 1;
         for (const r of P.rows) {
           if (r.j && r.rect.y1 - SHOP_UI.PAD_Y * ui.size > P.shut.y1 + grown) continue;
-          const line = r.says[chessOrders[c][r.j]], rv = !r.j ? pv : on && on.option === r ? HOVER_ITEM : 1;
+          const line = r.says[chessOrder[r.j]], rv = !r.j ? pv : on && on.option === r ? HOVER_ITEM : 1;
           for (let i = 0; i < line.length; i++) line[i].draw(t, dy, qfb, 0, rv);
         }
-        if (pm.skin) {
-          const ring = pm.skin.screen(dy), rn = ring.length;
+        if (chessPick.skin) {
+          const ring = chessPick.skin.screen(dy), rn = ring.length;
           for (let i = 0; i < rn; i++) {
             const p = ring[i], q = ring[i + 1 < rn ? i + 1 : 0];
             qfb.line(p.x, p.y, q.x, q.y, pv, BOX.LINE);
           }
         }
-        const b = ui.cols[c].button, bv = on && on.button === b ? HOVER : 1, r = b.rect, by = dy + grown;
+        const b = ui.button, bv = on && on.button === b ? HOVER : 1, r = b.rect, by = dy + grown;
         qfb.roundRect(r.x0, r.y0 + by, r.x1, r.y1 + by, SHOP_UI.RADIUS * ui.size, null, bv, BOX.LINE);
         for (let i = 0; i < b.letters.length; i++) b.letters[i].draw(t, by, qfb, 0, bv);
       }
@@ -5253,23 +5207,21 @@
       Replay.seek(Math.max(0, Math.min(1, (x - b.x0 - r) / (b.x1 - b.x0 - 2 * r))) * Replay.line.length);
     }
 
-    // the set on, and the game on it (Match.step) or the famous game
-    // played back (Replay.step), its canvas the
-    // opening's size, while chess is at least partly open in a box out of
-    // its o and its opening is on the screen, the piece under a mouse's
-    // pointer on the opening lit first, none anywhere else, and that
-    // pointer the one that picks the square filled for a game's piece up
-    // (Match.aim); and the hold on a piece called off, a game's piece up
-    // put back, the fingers on the board forgotten and the scrubber let
-    // go, once chess or its box is shut
+    // the set on, and the famous game played back on it (Replay.step),
+    // its canvas the opening's size, while chebble is at least partly open
+    // in a box out of its o and its opening is on the screen, the piece
+    // under a mouse's pointer on the opening lit first, none anywhere
+    // else; then what that step found touched said to the set's sound
+    // (js/clack.js), there and nowhere else, so a step's words are said
+    // once; and the hold on a piece let go, the fingers on the board
+    // forgotten and the scrubber let go, once chebble or its box is shut
     function stepChess(dt) {
       if (!chessItem) return;
-      if (chessHold && chessHold.held === 1 && !(chessHome.box.open && chessItem.open)) {
-        Match.cancel();
-        chessHold.held = -1;
-      }
-      if (Match.hand && Match.hand.up && !(chessHome.box.open && chessItem.open)) Match.cancel();
       if (!(chessHome.box.open && chessItem.open)) {
+        if (chessHold && chessHold.held === 1) {
+          Chess.drop();
+          chessHold.held = -1;
+        }
         chessFingers.clear();
         chessScrub = null;
       }
@@ -5277,13 +5229,13 @@
       Chess.size(chessItem.chessAt.w, chessItem.chessAt.h);
       const h = hoverAt && !cornerAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y), q = h && h.board && inChess(hoverAt);
       Chess.hover(q ? Chess.at(q.x, q.y) : -1);
-      Match.aim(q ? q.x : NaN, q ? q.y : NaN);
-      Match.step(dt);
+      Chess.step(dt);
       Replay.step(dt);
+      Clack.say(Chess.words());
     }
 
     // a primary press on the board takes the piece under it, or the view.
-    // a second finger down on it with the first calls off what the first
+    // a second finger down on it with the first lets go of what the first
     // held, and from there the two zoom the camera as they move. one on
     // the scrubber takes hold of it, there
     canvas.addEventListener('pointerdown', (e) => {
@@ -5297,20 +5249,20 @@
       if (e.pointerType === 'touch') {
         chessFingers.set(e.pointerId, p);
         if (chessFingers.size > 1) {
-          if (chessHold && chessHold.held === 1) Match.cancel();
+          if (chessHold && chessHold.held === 1) Chess.drop();
           if (chessHold) chessHold.held = -1;
           return;
         }
       }
       if (!e.isPrimary) return;
       const q = inChess(p);
-      chessHold = { id: e.pointerId, x: p.x, y: p.y, held: Match.take(q.x, q.y) ? 1 : 0, far: 0, from: p };
+      chessHold = { id: e.pointerId, x: p.x, y: p.y, held: Chess.take(q.x, q.y) ? 1 : 0 };
     });
     // two fingers on the board zoom the camera in by as much as they have
     // come apart since either last moved, and out as they come together. a
-    // piece held is carried to the pointer, and its hold called off as the
-    // pointer leaves the opening; the view held is turned by the way the
-    // pointer went; and the scrubber held goes where the pointer is
+    // piece held is carried to the pointer, and let go as the pointer
+    // leaves the opening; the view held is turned by the way the pointer
+    // went; and the scrubber held goes where the pointer is
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerId === chessScrub) scrubTo(worldPointer(e).x);
       const f = chessFingers.get(e.pointerId);
@@ -5326,9 +5278,8 @@
       }
       if (!chessHold || e.pointerId !== chessHold.id) return;
       const p = worldPointer(e);
-      chessHold.far = Math.max(chessHold.far, Math.hypot(p.x - chessHold.from.x, p.y - chessHold.from.y));
       if (chessHold.held === 1 && !inOpening(p)) {
-        Match.cancel();
+        Chess.drop();
         chessHold.held = -1;
       } else if (chessHold.held === 1) {
         const q = inChess(p);
@@ -5337,12 +5288,10 @@
       chessHold.x = p.x;
       chessHold.y = p.y;
     });
-    // a lifted press on the opening lets go of what it held, and one
-    // called off calls its hold on a piece off; one that held the view and
-    // is lifted within SLOP of where it began is a press in one place, the
-    // game's (Match.tap); the click it ends in presses nothing, wherever
-    // the pointer has got to, as the bottle's does. the scrubber is let
-    // go, its click pressing nothing either
+    // a press on the opening lifted or called off lets go of the piece it
+    // held; the click it ends in presses nothing, wherever the pointer has
+    // got to, as the bottle's does. the scrubber is let go, its click
+    // pressing nothing either
     const chessGo = (e) => {
       chessFingers.delete(e.pointerId);
       if (e.pointerId === chessScrub) {
@@ -5350,16 +5299,220 @@
         if (e.type === 'pointerup') grabbed = true;
       }
       if (!chessHold || e.pointerId !== chessHold.id) return;
-      if (chessHold.held === 1) { if (e.type === 'pointerup') Match.drop(); else Match.cancel(); }
-      else if (chessHold.held === 0 && e.type === 'pointerup' && chessHold.far < CHESS.SLOP) {
-        const q = inChess(worldPointer(e));
-        Match.tap(q.x, q.y);
-      }
+      if (chessHold.held === 1) Chess.drop();
       chessHold = null;
       if (e.type === 'pointerup') grabbed = true;
     };
     canvas.addEventListener('pointerup', chessGo);
     canvas.addEventListener('pointercancel', chessGo);
+
+    // the arrow keys, while chebble is open in its box, its opening is on
+    // the screen and a famous game is played back: left and right show it
+    // a move back and on, up before its first move and down after its
+    // last (js/replay.js), each kept from the browser. a key held with a
+    // modifier is the browser's
+    window.addEventListener('keydown', (e) => {
+      if (!chessItem || !Replay.on || !(chessHome.box.open && chessItem.open) || !chessSeen() || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (e.key === 'ArrowLeft') Replay.back();
+      else if (e.key === 'ArrowRight') Replay.next();
+      else if (e.key === 'ArrowUp') Replay.seek(0);
+      else if (e.key === 'ArrowDown') Replay.seek(Replay.line.length);
+      else return;
+      e.preventDefault();
+    });
+
+    // --- the film ----------------------------------------------------------------
+    // cicada's item, in personal work, holds its film (js/film.js,
+    // js/films.js): its picture over its text (layoutItems), as far
+    // across as the text's measure and no more than FILM.ACROSS, as tall
+    // as the film's shape has that, a pixel a world px, in the film's own
+    // few colours, the same on the dark page. it is seen through a
+    // porthole, a skin (js/skin.js) as a menu's is but always open: a
+    // rounded rect, its corners an item's bubble's, each edge warbling on
+    // its own sine as a box's do, outlined as they are, and FILM.IN px
+    // in from the picture's edges all round, so the picture fills it
+    // however it warbles. until
+    // the film is first played or sought the picture is its poster. a
+    // menu's ROW under the picture is a row: at its left a button, built
+    // as a famous game's controls' are (chess, above), that says PLAY,
+    // PAUSE while the film plays, and WAIT while it plays with its sound
+    // or its video not in yet; and from there to the picture's right its
+    // bar, a slider's, with a dot as far along it, between its ends'
+    // middles, as the film is wanted through. the film's sound is played
+    // as a record under a hand is (js/scrub.js) and its picture keeps time
+    // with what is heard: a press on the button or on the picture plays
+    // the film, the sound spinning up to speed, or stops it while it
+    // plays, the sound spinning down, and once it has run out plays it
+    // from its start; a primary press on the bar's row, held and moved,
+    // wants the film where the pointer is along the bar and holds it
+    // there, and the sound and the picture go after it, back or on, as
+    // fast as they are far and slowing as they arrive; let go, the film
+    // plays on from there if it was playing. the click a press on the bar
+    // ends in presses nothing. a press
+    // there is never a swipe (the swipe, below). under the pointer the
+    // button, and with it the porthole's outline, the picture under it
+    // too, and the bar, held too, are in the
+    // words' hover colour. the film's sound is eased to silence while the
+    // page is muted (the mute button, above). it is stopped once cicada
+    // or its box is shut, and its picture is brought up to it each frame
+    // while cicada is at least partly open in a box out of its o and the
+    // picture is on the screen (the frame, below); off the screen it
+    // plays on, heard
+    const FILM = {
+      ACROSS: 640, // world px, the most its picture is across: the film's own width
+      IN: 1,       // world px, its porthole in from the picture's edges at rest
+      PLAY: 'play', PAUSE: 'pause', WAIT: 'loading', // what its button says: stopped, playing, and playing with nothing in to play on with
+    };
+    const filmHome = sections.find((s) => s.items.some((it) => it.film)) || null; // the section whose box holds the film
+    const filmItem = filmHome ? filmHome.items.find((it) => it.film) : null;       // cicada, the item it is in
+    const filmSays = [FILM.PLAY, FILM.PAUSE, FILM.WAIT].map((text) => new Type(text, () => document.createElement('canvas'), TAG.FACE)); // what its button says, each as type
+    let filmHold = null; // the pointer holding the film's bar, or null
+    let filmDot = null;  // how far along its bar its dot has got to, 0 .. 1, or null before its first step
+    // its porthole: its skin, the picture's box that was made round
+    // (room), and each edge's warble, as a menu's
+    const filmPort = {
+      skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    };
+    Film.load(FILMS.cicada, window);
+
+    // how tall the film's part of its item stands, its picture across
+    // world px across, at the text's size bs: the picture, as the film's
+    // shape has it, a menu's ROW, and its row, a button's height
+    function filmH(across, bs) {
+      const S = SHOP_UI, F = FILMS.cicada, size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs);
+      return Math.round(across * F.h / F.w) + Math.round(S.ROW * size) + Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC));
+    }
+
+    // the film's part of its item with its top left at (x, y), its
+    // picture w across, world px on the page as laid out, at the text's
+    // size bs: the picture's box (box) and its size (w, h), its porthole
+    // at rest (port), IN in from the box all round, its corners an
+    // item's bubble's, the buttons'
+    // text's size (size), its button, { rect, says }, as wide as the
+    // widest thing it says and the letters of each of those in its
+    // middle, its bar (bar), as tall as a slider's and in the middle of
+    // the row down, and where a press takes hold of it (hit), the row
+    // from the bar's left to its right
+    function placeFilm(x, y, w, bs, seed) {
+      const S = SHOP_UI, F = FILMS.cicada, size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), k = size / TYPE.EM;
+      const h = Math.round(w * F.h / F.w), th = Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC)), row = Math.round(S.ROW * size), top = y + h + row;
+      const wide = (t) => k * (t.left + t.right), bw = Math.round(Math.max(...filmSays.map(wide)) + 2 * S.PAD_X * size), sh = DEMO.SLIDER.H;
+      const says = filmSays.map((t, j) => t.glyphs.map((gl) => makeLetter(gl.g, x + (bw - wide(t)) / 2 + k * (gl.x + gl.dx + t.left), top + size * (S.PAD_Y + S.CAP) + k * gl.dy, seed + 100 * j + gl.at, k, WOBBLE)));
+      const by = top + Math.round((th - sh) / 2), bar = { x0: x + bw + row, y0: by, x1: x + w, y1: by + sh };
+      return {
+        box: { x0: x, y0: y, x1: x + w, y1: y + h }, w, h, size,
+        port: { x0: x + FILM.IN, y0: y + FILM.IN, x1: x + w - FILM.IN, y1: y + h - FILM.IN, r: BOX.ITEM_RADIUS * BOX.ITEM * bs },
+        button: { rect: { x0: x, y0: top, x1: x + bw, y1: top + th }, says },
+        bar, hit: { x0: bar.x0, y0: top, x1: bar.x1, y1: top + th },
+      };
+    }
+
+    // item it's film, d world px down from where it was laid out, into
+    // pfb, hover what the pointer is on: its picture, once it is the size
+    // it is laid out at, a pixel a world px, drawn into qfb over its
+    // porthole's skin's box, then qfb copied into pfb through the skin
+    // and the skin outlined over it, as a menu is; its button, outlined
+    // round what it says now; and its bar with its dot where it has got
+    // to, between the bar's ends' middles. the porthole's outline and the
+    // button, under the pointer or the picture under it, and the bar
+    // under it or held, are in the words' hover colour
+    function drawFilm(it, t, d, hover) {
+      const a = it.filmAt, dy = Math.round(d), on = hover && hover.it === it && hover.film ? hover : null, g = Film.picture;
+      const r = a.button.rect, v = on && on.play ? HOVER : 1, says = a.button.says[Film.waiting() ? 2 : Film.playing() ? 1 : 0];
+      if (filmPort.skin && filmPort.room === a.box) {
+        const box = filmPort.skin.bounds();
+        qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
+        if (g && g.w === a.w && g.h === a.h) qfb.blitPixels(g, a.box.x0, a.box.y0 + dy);
+        const pts = filmPort.skin.screen(dy), n = pts.length;
+        pfb.fillPolygon(pts, qfb);
+        for (let i = 0; i < n; i++) {
+          const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+          pfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
+        }
+      }
+      pfb.roundRect(r.x0, r.y0 + dy, r.x1, r.y1 + dy, SHOP_UI.RADIUS * a.size, null, v, BOX.LINE);
+      for (let i = 0; i < says.length; i++) says[i].draw(t, dy, pfb, 0, v);
+      const bar = a.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
+      drawBar(pfb, bar, dy, 0, filmDot === null ? null : end + filmDot * (1 - 2 * end), filmHold !== null || (on && on.reel) ? HOVER : 1, DEMO.SLIDER);
+    }
+
+    // whether any of the film's picture is on the screen
+    function filmSeen() {
+      const b = filmItem.filmAt && filmItem.filmAt.box;
+      if (!b) return false;
+      const y = filmItem.shift + filmHome.off - scrolled();
+      return b.y1 + y > 0 && b.y0 + y < H;
+    }
+
+    // whether a press is on the film's bar's row
+    function onFilm(e) {
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      return !!(h && h.reel);
+    }
+
+    // the bar held at world x: the film wanted as far through as that is
+    // of the way along the bar, between its ends' middles
+    function reelTo(x) {
+      const b = filmItem.filmAt.bar, r = (b.y1 - b.y0) / 2;
+      Film.seek((x - b.x0 - r) / (b.x1 - b.x0 - 2 * r));
+    }
+
+    // the film stopped and its bar let go once cicada or its box is shut;
+    // its dot on toward as far along its bar as the film is wanted
+    // through (dotTo); and, while cicada is at least partly open in a box out of
+    // its o, its porthole's skin on after its shape at rest, each edge
+    // warbled WARBLE px either way on its own sine at time t, as menuAt
+    // has a menu's, a new skin settled there when it has been laid out
+    // again; and, while the picture is on the screen too, the picture,
+    // the size it is laid out at, brought up to the film (Film.step)
+    function stepFilm(dt, t) {
+      if (!filmItem) return;
+      if (!(filmHome.box.open && filmItem.open)) {
+        filmHold = null;
+        Film.hold(false);
+        Film.pause();
+      }
+      filmDot = dotTo(filmDot, Film.at(), dt);
+      const a = filmItem.filmAt;
+      if (!a || !filmHome.box.shown || filmItem.p <= 0) return;
+      const shape = { ...a.port }, w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * filmPort.warble[e].hz + filmPort.warble[e].ph);
+      shape.x0 += w(0);
+      shape.y0 += w(1);
+      shape.x1 += w(2);
+      shape.y1 += w(3);
+      if (!filmPort.skin || filmPort.room !== a.box) {
+        filmPort.skin = new Skin(shape, SKIN.SPREAD);
+        filmPort.room = a.box;
+      } else filmPort.skin.step(dt, shape);
+      if (!filmSeen()) return;
+      Film.size(filmItem.filmAt.w, filmItem.filmAt.h);
+      Film.step();
+    }
+
+    // a primary press on the bar's row takes hold of the bar, the film
+    // wanted where it is along it and held there, and each move while it
+    // is held wants it on
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || e.button !== 0 || !filmItem) return;
+      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!h || !h.reel) return;
+      filmHold = e.pointerId;
+      reelTo(p.x);
+      Film.hold(true);
+    });
+    canvas.addEventListener('pointermove', (e) => { if (e.pointerId === filmHold) reelTo(worldPointer(e).x); });
+    // the bar let go, the film is held no longer; the click a lifted press
+    // on it ends in presses nothing, wherever the pointer has got to, as
+    // the ribbon's does
+    const filmGo = (e) => {
+      if (e.pointerId !== filmHold) return;
+      filmHold = null;
+      Film.hold(false);
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', filmGo);
+    canvas.addEventListener('pointercancel', filmGo);
 
     // --- the swipe ---------------------------------------------------------------
     // the browser scrolls on its own and tells the page where it got to late
@@ -5380,7 +5533,8 @@
     // it stopped it. a press on the wall, or on its menu's cells, slider
     // or tray, that stops no glide is the wall's to the end (the wall,
     // above), and never a swipe, and so is one on the chess set's board
-    // or its scrubber (chess, above)
+    // or its scrubber (chess, above), or on the film's bar (the film,
+    // above)
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is read from
@@ -5422,7 +5576,7 @@
       eatClick = false;
       if (e.pointerType === 'mouse' || !e.isPrimary) return;
       const stop = Math.abs(swipeTo - swipeY) > SWIPE.SLOP;
-      if (!stop && (onWall(e) || onChess(e))) return;
+      if (!stop && (onWall(e) || onChess(e) || onFilm(e))) return;
       swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, done: false, stop, y0: 0, from: 0, samples: [] };
       swipeTo = swipeY;
       // a press while it glides stops it, and nothing else hears it
@@ -5745,11 +5899,17 @@
       // the ship on, while third dimension is at least partly open in a
       // box out of its o and its box is on the screen
       if (Ship.ready && shipItem && shipHome.box.shown && shipItem.p > 0 && shipSeen()) Ship.step(dt);
-      // the chess set on, and the game on it, its canvas the opening's
-      // size, while chess is at least partly open in a box out of its o and
-      // its opening is on the screen, and the hold on a piece called off
-      // once chess is shut (chess, above)
+      // the chess set on, the famous game played back on it, and what it
+      // found touched said to its sound, its canvas the opening's size,
+      // while chebble is at least partly open in a box out of its o and
+      // its opening is on the screen, and the hold on a piece let go once
+      // chebble is shut (chess, above)
       stepChess(dt);
+      // the film stopped once cicada is shut, its dot on, and its
+      // porthole's skin and its picture brought up to it while cicada is
+      // at least partly open in a box out of its o, the picture while it
+      // is on the screen (the film, above)
+      stepFilm(dt, t);
       // daedalus on, after the pointer, and his strikes rung, while second
       // dimension is at least partly open in a box out of its o and his
       // box is on the screen

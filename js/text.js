@@ -23,7 +23,10 @@ const TEXT = {
     ]
   },
   "Personal work": {
-    "Cicada": [],
+    "Cicada": [
+      "A portable art-synth, all of it designed, coded and engineered by me. It runs on a battery, with a keyboard, a small screen, a glowing dome of light and a speaker of its own.",
+      "Each of its engines is a little world, with its own character on the screen and its own sound: a choir, a singing monk, a plucked string, a storm, and a drum machine that keeps playing underneath whichever one you're in. Press play to hear it."
+    ],
     "Monk Mouth": [
       "A singing voice for the Teensy audio library. It makes sound by simulating air moving through a tube shaped like a vocal tract. You move a tongue, lips and lungs, and the voice is whatever comes out.",
       "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here: drag the slider to hear it sing."
@@ -38,6 +41,10 @@ const TEXT = {
     ],
     "Upright": [
       "A piano for the Teensy audio library. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through: you set the strings, the hammers and the body, and the piano is whatever comes out."
+    ],
+    "Chebble": [
+      "A chess site built around a physical board. The pieces are rigid bodies: you pick them up, carry them and knock them over, and every sound is synthesized from what actually touched. You log in with Lichess and play real games on it, solve puzzles, and look back through a game with Stockfish.",
+      "This is the same set. Grab a piece, or open historical games and step through one of the classics."
     ],
     "This website!": [
       "You're here! There's no framework and no build step, just a canvas: every pixel on the page, from these words to the box around them, is drawn into a single bitmap.",
