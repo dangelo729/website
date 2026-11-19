@@ -1,0 +1,24 @@
+# the site on cloudflare: the repo's own files, served as they are, with no
+# script in front of them. two workers, each built and deployed by
+# cloudflare from github on a push: website, from main, at
+# dangelo.engineering and www.dangelo.engineering, and website-dev, from
+# dev, at dev.dangelo.engineering. by hand: `npx wrangler deploy --env=""`
+# and `npx wrangler deploy --env dev`. what the repo holds that the site
+# does not is listed in .assetsignore
+name = "website"
+compatibility_date = "2026-11-13"
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "dangelo.engineering", custom_domain = true },
+  { pattern = "www.dangelo.engineering", custom_domain = true },
+]
+
+[assets]
+directory = "."
+
+# website-dev
+[env.dev]
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "dev.dangelo.engineering", custom_domain = true }]
