@@ -83,6 +83,7 @@
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
     let cfb = null;   // the about box's insides, drawn apart and copied through the box (below)
+    let ofb = null;   // the insides of a box that holds sections, each of their boxes copied into them through its own (drawBox)
     let pfb = null;   // each item's insides, drawn apart and copied through its skin (drawInsides)
     let qfb = null;   // a menu's insides, the upgrades' or a demo's settings', drawn apart and copied through its skin (drawShop, drawSettings)
 
@@ -93,6 +94,7 @@
       canvas.height = H;
       fb = new Framebuffer(W, H);
       cfb = new Framebuffer(W, H);
+      ofb = new Framebuffer(W, H);
       pfb = new Framebuffer(W, H);
       qfb = new Framebuffer(W, H);
       canvas.style.width = (W * SCALE) + 'px';
@@ -405,8 +407,10 @@
 
     // --- the sections ------------------------------------------------------------
     // words down the page under the header (the name and its tag), each a
-    // section that opens (SECTIONS, below): About, Professional work,
-    // Personal work, Doodles and Contact.
+    // section that opens (SECTIONS, below): Work, Doodles, About and
+    // Contact. Work's box holds two sections of its own, Professional and
+    // Personal: their words down it under its x, the same size, and each
+    // its own box, opening out of its o inside Work's (layoutSubs).
     // they are in the name's helvetica at SIZE of the name's size, or less
     // when the widest would not fit across the screen, their ink's left
     // INDENT in from the name's (each centred, stacked), the first's top BELOW of the
@@ -594,21 +598,24 @@
     // box above it shut; off is how far down the boxes above have it now.
     // o is which of the word's o's, from 0, its shut box is: that o is
     // drawn as the box, not as a letter. a section's text and each item's
-    // are js/text.js's (readText, below)
+    // are js/text.js's (readText, below). subs: the sections its box holds
+    // in place of text or items, each written as a section is
     const SECTIONS = [
-      { title: 'Professional work', photo: false, o: 0, items: [
-        { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
-        { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
-        { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
-      ] },
-      { title: 'Personal work',     photo: false, o: 0, items: [
-        { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
-        { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
-        { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
-        { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
-        { title: 'Chebble',           chess: true, links: [['github.com/dangelo729/chebble', 'https://github.com/dangelo729/chebble']] },
-        { title: 'Cicada',            film: true },
-        { title: 'This website!',     links: [['github.com/dangelo729/website', 'https://github.com/dangelo729/website']] },
+      { title: 'Work',              photo: false, o: 0, subs: [
+        { title: 'Professional',      photo: false, o: 0, items: [
+          { title: 'Sennheiser',        logos: [{ key: 'soundbase' }, { key: 'sennheiser' }], links: [['soundbase.app', 'https://soundbase.app'], ['sennheiser.com', 'https://www.sennheiser.com']] },
+          { title: 'BrandNewNoise',     logos: [{ key: 'brandnewnoise' }, { key: 'reversethecurse', scale: 2, photo: true }], links: [['brandnewnoise.com', 'https://www.brandnewnoise.com']] },
+          { title: 'Critter & Guitari', logos: [{ key: 'critterandguitari', scale: 0.8, dx: -1 }], links: [['critterandguitari.com', 'https://critterandguitari.com']] },
+        ] },
+        { title: 'Personal',          photo: false, o: 0, items: [
+          { title: 'Third Dimension',   ship: true, links: [['github.com/dangelo729/third_dimension', 'https://github.com/dangelo729/third_dimension']] },
+          { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
+          { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
+          { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
+          { title: 'Chebble',           chess: true, links: [['github.com/dangelo729/chebble', 'https://github.com/dangelo729/chebble']] },
+          { title: 'Cicada',            film: true },
+          { title: 'This website!',     links: [['github.com/dangelo729/website', 'https://github.com/dangelo729/website']] },
+        ] },
       ] },
       { title: 'Doodles',           photo: false, o: 0, items: [
         { title: 'Bubble Bob', game: true },
@@ -617,9 +624,14 @@
       { title: 'About',             photo: true,  o: 0 },
       { title: 'Contact',           photo: false, o: 0 },
     ];
-    const sections = SECTIONS.map((s, n) => ({
+    // every section as it is written, one in another's box straight after
+    // that one
+    const WRITTEN = SECTIONS.flatMap((s) => [s, ...(s.subs || [])]);
+    const sections = WRITTEN.map((s, n) => ({
       ...s,
       n,                // its place: its seeds run from its word's hundred and its box's ten thousand
+      up: null,         // the section whose box it is in, or null down the page
+      depth: 0,         // how many boxes it is in: what its hover colours go by (tint, below)
       type: new Type(s.title, () => document.createElement('canvas')),
       letters: [],      // the word's
       ink: null,        // the word's ink box, { x0, y0, x1, y1 }
@@ -695,6 +707,10 @@
       })),
       rest: 0,
       restX1: 0,
+      // with sections in its box, rest and restX1 are its bottom and right
+      // with every one of theirs shut, and pad how far in from its own
+      // edges theirs keep (layoutSubs)
+      pad: 0,
       // with the photo, the slideshow: which slide it shows, from 0, and,
       // laid out, the photo's frame, its top left and size, whole px, with
       // every slide's caption's letters (captions) and count (counts) and
@@ -717,6 +733,22 @@
         ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n - 2, e + 4),
       })),
     }));
+    // the sections in each one's box (subs) as the page keeps them, each
+    // told whose it is in, every item told its section (home), and the
+    // sections down the page, in no one's box (tops)
+    for (const s of sections) {
+      s.subs = (s.subs || []).map((o) => sections[WRITTEN.indexOf(o)]);
+      for (const o of s.subs) {
+        o.up = s;
+        o.depth = s.depth + 1;
+      }
+      for (const it of s.items) it.home = s;
+    }
+    const tops = sections.filter((s) => !s.up);
+    // whether a section's box is open, and the box it is in, or out of
+    // its o, as they are
+    const openBox = (s) => s.box.open && (!s.up || openBox(s.up));
+    const shownBox = (s) => s.box.shown && (!s.up || shownBox(s.up));
 
     // every section's text and every item's as type, a paragraph each, from
     // text (TEXT, js/text.js): a section's is under its title there, an
@@ -741,7 +773,7 @@
     // dithers }, photo whether it is a photo of a thing and the last its
     // dithers by size (ditherLogo). the page is laid out again with each
     const logoArt = {};
-    const photoLogos = new Set(SECTIONS.flatMap((s) => (s.items || []).flatMap((x) => (x.logos || []).filter((l) => l.photo).map((l) => l.key))));
+    const photoLogos = new Set(WRITTEN.flatMap((s) => (s.items || []).flatMap((x) => (x.logos || []).filter((l) => l.photo).map((l) => l.key))));
     if (typeof LOGOS !== 'undefined') for (const key in LOGOS) {
       const img = new Image();
       img.onload = () => {
@@ -962,9 +994,29 @@
       return lines;
     }
 
+    // a section's word into letters at size, its ink's left at left and
+    // its top at y, and its box shut, its o's place
+    function layoutWord(s, left, y, size) {
+      const t = s.type, k = size / TYPE.EM, ox = left + k * t.left, base = y + k * t.ascent;
+      let o = null, os = 0;
+      for (const gl of t.glyphs) {
+        const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
+        s.letters.push(L);
+        // its o, the first glyph until there is one, and the last
+        // o it has if it has fewer: its letter laid out for its place
+        // and size, which its box takes shut
+        if (!o || (gl.ch === 'o' && os++ <= s.o)) o = { L, cx: L.cx, cy: L.cy, w: k * gl.g.w, h: k * gl.g.h };
+      }
+      // the box shut is the o, so its letter is not drawn
+      s.letters.splice(s.letters.indexOf(o.L), 1);
+      s.ink = { x0: left, y0: y, x1: ox + k * t.right, y1: base + k * t.descent };
+      s.box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2 };
+    }
+
     // the words into letters down the page under the header, whose ink
-    // ends at bottom, their boxes shut and open laid out round them, and
-    // the page made tall enough to scroll them away
+    // ends at bottom, their boxes shut and open laid out round them, the
+    // sections in a box with it (layoutSubs), and the page made tall
+    // enough to scroll them away
     function layoutSections(name, bottom, stacked) {
       for (const s of sections) {
         s.letters = [];
@@ -973,47 +1025,37 @@
         s.ink = s.box.shut = s.box.full = s.box.close = null;
         s.skin = null;
       }
-      const laid = name ? sections.filter((s) => s.type.glyphs.length) : [];
+      const ems = (s) => (s.type.left + s.type.right) / TYPE.EM;
+      const laid = name ? tops.filter((s) => s.type.glyphs.length) : [];
       if (laid.length) {
-        // one size for them all, the most the widest leaves room for
-        const widest = Math.max(...laid.map((s) => (s.type.left + s.type.right) / TYPE.EM));
-        const size = Math.min(ABOUT.SIZE * name.size, stacked ? NAME.NARROW * W / widest : (W - 2 * NAME.X) / (widest + ABOUT.INDENT)), k = size / TYPE.EM;
+        // one size for them all, the most the widest leaves room for, and
+        // the widest in another's box, its ink a PAD further in either side
+        const widest = Math.max(...laid.map(ems)), inner = Math.max(0, ...laid.flatMap((s) => s.subs.map(ems)));
+        const size = Math.min(ABOUT.SIZE * name.size, stacked ? NAME.NARROW * W / widest : (W - 2 * NAME.X) / (widest + ABOUT.INDENT), (W - 2 * NAME.X) / (inner + 2 * BOX.PAD));
         let y = bottom + ABOUT.BELOW * name.size; // the next word's ink's top
         for (const s of laid) {
-          const t = s.type, ems = (t.left + t.right) / TYPE.EM;
-          const ox = (stacked ? (W - ems * size) / 2 : name.left + ABOUT.INDENT * size) + k * t.left, base = y + k * t.ascent;
-          let o = null, os = 0;
-          for (const gl of t.glyphs) {
-            const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
-            s.letters.push(L);
-            // its o, the first glyph until there is one, and the last
-            // o it has if it has fewer: its letter laid out for its place
-            // and size, which its box takes shut
-            if (!o || (gl.ch === 'o' && os++ <= s.o)) o = { L, cx: L.cx, cy: L.cy, w: k * gl.g.w, h: k * gl.g.h };
-          }
-          // the box shut is the o, so its letter is not drawn
-          s.letters.splice(s.letters.indexOf(o.L), 1);
-          s.ink = { x0: ox - k * t.left, y0: y, x1: ox + k * t.right, y1: base + k * t.descent };
-          s.box.shut = { x0: o.cx - o.w / 2, y0: o.cy - o.h / 2, x1: o.cx + o.w / 2, y1: o.cy + o.h / 2, r: Math.min(o.w, o.h) / 2 };
+          layoutWord(s, stacked ? (W - ems(s) * size) / 2 : name.left + ABOUT.INDENT * size, y, size);
           y = s.ink.y1 + ABOUT.SPACE * size;
         }
         const edge = Math.max(2, Math.min(NAME.X, ...laid.map((s) => s.ink.x0)) - BOX.PAD * size);
         // the photo's box first: bubble bob's and the wall's are sized by it (layoutItems)
-        for (const s of laid) if (s.photo) layoutBox(s, name, size, stacked, edge);
-        for (const s of laid) if (!s.photo) layoutBox(s, name, size, stacked, edge);
+        for (const s of laid) if (s.photo) layoutBox(s, name, size, stacked, edge, W - edge);
+        for (const s of laid) if (!s.photo) layoutBox(s, name, size, stacked, edge, W - edge);
         // each box's skin settled where its box is now: laid out again, it
         // is put straight there rather than sent across
-        for (const s of laid) if (s.box.full) s.skin = new Skin(boxAt(s, s.box.p));
+        for (const s of sections) if (s.box.full) s.skin = new Skin(boxAt(s, s.box.p));
       }
       settle();
     }
 
-    // a section's open box round its word at size, edge in from either
-    // side of the window, and its insides laid out in it, wide or stacked
-    function layoutBox(s, name, size, stacked, edge) {
+    // a section's open box round its word at size, from x0 to no further
+    // than x1, each as far in from its side of the window, or the edges of
+    // the insides of the box it is in, and its insides laid out in it,
+    // wide or stacked
+    function layoutBox(s, name, size, stacked, x0, x1) {
       const box = s.box, seed = BOX.FIRST + 10000 * s.n, pad = BOX.PAD * size;
-      // rest: the window's bottom, edge in, as far under this word as it is under the first of them
-      const x0 = edge, x1 = W - edge, y0 = s.ink.y0 - pad, rest = H - edge + s.ink.y0 - sections.find((o) => o.ink).ink.y0;
+      // rest: the window's bottom, x0 in, as far under this word as it is under the first of them
+      const y0 = s.ink.y0 - pad, rest = H - x0 + s.ink.y0 - sections.find((o) => o.ink).ink.y0;
       const ix0 = x0 + pad, ix1 = x1 - pad, iw = ix1 - ix0, under = s.ink.y1 + BOX.GAP * size;
       const bs = stacked ? BOX.PHONE : Math.min(BOX.MOST, Math.max(BOX.LEAST, BOX.BODY * name.size)), bk = bs / TYPE.EM;
       // the x in the top left corner, at CLOSE; what
@@ -1029,6 +1071,7 @@
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
+      if (s.subs.some((o) => o.type.glyphs.length)) return layoutSubs(s, name, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
       // the caption under the photo's frame, and how tall it stands with
       // its gap (capTall): as tall as the slide with the most lines has it,
       // so the frame is the same for every slide, and drop lines more. the
@@ -1374,6 +1417,59 @@
       for (const it of s.items) it.skin = new Skin(itemAt(it), it.game || it.wall ? SKIN.SPREAD : BOX.ITEM_SPREAD);
     }
 
+    // a box's sections down it from top, under the x, as the words are
+    // down the page: each its word at the box's word's size, its ink PAD
+    // in from ix0, the first's PAD under top and each next one's SPACE
+    // under the one before's, and its own box laid out round it (layoutBox)
+    // from ix0 to no further than ix1, so it opens inside this one, PAD
+    // clear of its edges. with every one of them shut this box is only as
+    // big as their words, SLACK past the widest, or its own word if that
+    // is wider, so it covers the word; it grows down by each of their
+    // boxes as it opens, and across to the widest open (growSubs)
+    function layoutSubs(s, name, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1) {
+      const laid = s.subs.filter((o) => o.type.glyphs.length);
+      let y = top + pad; // the next word's ink's top
+      for (const o of laid) {
+        layoutWord(o, ix0 + pad, y, size);
+        y = o.ink.y1 + ABOUT.SPACE * size;
+      }
+      for (const o of laid) layoutBox(o, name, size, stacked, ix0, ix1);
+      s.pad = pad;
+      s.rest = laid[laid.length - 1].ink.y1 + 2 * pad;
+      s.restX1 = Math.min(x1, Math.max(s.ink.x1, ...laid.map((o) => o.ink.x1)) + BOX.SLACK * bs + pad);
+      s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
+      growSubs(s);
+    }
+
+    // how far a section's box has got past its own word's ink, in whole
+    // px: what it pushes everything under it down
+    function pushed(s) {
+      const b = s.box;
+      return b.shown && b.full ? Math.max(0, Math.round(b.shut.y1 + (b.full.y1 - b.shut.y1) * b.p - s.ink.y1)) : 0;
+    }
+
+    // how far a box's sections' boxes have its bottom down, each pushing
+    // as far as push has it: the last a PAD less, so its box's bottom
+    // comes PAD clear of this one's, as its sides are, where its word's
+    // ink was two
+    function subsPush(s, push) {
+      return s.subs.reduce((a, o, i) => a + (i < s.subs.length - 1 ? push(o) : Math.max(0, push(o) - s.pad)), 0);
+    }
+
+    // a box's sections' boxes where they have got to: its bottom down by
+    // as far as each has got past its own word (subsPush), and its right
+    // out to PAD past the furthest any has got across
+    function growSubs(s) {
+      if (!s.subs.length || !s.box.full) return;
+      let right = -Infinity;
+      for (const o of s.subs) {
+        const b = o.box;
+        if (b.shown && b.full) right = Math.max(right, b.shut.x1 + (b.full.x1 - b.shut.x1) * b.p);
+      }
+      s.box.full.y1 = s.rest + subsPush(s, pushed);
+      s.box.full.x1 = Math.max(s.restX1, right + s.pad);
+    }
+
     // a box's accordions where they have got to: each item pushed down by
     // the texts opened above it, the box's bottom by all of them and its
     // right out by the furthest any has got across
@@ -1390,31 +1486,38 @@
     }
 
     // each section's off: what the boxes above it push it down, where
-    // they have got to
-    function settle() {
-      let off = 0;
-      for (const s of sections) {
+    // they have got to, down the page (tops) or, in a box, down that box,
+    // with what that box is pushed itself
+    function settle(list = tops, off = 0) {
+      for (const s of list) {
         s.off = off;
-        const b = s.box;
-        if (b.shown && b.full) off += Math.max(0, Math.round(b.shut.y1 + (b.full.y1 - b.shut.y1) * b.p - s.ink.y1));
+        settle(s.subs, off);
+        off += pushed(s);
       }
+    }
+
+    // how far a section's box will push everything under it down: as far
+    // as its items, or the boxes in it, will open, or are open while they
+    // shut, and as far as it will open itself, or is open while it shuts
+    function willPush(s) {
+      const b = s.box;
+      if (!s.ink || !b.shown || !b.full) return 0;
+      const y1 = s.items.length ? s.rest + s.items.reduce((a, it) => a + Math.max(it.p, it.open ? 1 : 0) * it.ext, 0)
+        : s.subs.length ? s.rest + subsPush(s, willPush) : b.full.y1;
+      return Math.max(0, (b.open ? y1 : b.shut.y1 + (y1 - b.shut.y1) * b.p) - s.ink.y1);
     }
 
     // how far the page scrolls: until the last word, and its box while it
     // is shown, is ABOUT.END above the window's bottom edge, pushed down
-    // by every box shown above it as far as each will open; not at all
-    // when it is there already. it is worked out each frame (the frame,
-    // below), so the page's end comes up with a box or an item as it
-    // shuts and a page scrolled past it is carried up with it
+    // by every box shown above it as far as each will open (willPush); not
+    // at all when it is there already. it is worked out each frame (the
+    // frame, below), so the page's end comes up with a box or an item as
+    // it shuts and a page scrolled past it is carried up with it
     function setScroll() {
       let push = 0, end = 0;
-      for (const s of sections) {
+      for (const s of tops) {
         if (!s.ink) continue;
-        // as far as its items will open, or are open while they shut
-        const y1 = s.items.length ? s.rest + s.items.reduce((a, it) => a + Math.max(it.p, it.open ? 1 : 0) * it.ext, 0) : s.box.full && s.box.full.y1;
-        // and as far as its box will open, or is open while it shuts
-        const b = s.box;
-        if (b.shown && b.full) push += Math.max(0, (b.open ? y1 : b.shut.y1 + (y1 - b.shut.y1) * b.p) - s.ink.y1);
+        push += willPush(s);
         end = s.ink.y1 + push;
       }
       scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
@@ -1505,32 +1608,47 @@
       }
     }
 
-    // a section's insides sy up into cfb, as much of them as shows through
+    // a section's insides sy up into into, as much of them as shows through
     // the window (x0, y0) to (x1, y1), world px on the screen: the window's
     // rows cleared, the letters near enough it to show, the shown slide's
     // caption and count and the slideshow's < and > among them, the photo
-    // if it reaches it, the items, each in its bubble, the bubble's world
+    // if it reaches it, the sections in its box, each its word and its box
+    // over it, the items, each in its bubble, the bubble's world
     // while it is on its way between Doodles' o and bubble bob's, and the
-    // x, the ones hover is on in their colours (hover null, none)
-    function drawInsides(s, t, sy, x0, y0, x1, y1, hover) {
+    // x, the ones hover is on in their colours (hover null, none), a level
+    // down from the word's (tint); hit is what the pointer is on anywhere
+    // on the page, for the sections in its box
+    function drawInsides(s, t, sy, x0, y0, x1, y1, hover, hit, into) {
       const box = s.box;
-      cfb.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
+      into.clearRows(Math.floor(y0), Math.ceil(y1) + 1);
       const lo = Math.max(y0, 0) - BOX.MOST, hi = Math.min(y1, H) + BOX.MOST;
       const near = (L) => L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST;
-      for (const L of s.bodyLetters) if (near(L)) L.draw(t, -sy, cfb);
+      for (const L of s.bodyLetters) if (near(L)) L.draw(t, -sy, into);
       // the slideshow's: the < in the items' hover colour while hover is
       // on it, the > while hover is on it or on the photo
       const f = s.show;
       if (f) {
-        const v = (by) => hover && hover.slide === by ? HOVER_ITEM : undefined;
-        for (const L of f.captions[s.slide]) if (near(L)) L.draw(t, -sy, cfb);
-        for (const L of f.counts[s.slide].letters) if (near(L)) L.draw(t, -sy, cfb);
-        for (const L of f.back.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(-1));
-        for (const L of f.on.letters) if (near(L)) L.draw(t, -sy, cfb, 0, v(1));
+        const v = (by) => hover && hover.slide === by ? tint(s, 1) : undefined;
+        for (const L of f.captions[s.slide]) if (near(L)) L.draw(t, -sy, into);
+        for (const L of f.counts[s.slide].letters) if (near(L)) L.draw(t, -sy, into);
+        for (const L of f.back.letters) if (near(L)) L.draw(t, -sy, into, 0, v(-1));
+        for (const L of f.on.letters) if (near(L)) L.draw(t, -sy, into, 0, v(1));
       }
       // the photo when its box, 2 px more all round, reaches the window
       const ph = s.photoAt;
-      if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, cfb);
+      if (ph && ph.x - 2 < x1 && ph.x + ph.g.w + 2 > x0 && ph.y - sy - 2 < y1 && ph.y - sy + ph.g.h + 2 > y0) ph.letter.draw(t, -sy, into);
+      // the sections in its box, each as far up as it is pushed less than
+      // this one: its word, in its hover colour while it is hovered, when
+      // its ink is near enough the window's rows to show, and its box over
+      // it, shut in its o or open, when the box's skin, LINE + 1 px more
+      // all round, reaches them
+      for (const o of s.subs) {
+        if (!o.skin) continue;
+        const oy = sy + s.off - o.off, v = onWord(hit, o) ? tint(o, 0) : undefined;
+        if (o.ink.y1 - oy > lo && o.ink.y0 - oy < hi) for (const L of o.letters) L.draw(t, -oy, into, 0, v);
+        const b = o.skin.bounds(), m = BOX.LINE + 1;
+        if (b.y1 + m - oy >= y0 && b.y0 - m - oy <= y1) drawBox(o, t, oy, hit, into);
+      }
       // the bubble's world goes into bubble bob's insides, through his
       // skin, only while Doodles' box is at rest open; otherwise it is on
       // its way between the two o's, and goes over everything else here
@@ -1543,7 +1661,7 @@
       // (drawFilm) with it, its text
       // and its links as far down
       // as its menu pushes them (push), all into pfb over its
-      // skin's box; then pfb copied into cfb through its skin and the skin
+      // skin's box; then pfb copied into the insides through its skin and the skin
       // outlined over it, LINE px from point to point, in the items' hover
       // colour while the item is hovered, as drawShop does the menu. an
       // item whose skin's box, LINE + 1 px more all round, misses the
@@ -1557,18 +1675,18 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess && !hover.film ? HOVER_ITEM : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess && !hover.film ? tint(s, 1) : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
           const pts = it.skin.screen(-sy), n = pts.length;
-          cfb.fillPolygon(pts, pfb);
+          into.fillPolygon(pts, pfb);
           for (let i = 0; i < n; i++) {
             const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
-            cfb.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
+            into.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
           }
-          if (it.caret) it.caret.draw(t, d, cfb, it.turn * Math.PI / 2, v);
-          for (const L of it.letters) L.draw(t, d, cfb, 0, v);
+          if (it.caret) it.caret.draw(t, d, into, it.turn * Math.PI / 2, v);
+          for (const L of it.letters) L.draw(t, d, into, 0, v);
           continue;
         }
         if (it.wall && it.p > 0) drawWall(it, t, d, hover);
@@ -1579,7 +1697,7 @@
           const see = (L) => L.cy + dp > lo && L.cy + dp < Math.min(hi, end + BOX.MOST);
           for (const L of it.text) if (see(L)) L.draw(t, dp, pfb);
           for (const k of it.links) {
-            const lv = hover && hover.link === k ? HOVER_LINK : undefined;
+            const lv = hover && hover.link === k ? tint(s, 2) : undefined;
             for (const L of k.letters) if (see(L)) L.draw(t, dp, pfb, 0, lv);
           }
           for (const l of it.logosAt) l.letter.draw(t, Math.round(d), pfb);
@@ -1592,14 +1710,14 @@
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
-        cfb.fillPolygon(pts, pfb);
+        into.fillPolygon(pts, pfb);
         for (let i = 0; i < n; i++) {
           const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
-          cfb.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
+          into.line(p.x, p.y, q.x, q.y, v ?? 1, BOX.LINE);
         }
       }
-      if (s.room && bubble && !home) drawGame(cfb, t, sy, x0, y0, x1, y1, hover);
-      if (box.close) box.close.letter.draw(t, -sy, cfb, Math.PI / 2, hover && hover.close ? HOVER_ITEM : undefined);
+      if (s.room && bubble && !home) drawGame(into, t, sy, x0, y0, x1, y1, hover);
+      if (box.close) box.close.letter.draw(t, -sy, into, Math.PI / 2, hover && hover.close ? tint(s, 1) : undefined);
     }
 
     // the bubble's world sy up into into in cicada's layers: the small
@@ -1702,22 +1820,25 @@
     }
 
     // a section's box sy up, its skin wherever it has got to, shut in the
-    // o's place or open or between: its insides into cfb (drawInsides) as
-    // far as the skin's box, LINE + 1 px more all round, reaches, then
-    // copied into the page inside the skin and the skin outlined over
-    // them, a LINE px line from point to point as the bubbles' skins are,
-    // in the word's hover colour when the word is hovered
-    function drawBox(s, t, sy, hover) {
+    // o's place or open or between: its insides into cfb, or ofb if they
+    // are sections (drawInsides), as far as the skin's box, LINE + 1 px
+    // more all round, reaches, then copied into into, the page or the
+    // insides of the box it is in, inside the skin and the skin outlined
+    // over them, a LINE px line from point to point as the bubbles' skins
+    // are, in the word's hover colour when the word is hovered. hit is
+    // what the pointer is on, anywhere on the page
+    function drawBox(s, t, sy, hit, into) {
       const skin = s.skin;
       if (!skin) return;
       const b = skin.bounds(), m = BOX.LINE + 1, top = b.y0 - m - sy, bottom = b.y1 + m - sy;
       if (bottom < 0 || top >= H) return;
-      drawInsides(s, t, sy, b.x0 - m, top, b.x1 + m, bottom, hover);
-      const pts = skin.screen(-sy), n = pts.length, v = hover && !hover.it && !hover.close && !hover.shop && !hover.slide ? HOVER : 1;
-      fb.fillPolygon(pts, cfb);
+      const ins = s.subs.length ? ofb : cfb;
+      drawInsides(s, t, sy, b.x0 - m, top, b.x1 + m, bottom, hit && hit.s === s ? hit : null, hit, ins);
+      const pts = skin.screen(-sy), n = pts.length, v = onWord(hit, s) ? tint(s, 0) : 1;
+      into.fillPolygon(pts, ins);
       for (let i = 0; i < n; i++) {
         const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
-        fb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
+        into.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
       }
     }
 
@@ -1775,11 +1896,14 @@
     // else in its opening, { s, it, chess, board }; an item's film, as
     // far as its text has opened to show it: its button, a little round
     // it, or its picture, { s, it, film, play }, and the row its bar lies
-    // in, { s, it, film, reel }; a word whose box is not open, a little
-    // round it, { s }; or null
-    function hitAt(x, y) {
+    // in, { s, it, film, reel }; in a box that holds sections, whatever
+    // of theirs a press would press, as the ones down the page's, each of
+    // them the s of its own; a word whose box is not open, a little
+    // round it, { s }; or null. list: the sections asked, the ones down
+    // the page or the ones in a box
+    function hitAt(x, y, list = tops) {
       const sy = scrolled();
-      for (const s of sections) {
+      for (const s of list) {
         if (!s.ink) continue;
         const py = y + sy - s.off;
         if (s.box.open) {
@@ -1806,6 +1930,8 @@
             if (near(f.back)) return { s, slide: -1 };
             if (near(f.on) || (x >= f.x && x <= f.x + f.w && py >= f.y && py <= f.y + f.h)) return { s, slide: 1 };
           }
+          const sub = hitAt(x, y, s.subs);
+          if (sub) return sub;
           for (const it of s.items) {
             const h = it.hit, iy = py - it.shift, hy = Math.max(4, (20 - (h.y1 - h.y0)) / 2);
             const sm = it.menu && it.p > 0 && iy <= it.clip + it.p * it.span ? it.menu.ui : null;
@@ -1967,12 +2093,23 @@
     // slideshow's < and > (the > for the photo too), the second (Software
     // Engineer's), and a link, a menu's header, its outline, caret and
     // words with it, and a demo's ribbon, the third (Musician's); a finger
-    // has no hover. where it is, in world px on the screen, or null; what
+    // has no hover. in a box inside another's each of them is the next
+    // colour on, the first again after the third (tint). where it is, in
+    // world px on the screen, or null; what
     // it is over is worked out afresh each frame, so it follows the page as
     // it scrolls and the boxes move under a still pointer. the name's
     // letters light their own way, under a finger too (the name's keys,
     // below)
     const HOVER = tagLines[0].v, HOVER_ITEM = tagLines[1].v, HOVER_LINK = tagLines[2].v;
+    // the colour of what is n levels down from a section's word: the
+    // word's own the first, or, for each box the section is in, the next
+    // one on, and each level down the one after, round from the third to
+    // the first again
+    const HOVERS = [HOVER, HOVER_ITEM, HOVER_LINK];
+    const tint = (s, n) => HOVERS[(s.depth + n) % HOVERS.length];
+    // whether hit, what the pointer is on, is section s's word, or its
+    // box's outline while that is not open
+    const onWord = (hit, s) => !!hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide;
     let hoverAt = null;
     canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
     canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
@@ -2520,7 +2657,7 @@
     // colour while hover is on it or a press holds it
     function drawDemo(it, t, d, hover) {
       const D = DEMO, a = it.demoAt, dy = Math.round(d), held = holding && holding.i === null && holding.it === it;
-      const v = held || (hover && hover.it === it && hover.ribbon) ? HOVER_LINK : 1;
+      const v = held || (hover && hover.it === it && hover.ribbon) ? tint(it.home, 2) : 1;
       if (Moon.ready) {
         const feats = Moon.features;
         for (let i = 0; i < feats.length && i < a.face.length; i++) {
@@ -2567,17 +2704,17 @@
     // skin outlined over it, as drawShop does bubble bob's
     function drawSettings(it, ui, m, t, dy, hover) {
       if (!m.skin) return;
-      const on = hover && hover.it === it && hover.settings ? hover : null, v = on && on.menu ? HOVER_LINK : 1, box = m.skin.bounds();
+      const on = hover && hover.it === it && hover.settings ? hover : null, v = on && on.menu ? tint(it.home, 2) : 1, box = m.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
       if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
       for (const L of ui.header.title) L.draw(t, dy, qfb, 0, v);
       if (m.p > 0) {
         for (const sl of ui.sliders) {
-          const def = m.S.SLIDERS[sl.i], sv = on && on.slider === sl ? HOVER : 1;
+          const def = m.S.SLIDERS[sl.i], sv = on && on.slider === sl ? tint(it.home, 0) : 1;
           drawBar(qfb, sl.bar, dy, def.lines, m.dots[sl.i], sv, DEMO.SLIDER);
           for (const L of sl.words(def.say())) L.draw(t, dy, qfb, 0, sv);
         }
-        const b = ui.button, bv = on && on.randomize ? HOVER : 1, n = b ? b.ring.length : 0;
+        const b = ui.button, bv = on && on.randomize ? tint(it.home, 0) : 1, n = b ? b.ring.length : 0;
         for (let i = 0; i < n; i++) {
           const p = b.ring[i], q = b.ring[i + 1 < n ? i + 1 : 0];
           qfb.line(p.x, p.y + dy, q.x, q.y + dy, bv, BOX.LINE);
@@ -2948,7 +3085,7 @@
       if (Keys.ready) {
         const p = a.letter.pose(t), y = p.y + dy, s = Keys.SCALE * p.s;
         pfb.sprite(Keys.picture, p.x, y, s, p.a, 1);
-        pfb.sprite(Keys.glow, p.x, y, s, p.a, HOVER_LINK);
+        pfb.sprite(Keys.glow, p.x, y, s, p.a, tint(it.home, 2));
         for (const l of a.labels) l.letter.draw(t, dy - Keys.SCALE * Keys.down(l.n), pfb);
       }
       const f = handArt[0];
@@ -2999,7 +3136,7 @@
 
     // whether the piano is there to play: upright open, in its box open
     function pianoOn() {
-      return !!pianoHome && pianoHome.box.open && pianoItem.open;
+      return !!pianoHome && openBox(pianoHome) && pianoItem.open;
     }
 
     // midi note's key held down by by, a letter's code or a pointer's id,
@@ -3534,9 +3671,9 @@
     function stepMonkSubtitle() {
       if (Monk.said !== monkSaid) {
         monkSaid = Monk.said;
-        monkSub = demoItem && demoItem.demoAt && demoItem.open && demoHome.box.open && Moon.ready ? makeMonkSubtitle(Monk.text) : null;
+        monkSub = demoItem && demoItem.demoAt && demoItem.open && openBox(demoHome) && Moon.ready ? makeMonkSubtitle(Monk.text) : null;
       }
-      if (monkSub && (demoItem.demoAt !== monkSub.at || !demoItem.open || !demoHome.box.open ||
+      if (monkSub && (demoItem.demoAt !== monkSub.at || !demoItem.open || !openBox(demoHome) ||
           (Monk.endedAt !== null && Date.now() - Monk.endedAt > SUBS.LINGER * 1000))) monkSub = null;
     }
 
@@ -4872,7 +5009,7 @@
     // bordered in the items'; and the table round the board the page's own
     // paper, the ring under a piece held the page's ink on it
     const CHESS_PAPER = Framebuffer.colour(CHESS.PAPER), CHESS_INK = Framebuffer.colour(CHESS.INK), CHESS_TONE = Framebuffer.colour(CHESS.TONE);
-    Chess.colours(CHESS_PAPER, CHESS_INK, CHESS_TONE, HOVER_LINK, HOVER, HOVER_ITEM, 0, 1);
+    Chess.colours(CHESS_PAPER, CHESS_INK, CHESS_TONE, tint(chessHome, 2), tint(chessHome, 0), tint(chessHome, 1), 0, 1);
     Chess.look(CHESS.LOOK);
 
     // the pawn (ICONS.pawn, js/icons.js) as a letter in the middle of
@@ -5061,12 +5198,12 @@
         const R = Replay, line = ui.said(chessSaid());
         for (let i = 0; i < line.length; i++) line[i].draw(t, dy, qfb, 0, 1);
         for (const b of ui.replay.buttons) {
-          const v = on && on.pane === b.key ? HOVER : 1, r = b.rect, says = b.says[b.key === 'toggle' ? +R.playing : b.key === 'faster' ? R.speed : 0];
+          const v = on && on.pane === b.key ? tint(chessHome, 0) : 1, r = b.rect, says = b.says[b.key === 'toggle' ? +R.playing : b.key === 'faster' ? R.speed : 0];
           qfb.roundRect(r.x0, r.y0 + dy, r.x1, r.y1 + dy, SHOP_UI.RADIUS * ui.size, null, v, BOX.LINE);
           for (let i = 0; i < says.length; i++) says[i].draw(t, dy, qfb, 0, v);
         }
         const bar = ui.replay.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
-        drawBar(qfb, bar, dy, 0, chessDot === null ? null : end + chessDot * (1 - 2 * end), chessScrub !== null || (on && on.scrub) ? HOVER : 1, DEMO.SLIDER);
+        drawBar(qfb, bar, dy, 0, chessDot === null ? null : end + chessDot * (1 - 2 * end), chessScrub !== null || (on && on.scrub) ? tint(chessHome, 0) : 1, DEMO.SLIDER);
       }
       const pts = m.skin.screen(dy), n = pts.length;
       pfb.fillPolygon(pts, qfb);
@@ -5133,21 +5270,21 @@
         drawLabels(a, r, t, dy);
       }
       drawPane(a, t, dy, on);
-      const k = a.reset, kv = on && on.reset ? HOVER_LINK : 1;
+      const k = a.reset, kv = on && on.reset ? tint(it.home, 2) : 1;
       k.fill.draw(t, dy, pfb, 0, 0);
       k.ring.draw(t, dy, pfb, 0, kv);
       for (let i = 0; i < k.letters.length; i++) k.letters[i].draw(t, dy, pfb, 0, kv);
       const ui = a.menu, m = chessMenu;
       if (!m.skin) return;
-      const v = on && on.menu ? HOVER_LINK : 1, box = m.skin.bounds();
+      const v = on && on.menu ? tint(it.home, 2) : 1, box = m.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
       if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
       for (let i = 0; i < ui.header.title.length; i++) ui.header.title[i].draw(t, dy, qfb, 0, v);
       if (m.p > 0) {
-        const P = ui.pick, grown = chessGrown(ui), pv = on && on.option === P.rows[0] ? HOVER : 1;
+        const P = ui.pick, grown = chessGrown(ui), pv = on && on.option === P.rows[0] ? tint(it.home, 0) : 1;
         for (const r of P.rows) {
           if (r.j && r.rect.y1 - SHOP_UI.PAD_Y * ui.size > P.shut.y1 + grown) continue;
-          const line = r.says[chessOrder[r.j]], rv = !r.j ? pv : on && on.option === r ? HOVER_ITEM : 1;
+          const line = r.says[chessOrder[r.j]], rv = !r.j ? pv : on && on.option === r ? tint(it.home, 1) : 1;
           for (let i = 0; i < line.length; i++) line[i].draw(t, dy, qfb, 0, rv);
         }
         if (chessPick.skin) {
@@ -5157,7 +5294,7 @@
             qfb.line(p.x, p.y, q.x, q.y, pv, BOX.LINE);
           }
         }
-        const b = ui.button, bv = on && on.button === b ? HOVER : 1, r = b.rect, by = dy + grown;
+        const b = ui.button, bv = on && on.button === b ? tint(it.home, 0) : 1, r = b.rect, by = dy + grown;
         qfb.roundRect(r.x0, r.y0 + by, r.x1, r.y1 + by, SHOP_UI.RADIUS * ui.size, null, bv, BOX.LINE);
         for (let i = 0; i < b.letters.length; i++) b.letters[i].draw(t, by, qfb, 0, bv);
       }
@@ -5217,7 +5354,7 @@
     // forgotten and the scrubber let go, once chebble or its box is shut
     function stepChess(dt) {
       if (!chessItem) return;
-      if (!(chessHome.box.open && chessItem.open)) {
+      if (!(openBox(chessHome) && chessItem.open)) {
         if (chessHold && chessHold.held === 1) {
           Chess.drop();
           chessHold.held = -1;
@@ -5225,7 +5362,7 @@
         chessFingers.clear();
         chessScrub = null;
       }
-      if (!Chess.ready || !chessHome.box.shown || chessItem.p <= 0 || !chessSeen()) return;
+      if (!Chess.ready || !shownBox(chessHome) || chessItem.p <= 0 || !chessSeen()) return;
       Chess.size(chessItem.chessAt.w, chessItem.chessAt.h);
       const h = hoverAt && !cornerAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y), q = h && h.board && inChess(hoverAt);
       Chess.hover(q ? Chess.at(q.x, q.y) : -1);
@@ -5312,7 +5449,7 @@
     // last (js/replay.js), each kept from the browser. a key held with a
     // modifier is the browser's
     window.addEventListener('keydown', (e) => {
-      if (!chessItem || !Replay.on || !(chessHome.box.open && chessItem.open) || !chessSeen() || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (!chessItem || !Replay.on || !(openBox(chessHome) && chessItem.open) || !chessSeen() || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (e.key === 'ArrowLeft') Replay.back();
       else if (e.key === 'ArrowRight') Replay.next();
       else if (e.key === 'ArrowUp') Replay.seek(0);
@@ -5419,7 +5556,7 @@
     // under it or held, are in the words' hover colour
     function drawFilm(it, t, d, hover) {
       const a = it.filmAt, dy = Math.round(d), on = hover && hover.it === it && hover.film ? hover : null, g = Film.picture;
-      const r = a.button.rect, v = on && on.play ? HOVER : 1, says = a.button.says[Film.waiting() ? 2 : Film.playing() ? 1 : 0];
+      const r = a.button.rect, v = on && on.play ? tint(it.home, 0) : 1, says = a.button.says[Film.waiting() ? 2 : Film.playing() ? 1 : 0];
       if (filmPort.skin && filmPort.room === a.box) {
         const box = filmPort.skin.bounds();
         qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
@@ -5434,7 +5571,7 @@
       pfb.roundRect(r.x0, r.y0 + dy, r.x1, r.y1 + dy, SHOP_UI.RADIUS * a.size, null, v, BOX.LINE);
       for (let i = 0; i < says.length; i++) says[i].draw(t, dy, pfb, 0, v);
       const bar = a.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
-      drawBar(pfb, bar, dy, 0, filmDot === null ? null : end + filmDot * (1 - 2 * end), filmHold !== null || (on && on.reel) ? HOVER : 1, DEMO.SLIDER);
+      drawBar(pfb, bar, dy, 0, filmDot === null ? null : end + filmDot * (1 - 2 * end), filmHold !== null || (on && on.reel) ? tint(it.home, 0) : 1, DEMO.SLIDER);
     }
 
     // whether any of the film's picture is on the screen
@@ -5468,14 +5605,14 @@
     // the size it is laid out at, brought up to the film (Film.step)
     function stepFilm(dt, t) {
       if (!filmItem) return;
-      if (!(filmHome.box.open && filmItem.open)) {
+      if (!(openBox(filmHome) && filmItem.open)) {
         filmHold = null;
         Film.hold(false);
         Film.pause();
       }
       filmDot = dotTo(filmDot, Film.at(), dt);
       const a = filmItem.filmAt;
-      if (!a || !filmHome.box.shown || filmItem.p <= 0) return;
+      if (!a || !shownBox(filmHome) || filmItem.p <= 0) return;
       const shape = { ...a.port }, w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * filmPort.warble[e].hz + filmPort.warble[e].ph);
       shape.x0 += w(0);
       shape.y0 += w(1);
@@ -5895,10 +6032,10 @@
       if (pianoItem && pianoItem.pianoAt) pushItem(pianoItem, pianoPush(pianoItem));
       // the demo's face to the voice as heard, while monk mouth is at least
       // partly open in a box out of its o
-      if (Moon.ready && demoItem && demoHome.box.shown && demoItem.p > 0) Moon.step(Monk.state, dt);
+      if (Moon.ready && demoItem && shownBox(demoHome) && demoItem.p > 0) Moon.step(Monk.state, dt);
       // the ship on, while third dimension is at least partly open in a
       // box out of its o and its box is on the screen
-      if (Ship.ready && shipItem && shipHome.box.shown && shipItem.p > 0 && shipSeen()) Ship.step(dt);
+      if (Ship.ready && shipItem && shownBox(shipHome) && shipItem.p > 0 && shipSeen()) Ship.step(dt);
       // the chess set on, the famous game played back on it, and what it
       // found touched said to its sound, its canvas the opening's size,
       // while chebble is at least partly open in a box out of its o and
@@ -5913,7 +6050,7 @@
       // daedalus on, after the pointer, and his strikes rung, while second
       // dimension is at least partly open in a box out of its o and his
       // box is on the screen
-      if (Daedalus.ready && daedalusItem && daedalusHome.box.shown && daedalusItem.p > 0 && daedalusSeen()) {
+      if (Daedalus.ready && daedalusItem && shownBox(daedalusHome) && daedalusItem.p > 0 && daedalusSeen()) {
         pointDaedalus();
         Daedalus.step(dt);
         ringDaedalus();
@@ -5922,7 +6059,7 @@
       // after the pointer, while upright is at least partly open in a box
       // out of its o and they are on the screen
       if (!pianoOn() && (pianoHolds.size || pianoPedal)) liftKeys();
-      if (Keys.ready && pianoItem && pianoHome.box.shown && pianoItem.p > 0 && pianoSeen()) {
+      if (Keys.ready && pianoItem && shownBox(pianoHome) && pianoItem.p > 0 && pianoSeen()) {
         pointKeys();
         Keys.step(dt);
       }
@@ -5940,11 +6077,14 @@
         stepItems(s, dt);
         grow(s);
       }
+      // a box that holds sections grown by their boxes, once those have grown
+      for (const s of sections) growSubs(s);
       settle();
       setScroll();
       for (const s of sections) if (s.skin) s.skin.step(dt, boxAt(s, s.box.p, t));
-      // each item's skin after its bubble while its box is out of the o
-      for (const s of sections) if (s.box.shown) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
+      // each item's skin after its bubble while its box is out of the o,
+      // and the box that one is in
+      for (const s of sections) if (shownBox(s)) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
       stepMenu(menu, shopNow(), dt, t);
       stepMenu(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
       stepChessMenu(dt, t);
@@ -5965,11 +6105,11 @@
       const sy = scrolled();
       const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y), overSwitch = !!hoverAt && !overMute && switchAt(hoverAt.x, hoverAt.y);
       const hit = hoverAt && !overMute && !overSwitch && hitAt(hoverAt.x, hoverAt.y);
-      for (const s of sections) {
-        const v = hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide ? HOVER : undefined;
+      for (const s of tops) {
+        const v = onWord(hit, s) ? tint(s, 0) : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
       }
-      for (const s of sections) drawBox(s, t, sy - s.off, hit && hit.s === s ? hit : null);
+      for (const s of tops) drawBox(s, t, sy - s.off, hit, fb);
       // the header's letters, the name's under the pointer in its colour
       const lit = nameRow && nameRow.keys[nameOn];
       for (const L of letters) L.draw(t, 0, fb, 0, lit && L === lit.L ? lit.v : undefined);

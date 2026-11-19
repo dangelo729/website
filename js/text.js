@@ -8,7 +8,7 @@ const TEXT = {
     "I have since worked on a variety of projects, including consumer electronics with BrandNewNoise and Critter & Guitari, ambitious musical instruments like Cicada, embedded machine learning models, open source tools for others to make use of, design-forward software engineering projects developed both independently and in a team setting, and many more.",
     "Today I'm a software engineer at Sennheiser, building SoundBase, a live-audio app for touring crews and audio engineers. I'm fascinated by the intersection between music and technology, and continue to explore their combination."
   ],
-  "Professional work": {
+  "Professional": {
     "Sennheiser": [
       "Software Engineer, 2025–present",
       "I work with Show Code, a Sennheiser-backed startup, building SoundBase, a live-audio app for touring crews and audio engineers. I led its integration of Spectera, Sennheiser's wideband wireless system, built its device telemetry recording system, overhauled its TV channel API, and am currently managing deployments and working with the team to build out a more robust continuous integration workflow."
@@ -22,7 +22,7 @@ const TEXT = {
       "I designed a new flagship instrument with the company's owner: its circuit boards and its firmware, from a custom driver for the SGTL5000 audio codec up to the interface. I also led a small team of assemblers manufacturing existing products."
     ]
   },
-  "Personal work": {
+  "Personal": {
     "Cicada": [
       "A portable art-synth, all of it designed, coded and engineered by me. It runs on a battery, with a keyboard, a small screen, a glowing dome of light and a speaker of its own.",
       "Each of its engines is a little world, with its own character on the screen and its own sound: a choir, a singing monk, a plucked string, a storm, and a drum machine that keeps playing underneath whichever one you're in. Press play to hear it."
