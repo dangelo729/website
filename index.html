@@ -4238,7 +4238,7 @@
     // on the page's host's port 8787 (make dev in tools/wall-server, or
     // make lan for a phone), from anywhere else
     const WALL_LIVE = 'wss://wall.wall-server.workers.dev';
-    const WALL_URL = /(^|\.)(github\.io|peter-dangelo\.com)$/.test(location.hostname) ? WALL_LIVE
+    const WALL_URL = /(^|\.)(github\.io|peter-dangelo\.com|dangelo\.engineering)$/.test(location.hostname) ? WALL_LIVE
       : location.hostname ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + ':8787' : '';
     const wallHome = sections.find((s) => s.items.some((it) => it.wall)) || null; // the section whose box holds the wall
     const wallItem = wallHome ? wallHome.items.find((it) => it.wall) : null;       // graffiti wall, the item it is

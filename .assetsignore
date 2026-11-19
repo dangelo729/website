@@ -1,0 +1,10 @@
+# in the repo, not on the site (wrangler.toml)
+.git
+.gitignore
+.nojekyll
+.wrangler
+.DS_Store
+wrangler.toml
+CLAUDE.md
+*PLAN*.md
+tools

@@ -14,4 +14,4 @@ new_sqlite_classes = ["WallRoom"]
 
 # the origins a socket may be opened from
 [vars]
-ORIGINS = "https://dangelo729.github.io,https://peter-dangelo.com,https://www.peter-dangelo.com"
+ORIGINS = "https://dangelo729.github.io,https://peter-dangelo.com,https://www.peter-dangelo.com,https://dangelo.engineering,https://www.dangelo.engineering,https://dev.dangelo.engineering"
