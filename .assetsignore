@@ -3,8 +3,10 @@
 .gitignore
 .nojekyll
 .wrangler
+.dev.vars
 .DS_Store
 wrangler.toml
+ansible.cfg
 CLAUDE.md
 *PLAN*.md
 tools
