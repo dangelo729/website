@@ -8,5 +8,6 @@
 wrangler.toml
 ansible.cfg
 CLAUDE.md
+README.md
 *PLAN*.md
 tools
