@@ -10,7 +10,8 @@
 // sampler at the same place, so the hand reads over the letters and the
 // bubble and covers nothing outside its outline. the frames walk in whole 60 hz steps; the cursor never asks the
 // clock or the pointer itself, the page hands it where the pointer is,
-// whether the button is down and the time gone by.
+// whether the button is down and the time gone by, or has it listen for
+// the pointer on its canvas (listen).
 
 const CURSOR = {
   STEP_S: 1 / 60, MAX_CATCHUP_S: 0.1, // frames walk per 60 hz step whatever the screen's rate
@@ -57,6 +58,35 @@ class Cursor {
   press() { this.held = true; }
   release() { this.held = false; }
   hide() { this.shown = false; }
+
+  // the pointer's events on canvas, through view, the viewport
+  // (js/view.js), which takes an event to world px and knows the
+  // viewport's size: a press captures the pointer, moves the hand there
+  // and closes it; a move moves it; a lift or a cancel opens it, and hides
+  // it when there is nothing left to hover: a finger lifted, or a captured
+  // drag let go outside the viewport; a pointer that leaves hides it. a
+  // touch moves it unseen. the listeners go on in that order, after any
+  // the canvas already has
+  listen(canvas, view) {
+    canvas.addEventListener('pointerdown', (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      const p = view.pointer(e);
+      this.moveTo(p.x, p.y, e.pointerType !== 'touch');
+      this.press();
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const p = view.pointer(e);
+      this.moveTo(p.x, p.y, e.pointerType !== 'touch');
+    });
+    const lift = (e) => {
+      this.release();
+      const p = view.pointer(e);
+      if (e.pointerType === 'touch' || p.x < 0 || p.y < 0 || p.x >= view.W || p.y >= view.H) this.hide();
+    };
+    canvas.addEventListener('pointerup', lift);
+    canvas.addEventListener('pointercancel', lift);
+    canvas.addEventListener('pointerleave', () => { this.hide(); });
+  }
 
   // dtS of time gone by runs that many whole steps, so calling this once a
   // frame on a 120 hz screen does not double the hand's speed and calling it

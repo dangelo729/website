@@ -24,8 +24,8 @@
 // and the key is the row's, made anew with each password. with no row or
 // no table, a site's lock is as its worker starts (starts): its password
 // and its key the secret, and locked unless the worker starts open
-// (env.OPEN, a var of its own in wrangler.toml). a read that fails leaves
-// the row as the isolate last read it.
+// (env.OPEN, a var of its own in wrangler.toml, if it has one). a read
+// that fails leaves the row as the isolate last read it.
 
 export const GATE = {
   COOKIE: 'gate', // the cookie's name

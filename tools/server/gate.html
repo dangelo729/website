@@ -4,10 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- the look's scripts from this site, the page's own script and style
-       inline, and its one connection the try at the password, to this
-       site -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'">
-  <title>Peter D'Angelo</title>
+       inline, its one connection the try at the password, to this site,
+       and the tab's icon a png the page draws (js/favicon.js), a data
+       url -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title></title>
+  <!-- the tab's icon: none until js/favicon.js draws it, so the browser
+       asks for no /favicon.ico -->
+  <link rel="icon" href="data:,">
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
@@ -26,20 +30,37 @@
   </style>
   <script>
     // the paper's colour as the visitor last chose the site, light or
-    // dark, before the scripts under the canvas have loaded
+    // dark, or as the system is where they have not chosen, before any
+    // other script has loaded
     try {
-      const kept = localStorage.getItem('dark');
-      if (kept !== null) document.documentElement.style.background = kept === '1' ? '#000000' : '#fbf6f0';
+      let kept = null;
+      try { kept = localStorage.getItem('dark'); } catch (e) {}
+      const dark = kept !== null ? kept === '1' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.style.background = dark ? '#000000' : '#fbf6f0';
     } catch (e) {}
+  </script>
+  <script src="/js/site.js"></script>
+  <script>
+    // the page's title: the site's name (js/site.js)
+    document.title = SITE.NAME;
   </script>
 </head>
 <body>
   <canvas id="view"></canvas>
   <input id="key" type="password" autocomplete="current-password" aria-label="password">
   <script src="/js/raster.js"></script>
+  <script src="/js/view.js"></script>
+  <script src="/js/letter.js"></script>
+  <script src="/js/hover.js"></script>
+  <script src="/js/icon.js"></script>
+  <script src="/js/switch.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/menu.js"></script>
+  <script src="/js/logo.js"></script>
   <script src="/js/softbody.js"></script>
   <script src="/js/skin.js"></script>
   <script src="/js/type.js"></script>
+  <script src="/js/favicon.js"></script>
   <script src="/js/icons.js"></script>
   <script src="/js/hand-art.js"></script>
   <script src="/js/cursor.js"></script>
@@ -55,412 +76,97 @@
     // frame.
 
     // --- the viewport ------------------------------------------------------------
-    // the window is a viewport onto a grid of world pixels, each SCALE css
-    // pixels square. every pixel is drawn into one framebuffer
-    // (js/raster.js) the size of the visible world, and once a frame it is
-    // copied whole into the canvas bitmap, which is that size exactly.
-    // nothing draws to the canvas itself
-    const SCALE = 1;
-
+    // the window is a viewport onto a grid of world pixels, each View.SCALE
+    // css pixels square (js/view.js): a css pixel, but in a window fewer
+    // than View.across css pixels wide each as much smaller as shows
+    // View.across of them across, and no smaller than one of the screen's
+    // own pixels. every pixel is drawn into one framebuffer (js/raster.js)
+    // the size of the visible world, and once a frame it is copied whole
+    // into the canvas bitmap, which is that size exactly. nothing draws to
+    // the canvas itself
     const canvas = document.getElementById('view');
+    View.load(window, canvas); // the viewport onto the window, through the canvas
     const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
     let qfb = null;   // the field's insides, drawn apart and copied through its skin (drawField)
 
     function resize() {
-      W = Math.max(1, Math.floor(window.innerWidth / SCALE));
-      H = Math.max(1, Math.floor(window.innerHeight / SCALE));
-      canvas.width = W;
-      canvas.height = H;
+      ({ W, H } = View.resize());
       fb = new Framebuffer(W, H);
+      Letter.fb = fb; // the letters draw into it unless given another (js/letter.js)
       qfb = new Framebuffer(W, H);
-      canvas.style.width = (W * SCALE) + 'px';
-      canvas.style.height = (H * SCALE) + 'px';
       placeSwitch();
-      placeLogo();
+      Logo.place(W, H);
       placeField();
     }
 
     // --- letters -----------------------------------------------------------------
-    // a letter is one object: a bitmap of ink (a glyph of js/type.js's, cut
-    // to its ink, or an icon), a home position in continuous world space, a
-    // scale and a tilt, and slow sines of its own on each, at rates and
-    // phases seeded from its place in the text, drawn as a sprite
-    // (js/raster.js), so a sub-pixel move or a touch of scale shows as edge
-    // pixels popping, never as the block stepping
-    const LETTER_SCALE = 1.56; // of a bitmap's px, a letter's scale unless it is given its own
-    const SWAY_PX  = 0.1,   SWAY_HZ    = 0.4;  // along x
-    const BOB_PX   = 0.1,   BOB_HZ     = 0.23; // along y
-    const BREATHE  = 0.008, BREATHE_HZ = 0.31; // of the scale
-    const TILT_RAD = 0.006, TILT_HZ    = 0.17; // about the centre
-    // the four together, as makeLetter takes them
-    const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
-
-    // a stable number in [0, 1) from two integers
-    function noise(i, k) {
-      const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
-      return s - Math.floor(s);
-    }
-
-    // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
-    // its rates and phases seeded from i, in v: ink, or a colour of the
-    // framebuffer's palette
-    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
-      const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
-      const phase = (k) => 2 * Math.PI * noise(i, k);
-      return {
-        g, cx, cy, scale, wob, v,
-        swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
-        swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
-        // where it is at time t: its centre, its scale and its tilt, { x, y, s, a }
-        pose(t) {
-          const w = 2 * Math.PI * t, m = this.wob;
-          return {
-            x: this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
-            y: this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
-            s: this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
-            a: m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
-          };
-        },
-        // at time t, dy world px down from home and dx across, into the
-        // page's framebuffer or another, turned turn radians more
-        // (clockwise) than its tilt, in v if given rather than its own
-        draw(t, dy = 0, into = fb, turn = 0, v = this.v, dx = 0) {
-          const p = this.pose(t);
-          into.sprite(this.g, p.x + dx, p.y + dy, p.s, p.a + turn, v);
-        },
-      };
-    }
-
-    // the page's words are js/type.js's lines in FACE, helvetica neue's medium
-    const FACE = { weight: 500, family: '"Helvetica Neue", Helvetica, Arial, sans-serif' };
+    // a letter (js/letter.js) is one object: a bitmap of ink (a glyph of
+    // js/type.js's, cut to its ink, or an icon), a home position in
+    // continuous world space, a scale and a tilt, and slow sines of its own
+    // on each, at rates and phases seeded from its place in the text, drawn
+    // as a sprite (js/raster.js), so a sub-pixel move or a touch of scale
+    // shows as edge pixels popping, never as the block stepping
 
     // --- the numbers -------------------------------------------------------------
-    // the page's sizes, springs and rates, as much of them as the gate needs
-    const UI = {
-      EDGE: 21,         // world px, how far everything keeps from the window's edges
-      STACK_BELOW: 463, // world px, the window's width under which the text is PHONE
-      MOST: 16,         // the text's world px to the em
-      PHONE: 11,        // the text's world px to the em, under STACK_BELOW
-      LINE: 2,          // world px, an outline's thickness
-      RESPONSE: 0.4,    // seconds, the menus' spring's swing undamped: how quick it swings
-      BOUNCE: 0.45,     // the spring's: damped 1 - BOUNCE
-      WARBLE: 0.24,     // world px each edge drifts either way, on its own slow sine at the letters' rates
-      PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
-      ROW: 0.4,         // of the text's size, between a menu's rows
-      SPREAD: 14,       // px, how far along the skin an anchor's pull reaches
-      CAP: 0.75, DESC: 0.2, // of the text's size, the face's caps over its baseline and descenders under
-    };
+    // the page's sizes, springs and rates, and the face its words are set
+    // in, js/type.js's lines in helvetica neue's medium, are UI's (js/ui.js)
 
     // --- hover -------------------------------------------------------------------
     // a mouse's pointer over the field turns it HOVER, its outline and its
     // hint with it, and over the switch the switch and its ball. a finger
-    // has no hover. where it is, in world px on the screen, or null
-    const HOVER = Framebuffer.colour('#49B6B0'), HOVER_ITEM = Framebuffer.colour('#B8B693'), HOVER_LINK = Framebuffer.colour('#B5979A');
-    let hoverAt = null;
-    canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
-    canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
-    canvas.addEventListener('pointerleave', () => { hoverAt = null; });
+    // has no hover. HOVER, HOVER_ITEM and HOVER_LINK are the look's teal,
+    // tan and mauve, and where a mouse's pointer is, in world px on the
+    // screen, or null, is Hover.at (js/hover.js)
+    const [HOVER, HOVER_ITEM, HOVER_LINK] = Hover.colours();
+    Hover.listen(canvas, View);
 
     // --- the switch --------------------------------------------------------------
-    // light or dark: a switch EDGE world px clear of the window's
-    // bottom-right corner: ICONS.switch (js/icons.js), drawn as the letters
-    // are, wobbling, as two sprites on one seed so they wobble as one: its
-    // paper, with its ink in it so nothing between the two shows through,
-    // then its ink over that, in HOVER while a mouse is over it; with
-    // ICONS.ball over it, the ball a press takes hold of. dark is how dark
-    // the page is, 0 light to 1 dark, and the ball is that far along the
-    // switch, from as far in from its left end as it is from its top to as
-    // far in from its right, where the switch is drawn. between the two,
-    // that share of the page's pixels are their dark colours, the rest
-    // their light, each going over at a point of its own (Framebuffer's
-    // present, js/raster.js). dark eases to where it is going (darkTo) by
-    // the house approach, dt-correct. a click on the switch, or a little
-    // round it, sends it to the other end; a primary press that goes SLOP
-    // px across takes the ball, which then goes as far along as the
-    // pointer has gone since the press, no further than either end, and
-    // let go, to the nearer end, its click pressing nothing. the switch and
-    // the ball are in HOVER while a mouse is over them or the ball is held.
-    // the document behind the canvas is the paper's colour of the end the
-    // page is nearer. the page starts light, as the site does, until the
-    // visitor sends the switch to an end, here or on the site: from then
-    // on the browser keeps which
-    const SWITCH = {
-      SCALE: LETTER_SCALE, // of the icon's px, as a letter's
-      SEED: 99200,         // its wobble's, clear of the letters'
-      KEY: 'dark',         // where the browser keeps it
-      SLOP: 3,             // world px across a press goes before it has the ball
-      RATE: 0.7,           // of the way left to where it is going, each 60 hz frame
-      NEAR: 0.002,         // of the way: as near as this, it is there
-    };
-    let dark = startsDark() ? 1 : 0; // how dark the page is, 0 light to 1 dark
-    let darkTo = dark;               // where it is going
-    let switchArt = null;            // the switch as { paper, ink } letters, its ball's bitmaps { paper, ink } or null, and reach, its px from its middle to the ball's at either end
-    let switchHold = null;           // the press on it, { id, x, from, on }: where it went down, how dark the page was, and whether it has the ball; or null
-
-    // whether the page starts dark: as the browser keeps that the visitor
-    // sent it, and light where it keeps nothing
-    function startsDark() {
-      try { return localStorage.getItem(SWITCH.KEY) === '1'; } catch (e) { return false; }
-    }
-
-    // the document behind the canvas in the paper's colour at the end the
-    // page is nearer
-    function backPaper() {
-      const w = dark < 0.5 ? Framebuffer.PAPER : Framebuffer.INK;
-      document.documentElement.style.background = 'rgb(' + [w & 255, w >> 8 & 255, w >> 16 & 255].join(',') + ')';
-    }
-    backPaper();
-
-    // rows as an icon along the window's bottom, its two letters on seed,
-    // { paper, ink }: centred so it stands with its right edge at right and
-    // EDGE clear of the bottom edge; null for an empty one
-    function iconArt(rows = [], right, seed) {
-      const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
-      if (!ink.w || !ink.h) return null;
-      const s = SWITCH.SCALE, x = right - ink.w * s / 2, y = H - UI.EDGE - ink.h * s / 2;
-      return { paper: makeLetter(paper, x, y, seed, s), ink: makeLetter(ink, x, y, seed, s) };
-    }
-
-    // whether world (x, y) on the screen presses icon a: its box and a
-    // little round it, at least 20 world px across, for a finger
-    function iconAt(a, x, y) {
-      if (!a) return false;
-      const L = a.ink, w = L.g.w * L.scale, h = L.g.h * L.scale;
-      const mx = Math.max(4, (20 - w) / 2), my = Math.max(4, (20 - h) / 2);
-      return Math.abs(x - L.cx) <= w / 2 + mx && Math.abs(y - L.cy) <= h / 2 + my;
-    }
-
-    // icon a, its ink in HOVER if over
-    function drawIcon(a, t, over) {
-      if (!a) return;
-      a.paper.draw(t, 0, fb, 0, 0);
-      a.ink.draw(t, 0, fb, 0, over ? HOVER : 1);
-    }
+    // light or dark (js/switch.js): a switch EDGE world px clear of the
+    // window's bottom-right corner, ICONS.switch (js/icons.js) with
+    // ICONS.ball over it, the ball a press takes hold of, in HOVER while a
+    // mouse is over it or the ball is held. a click on it, or a little
+    // round it, sends the page to its other end (the click, below), and a
+    // press on it presses nothing under it. the page starts
+    // as the visitor last sent the switch, here or on the site, or as the
+    // system is, light or dark; the document behind the canvas is the
+    // paper's colour of the end the page is nearer, and the tab's icon is
+    // that end's: a teal, a tan and a mauve dot down its diagonal
+    Switch.load(window, [HOVER, HOVER_ITEM, HOVER_LINK]);
 
     // the switch, EDGE clear of the window's bottom-right corner, and its
-    // ball; an empty switch is none, and an empty ball none
+    // ball
     function placeSwitch() {
-      switchArt = iconArt(ICONS.switch, W - UI.EDGE, SWITCH.SEED);
-      if (!switchArt) return;
-      const rows = ICONS.ball || [], ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
-      const g = switchArt.ink.g;
-      switchArt.ball = ink.w && ink.h ? { paper, ink } : null;
-      switchArt.reach = Math.max(0, (g.w - g.h + ink.h - ink.w) / 2);
+      Switch.place(ICONS.switch, ICONS.ball, W - UI.EDGE, H - UI.EDGE);
     }
 
     // whether world (x, y) on the screen presses the switch
     function switchAt(x, y) {
-      return iconAt(switchArt, x, y);
+      return Switch.at(x, y);
     }
 
-    // the switch, and its ball as far along it as the page is dark, where
-    // the switch is drawn, their ink in HOVER if over or held
-    function drawSwitch(t, over) {
-      const a = switchArt, lit = over || (switchHold && switchHold.on);
-      drawIcon(a, t, lit);
-      if (!a || !a.ball) return;
-      const p = a.ink.pose(t), along = (2 * dark - 1) * a.reach * p.s;
-      const x = p.x + Math.cos(p.a) * along, y = p.y + Math.sin(p.a) * along;
-      fb.sprite(a.ball.paper, x, y, p.s, p.a, 0);
-      fb.sprite(a.ball.ink, x, y, p.s, p.a, lit ? HOVER : 1);
-    }
-
-    // the page sent to an end, 1 dark or 0 light, and the browser told
-    function sendDark(to) {
-      darkTo = to;
-      try { localStorage.setItem(SWITCH.KEY, to ? '1' : '0'); } catch (e) {}
-    }
-
-    // dark eased toward where it is going, the house approach dt-correct,
-    // and there once it is near; the document behind the canvas follows
-    // it over the middle
-    function stepSwitch(dt) {
-      if (dark === darkTo) return;
-      const was = dark < 0.5;
-      dark += (darkTo - dark) * (1 - Math.pow(1 - SWITCH.RATE, 60 * dt));
-      if (Math.abs(darkTo - dark) < SWITCH.NEAR) dark = darkTo;
-      if (dark < 0.5 !== was) backPaper();
-    }
-
-    // a primary press on the switch is watched: SLOP px across, it has the
-    // ball, which goes with the pointer from there
-    canvas.addEventListener('pointerdown', (e) => {
-      const p = worldPointer(e);
-      if (e.isPrimary && !switchHold && switchAt(p.x, p.y)) switchHold = { id: e.pointerId, x: p.x, from: dark, on: false };
-    });
-    canvas.addEventListener('pointermove', (e) => {
-      const h = switchHold;
-      if (!h || e.pointerId !== h.id || !switchArt || !switchArt.reach) return;
-      const across = worldPointer(e).x - h.x;
-      if (!h.on && Math.abs(across) < SWITCH.SLOP) return;
-      h.on = true;
-      darkTo = Math.min(1, Math.max(0, h.from + across / (2 * switchArt.reach * SWITCH.SCALE)));
-    });
-    // the press over: a ball that was held goes to the nearer end, and the
-    // click it ends in presses nothing
-    const switchGo = (e) => {
-      const h = switchHold;
-      if (!h || e.pointerId !== h.id) return;
-      switchHold = null;
-      if (!h.on) return;
-      sendDark(darkTo < 0.5 ? 0 : 1);
-      if (e.type === 'pointerup') grabbed = true;
-    };
-    canvas.addEventListener('pointerup', switchGo);
+    // a primary press on the switch is watched, and the click a press that
+    // took its ball ends in presses nothing (grabbed, the cursor below)
+    Switch.listen(canvas, View, switchAt, () => { grabbed = true; });
 
     // --- the logo ----------------------------------------------------------------
-    // the page's name across the top of the window: LOGO.TEXT in the
-    // page's face, each glyph a letter, in HOVER_ITEM. its ink is centred
-    // across the window, its tallest TOP down from the window's top edge,
-    // SIZE world px to the em, or less where WIDTH of the window's width
-    // is narrower than that has it. left of its first letter is a dot in
-    // HOVER, its middle level with the top of that letter's ink, and right
-    // of its last a dot in HOVER_LINK, its middle level with the bottom of
-    // that letter's ink, each DOT ems across and GAP ems clear of its
-    // letter's ink across. a dot is a ring of verlet points
-    // (js/softbody.js), locked where the logo puts it and holding still
-    // there, in a world of its own the size of the window, so its px are
-    // the page's. it is made at each layout and settled in place at once,
-    // at a radius that puffs out to the one the logo gives it (PUFFED), and
-    // filled with its colour right out to its skin. a primary press within
-    // REACH of a dot's skin that presses nothing over it takes hold of the
-    // skin's nearest point and two either side and pulls them toward the
-    // pointer, a dashed line from the point to the pointer, until the
-    // press lifts or the pull goes too far and the skin lets go, and the
-    // dot wobbles home; the click it ends in presses nothing
-    const LOGO = {
-      TEXT: "Peter D'Angelo",
-      SIZE: 68,     // world px to the em, the most it will be
-      WIDTH: 0.3,   // of the window's width its word's ink may span
-      TOP: 30,      // world px from the window's top edge to its word's tallest ink
-      DOT: 0.35,    // ems across a dot
-      GAP: 0.1,     // ems across between a dot and its letter's ink
-      REACH: 6,     // world px past a dot's skin a press still takes hold of it
-      POINTS: 32,   // the points of a dot's ring,
-      PUFF: 1.2,    // how many times its circle's area the ring is pushed out toward,
-      SETTLE: 60,   // and the steps that leave it still where it is made
-      FIRST: 98000, // its letters' seeds run from here, clear of the others'
-    };
-    const logoType = new Type(LOGO.TEXT, () => document.createElement('canvas'), FACE);
-    // a ring's radius at rest over the radius it is made with
-    const PUFFED = (() => {
-      const w = new World(100, 100), b = new SoftBlob(50, 50, LOGO.POINTS, 10, LOGO.PUFF, true);
-      w.blobs.push(b);
-      for (let i = 0; i < LOGO.SETTLE; i++) w.tick();
-      const c = b.getCenter();
-      return b.points.reduce((r, p) => r + Math.hypot(p.x - c.x, p.y - c.y), 0) / b.points.length / 10;
-    })();
-    let logoAt = { letters: [], dots: [] }; // the logo as laid out (placeLogo): its word's letters, and its dots, each { world, blob, x, y, r, v }
-    let logoHold = null;                    // the press holding a dot, { id, dot }: its pointer and the dot; or null
-
-    // the logo laid out for the window: its word's letters, and its two
-    // dots, each r px round at (x, y) in colour v, made and settled
-    // there, any hold on one let go; with no glyphs, no logo
-    function placeLogo() {
-      const G = LOGO, t = logoType, n = t.glyphs.length;
-      logoAt = { letters: [], dots: [] };
-      logoHold = null;
-      if (!n) return;
-      const ems = (t.left + t.right) / TYPE.EM, size = Math.min(G.SIZE, G.WIDTH * W / ems), k = size / TYPE.EM;
-      const r = G.DOT * size / 2, out = G.GAP * size + r, first = t.glyphs[0], last = t.glyphs[n - 1];
-      // the line's origin on its baseline: its ink centred across, its tallest TOP down
-      const ox = (W - ems * size) / 2 + k * t.left, base = G.TOP + k * t.ascent;
-      logoAt.letters = t.glyphs.map((gl) => makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, G.FIRST + gl.at, k, WOBBLE, HOVER_ITEM));
-      const dot = (x, y, v) => {
-        const world = new World(W, H), blob = new SoftBlob(x, y, G.POINTS, r / PUFFED, G.PUFF, true);
-        world.blobs.push(blob);
-        for (let i = 0; i < G.SETTLE; i++) world.tick();
-        return { world, blob, x, y, r, v };
-      };
-      logoAt.dots = [
-        dot(ox + k * (first.x + first.dx - first.g.w / 2) - out, base + k * (first.dy - first.g.h / 2), HOVER),
-        dot(ox + k * (last.x + last.dx + last.g.w / 2) + out, base + k * (last.dy + last.g.h / 2), HOVER_LINK),
-      ];
-    }
-
-    // the dot a press at world (x, y) on the screen takes hold of: the
-    // nearest, if the press is within REACH of its skin, or null
-    function logoDotAt(x, y) {
-      const ds = logoAt.dots;
-      let best = null, most = Infinity;
-      for (let i = 0; i < ds.length; i++) {
-        const d = Math.hypot(x - ds[i].x, y - ds[i].y) - ds[i].r;
-        if (d <= LOGO.REACH && d < most) { best = ds[i]; most = d; }
-      }
-      return best;
-    }
-
-    // each dot's world on to now, the frame's ms
-    function stepLogo(now) {
-      const ds = logoAt.dots;
-      for (let i = 0; i < ds.length; i++) ds[i].world.step(now);
-    }
-
-    // the logo into fb: its word's letters, and each dot filled with its
-    // colour out to its skin's outer edge, the ring's points pushed out
-    // along its normal by half UI.LINE, so it is as big as an outline
-    // UI.LINE px thick round the ring would be and as round as the ring is
-    function drawLogo(t) {
-      const ls = logoAt.letters, ds = logoAt.dots, out = UI.LINE / 2;
-      for (let i = 0; i < ls.length; i++) ls[i].draw(t);
-      for (let j = 0; j < ds.length; j++) {
-        const pts = ds[j].blob.points, n = pts.length, edge = [];
-        for (let i = 0; i < n; i++) {
-          // the secant across it turned a quarter: outward, on a ring that runs clockwise on screen
-          const a = pts[(i + n - 1) % n], q = pts[i], c = pts[(i + 1) % n];
-          const nx = c.y - a.y, ny = a.x - c.x, m = Math.hypot(nx, ny) || 1;
-          edge.push({ x: q.x + out * nx / m, y: q.y + out * ny / m });
-        }
-        fb.fillPolygon(edge, ds[j].v);
-      }
-    }
-
-    // the hold on a dot into fb, in the dot's colour: cicada's drag line,
-    // dashed, from the grabbed point to the pointer, its dashes shrinking
-    // and gaps opening over the last 30 % of the reach before the skin
-    // lets go, walked from the rounded ends
-    function drawLogoHold() {
-      const ds = logoAt.dots;
-      for (let j = 0; j < ds.length; j++) {
-        const d = ds[j].world.drag;
-        if (!d) continue;
-        const c = d.points[0].point, reach = Math.min(Math.hypot(c.x - d.x, c.y - d.y) / SOFT.DRAG.BREAKAWAY, 1);
-        const dashing = Math.pow(Math.max(0, (reach - 0.7) / 0.3), 2), dash = Math.max(2, 12 * (1 - dashing)), gap = 1 + 25 * dashing;
-        const x0 = Math.round(c.x), y0 = Math.round(c.y), x1 = Math.round(d.x), y1 = Math.round(d.y), len = Math.hypot(x1 - x0, y1 - y0);
-        if (len === 0) continue;
-        const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
-        for (let at = 0, drawing = true; at < len; drawing = !drawing) {
-          const end = Math.min(at + (drawing ? dash : gap), len);
-          if (drawing) fb.line(x0 + ux * at, y0 + uy * at, x0 + ux * end, y0 + uy * end, ds[j].v);
-          at = end;
-        }
-      }
-    }
+    // the page's name across the top of the window (js/logo.js): the
+    // site's name (js/site.js) in the page's face, each glyph a letter in
+    // HOVER_ITEM, with a soft dot in HOVER left of it and one in
+    // HOVER_LINK right of it, which a press takes hold of and pulls, but
+    // not a press the switch takes or one on the field (what a press
+    // presses, below); the click a press that held a dot ends in presses
+    // nothing (grabbed, the cursor below)
+    Logo.load(SITE.NAME, () => document.createElement('canvas'), UI.FACE, [HOVER, HOVER_ITEM, HOVER_LINK]);
 
     // a primary press on a dot takes hold of it, and each move of its
-    // pointer takes the pull there
-    canvas.addEventListener('pointerdown', (e) => {
-      if (!e.isPrimary || e.button !== 0) return;
-      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
-      if (h && h.logo && h.logo.world.grab(p.x, p.y)) logoHold = { id: e.pointerId, dot: h.logo };
-    });
-    canvas.addEventListener('pointermove', (e) => {
-      if (!logoHold || e.pointerId !== logoHold.id) return;
-      const p = worldPointer(e);
-      logoHold.dot.world.pointer(p.x, p.y);
-    });
-    // the press over: the dot is let go, and the click it ends in presses
-    // nothing
-    const logoGo = (e) => {
-      if (!logoHold || e.pointerId !== logoHold.id) return;
-      logoHold.dot.world.release();
-      logoHold = null;
-      if (e.type === 'pointerup') grabbed = true;
-    };
-    canvas.addEventListener('pointerup', logoGo);
-    canvas.addEventListener('pointercancel', logoGo);
+    // pointer takes the pull there; the press over, the dot is let go, and
+    // the click it ends in presses nothing
+    Logo.listen(canvas, View, (x, y) => {
+      const h = !switchAt(x, y) && hitAt(x, y);
+      return h && h.logo;
+    }, () => { grabbed = true; });
 
     // --- the field ---------------------------------------------------------------
     // in the window's middle, the field the password is typed into, made
@@ -503,21 +209,12 @@
     let failed = false; // the last try could not be checked
     const warble = [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })); // each edge's
 
-    // text in FACE as letters k of a glyph's px to the world px, seeded
+    // text in UI.FACE as letters k of a glyph's px to the world px, seeded
     // from sd, its ink centred on (0, 0); and how wide its ink is
     function words(text, k, sd) {
-      const t = new Type(text, () => document.createElement('canvas'), FACE);
+      const t = new Type(text, () => document.createElement('canvas'), UI.FACE);
       const x0 = -k * (t.right - t.left) / 2, base = k * (t.ascent - t.descent) / 2;
-      return { wide: k * (t.left + t.right), letters: t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx), base + k * gl.dy, sd + gl.at, k)) };
-    }
-
-    // s, { p, v }, a place and its speed, stepped exactly by dt toward to
-    // by the underdamped spring's closed form, as the menus' are
-    function spring(s, to, dt) {
-      const w = 2 * Math.PI / UI.RESPONSE, z = 1 - UI.BOUNCE, sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = s.p - to, v0 = s.v;
-      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
-      s.p = to + e * (x0 * c + (v0 + sg * x0) / wd * sn);
-      s.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+      return { wide: k * (t.left + t.right), letters: t.glyphs.map((gl) => Letter.make(gl.g, x0 + k * (gl.x + gl.dx), base + k * gl.dy, sd + gl.at, k)) };
     }
 
     // the field laid out for the window: its text's size, its height, its
@@ -573,16 +270,16 @@
     // to the middle, each on the spring, and its skin after them
     function stepField(dt, t) {
       const f = field;
-      spring(f.wide, f.to, dt);
-      spring(f.side, 0, dt);
+      Menu.spring(f.wide, f.to, dt);
+      Menu.spring(f.side, 0, dt);
       f.skin.step(dt, fieldAt(t));
     }
 
     // the input put under the field, so a phone shows it there
     function underField() {
       const r = fieldAt();
-      input.style.left = Math.round(r.x0) * SCALE + 'px';
-      input.style.top = Math.round(r.y0) * SCALE + 'px';
+      input.style.left = Math.round(r.x0) * View.SCALE + 'px';
+      input.style.top = Math.round(r.y0) * View.SCALE + 'px';
     }
 
     // whether world (x, y) on the screen is on the field, REACH round it
@@ -666,13 +363,13 @@
     });
     canvas.addEventListener('pointerdown', (e) => {
       if (!held) return;
-      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.field) input.blur();
     });
     // a mouse's press on the field keeps the keys there: its own default
     // would take the focus from the input before the click gives it back
     canvas.addEventListener('mousedown', (e) => {
-      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.field) e.preventDefault();
     });
 
@@ -683,20 +380,20 @@
     // (switchAt), and asked first
     function hitAt(x, y) {
       if (onField(x, y)) return { field: true };
-      const dot = logoDotAt(x, y);
+      const dot = Logo.dotAt(x, y);
       return dot ? { logo: dot } : null;
     }
 
     // --- the click ---------------------------------------------------------------
     // a click: the switch sends the page to its other end, dark or light
-    // (sendDark, above); the field takes the keys, its input put under it
+    // (Switch.send, js/switch.js); the field takes the keys, its input put under it
     // first, inside the press, so a phone brings up its keyboard. the
     // click a press ends in that took hold of something (grabbed) presses
     // nothing
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
-      const p = worldPointer(e);
-      if (switchAt(p.x, p.y)) { sendDark(darkTo < 0.5 ? 1 : 0); return; }
+      const p = View.pointer(e);
+      if (switchAt(p.x, p.y)) { Switch.send(Switch.to < 0.5 ? 1 : 0); return; }
       const h = hitAt(p.x, p.y);
       if (!h || !h.field) return;
       underField();
@@ -712,34 +409,12 @@
     // carries on outside the window, and a pointer that leaves is forgotten
     const cursor = new Cursor();
 
-    // where pointer event e is, world px on the screen
-    function worldPointer(e) {
-      const rect = canvas.getBoundingClientRect();
-      return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
-    }
     let grabbed = false; // whether the last press took hold of something, so the click it ends in presses nothing
-    canvas.addEventListener('pointerdown', (e) => {
-      canvas.setPointerCapture(e.pointerId);
-      const p = worldPointer(e);
-      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
-      cursor.press();
-      grabbed = false;
-    });
-    canvas.addEventListener('pointermove', (e) => {
-      const p = worldPointer(e);
-      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
-    });
-    // a lifted press opens the hand again. it goes when there is nothing
-    // left to hover: a finger lifted, or a captured drag let go outside the
-    // viewport
-    function liftCursor(e) {
-      cursor.release();
-      const p = worldPointer(e);
-      if (e.pointerType === 'touch' || p.x < 0 || p.y < 0 || p.x >= W || p.y >= H) cursor.hide();
-    }
-    canvas.addEventListener('pointerup', liftCursor);
-    canvas.addEventListener('pointercancel', liftCursor);
-    canvas.addEventListener('pointerleave', () => { cursor.hide(); });
+    // the hand follows the pointer, closes on a press and opens on a lift,
+    // and goes when there is nothing left to hover (js/cursor.js); and each
+    // press starts having taken hold of nothing
+    cursor.listen(canvas, View);
+    canvas.addEventListener('pointerdown', () => { grabbed = false; });
 
     // --- the frame ---------------------------------------------------------------
     // the page is drawn fresh every browser frame, all of it into the
@@ -754,19 +429,19 @@
       const t = now / 1000;
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
-      stepLogo(now);
+      Logo.step(now);
       cursor.update(dt);
       stepField(dt, t);
-      stepSwitch(dt);
+      Switch.step(dt);
       fb.clear();
-      const overSwitch = !!hoverAt && switchAt(hoverAt.x, hoverAt.y);
-      const hit = hoverAt && !overSwitch && hitAt(hoverAt.x, hoverAt.y);
-      drawLogo(t);
+      const overSwitch = !!Hover.at && switchAt(Hover.at.x, Hover.at.y);
+      const hit = Hover.at && !overSwitch && hitAt(Hover.at.x, Hover.at.y);
+      Logo.draw(fb, t);
       drawField(t, !!(hit && hit.field));
-      drawLogoHold();
-      drawSwitch(t, overSwitch);
+      Logo.drawHold(fb);
+      Switch.draw(fb, t, overSwitch);
       cursor.draw(fb);
-      fb.present(ctx, dark);
+      fb.present(ctx, Switch.dark);
       requestAnimationFrame(frame);
     }
 

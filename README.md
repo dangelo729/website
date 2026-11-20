@@ -29,7 +29,7 @@ runs without building anything.
 
 Each test is a script in `tools/test`, run with node, for example:
 
-    node tools/test/raster.test.js
+    node tools/test/wall.test.js
 
 `wall-server.test.js` needs the graffiti wall's server running locally
 (`make dev` in `tools/wall-server`).

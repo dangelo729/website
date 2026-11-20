@@ -56,8 +56,8 @@
 // written. then ops setting dev's password and lock and the live site's,
 // each site's worker following within KEPT s, and a time posted to dev in
 // ops's numbers. last, wrangler.toml: what each worker is handed, OPEN
-// where CONTROLS.STARTS says, and ops reading each site's own database.
-// nothing reaches cloudflare. exits 1 on failure.
+// where its STARTS says (tools/ops/site.js), and ops reading each site's
+// own database. nothing reaches cloudflare. exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -646,9 +646,9 @@ function toml(text) {
   check('and seen at KEPT: locked', (await get(env, '/')).status === 401);
 
   // --- ops: its gate ------------------------------------------------------------------------------------
-  const { default: ops, OPS } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/worker.js')).href);
-  const { median } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/stats.js')).href);
-  const { CONTROLS } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/controls.js')).href);
+  const { default: ops } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/worker.js')).href);
+  const { OPS } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/ops.js')).href);
+  const { SITE: OWN, median } = await import(pathToFileURL(path.join(ROOT, 'tools/ops/site.js')).href);
   const OPS_PAGE = fs.readFileSync(path.join(ROOT, 'tools/ops/ops.html'), 'utf8');
   const OPS_PASSWORD = 'the lighthouse keeper', ORIGIN = 'https://ops.dangelo.engineering';
   // ops's env: its password, the repo's files, and both sites' databases
@@ -679,7 +679,7 @@ function toml(text) {
     /; HttpOnly/.test(gateSet) && /; Secure/.test(gateSet) && /; SameSite=Lax/.test(gateSet) && /; Path=\//.test(gateSet) &&
     gateSet.includes('; Max-Age=' + gates.GATE.DAYS * 86400) && !/domain/i.test(gateSet), gateSet);
   check('the me cookie: for the whole of dangelo.engineering, HttpOnly, Secure, SameSite=Lax, 400 days',
-    meSet === 'me=1; Domain=dangelo.engineering; Path=/; Max-Age=' + 400 * 86400 + '; HttpOnly; Secure; SameSite=Lax' && OPS.DAYS === 400 && OPS.DOMAIN === 'dangelo.engineering', meSet);
+    meSet === 'me=1; Domain=dangelo.engineering; Path=/; Max-Age=' + 400 * 86400 + '; HttpOnly; Secure; SameSite=Lax' && OPS.DAYS === 400 && OWN.DOMAIN === 'dangelo.engineering', meSet);
   check('its answer not cached nor indexed', unkept(r));
   const OPS_GATE = gateSet.split(';')[0], ME = meSet.split(';')[0];
   r = await worker.fetch(ask('GET', '/', { cookies: [OPS_GATE] }), site());
@@ -832,8 +832,8 @@ function toml(text) {
     return { res, status: res.status, text, body: res.status === 200 ? JSON.parse(text) : null };
   };
   const STARTED = { main: { locked: false, password: 'secret', at: null }, dev: { locked: true, password: 'secret', at: null } };
-  check('CONTROLS.STARTS as each site\'s worker starts: main given OPEN "1" open, dev locked',
-    same(CONTROLS.STARTS, { main: gates.starts({ OPEN: '1' }).locked, dev: gates.starts({}).locked }), JSON.stringify(CONTROLS.STARTS));
+  check('SITE.STARTS as each site\'s worker starts: main given OPEN "1" open, dev locked',
+    same(OWN.STARTS, { main: gates.starts({ OPEN: '1' }).locked, dev: gates.starts({}).locked }), JSON.stringify(OWN.STARTS));
   let c = await controlsNow([]);
   check('/controls, no cookie: the gate page', c.status === 401 && c.text === PAGE, c.status);
   c = await control({ site: 'dev', locked: false }, { cookies: [] });
@@ -985,8 +985,8 @@ function toml(text) {
   check('the site\'s worker handed the page, /api/tally and /gate before any file', Array.isArray(sitePatterns) && missed.length === 0, missed.join(' ') || JSON.stringify(sitePatterns));
   check('and the repo\'s other files served without it', !first(sitePatterns, '/js/raster.js') && !first(sitePatterns, '/cicada/cicada.mp4'));
   check('ops\'s handed every request, every file behind its gate', (T['env.ops.assets'] || {}).run_worker_first === true && (T['env.ops.assets'] || {}).binding === 'ASSETS');
-  check('OPEN "1" in the top level\'s vars, and none in dev\'s nor ops\'s, as CONTROLS.STARTS says', (T.vars || {}).OPEN === '1' && !T['env.dev.vars'] && !T['env.ops.vars'] &&
-    same(CONTROLS.STARTS, { main: gates.starts(T.vars || {}).locked, dev: gates.starts(T['env.dev.vars'] || {}).locked }), JSON.stringify(T.vars));
+  check('OPEN "1" in the top level\'s vars, and none in dev\'s nor ops\'s, as SITE.STARTS says', (T.vars || {}).OPEN === '1' && !T['env.dev.vars'] && !T['env.ops.vars'] &&
+    same(OWN.STARTS, { main: gates.starts(T.vars || {}).locked, dev: gates.starts(T['env.dev.vars'] || {}).locked }), JSON.stringify(T.vars));
   const dbOf = (list, binding) => (list || []).find((x) => x.binding === binding) || {};
   const liveDB = dbOf(T.d1_databases, 'DB'), devDB = dbOf(T['env.dev.d1_databases'], 'DB'), opsMain = dbOf(T['env.ops.d1_databases'], 'MAIN'), opsDev = dbOf(T['env.ops.d1_databases'], 'DEV');
   check('ops reads each site\'s own database: MAIN the live site\'s, DEV dev\'s, the two not the same', !!liveDB.database_id && !!devDB.database_id && liveDB.database_id !== devDB.database_id &&

@@ -1,9 +1,8 @@
 // --- the controls ----------------------------------------------------------------
-// /controls: each site's lock, dangelo.engineering's (main, env.MAIN) and
-// dev.dangelo.engineering's (dev, env.DEV), kept as the gate row in the
-// site's own database (tools/server/migrations/0002_gate.sql) that its
-// gate reads (tools/server/gate.js, within GATE.KEPT s). GET answers both,
-// json:
+// /controls: each site's lock, the live site's (main, env.MAIN) and
+// dev's (dev, env.DEV), kept as the gate row in the site's own database
+// (tools/server/migrations/0002_gate.sql) that its gate reads
+// (tools/server/gate.js, within GATE.KEPT s). GET answers both, json:
 //
 //   {
 //     main: { locked: false, password: 'secret', at: null },
@@ -13,8 +12,8 @@
 // locked, whether the site asks for a password; password, 'secret' while
 // it is still the worker's own secret and 'ops' once one has been set from
 // here; at, ms, when its row last changed, or null for none yet, when the
-// site is as its worker starts (STARTS). never a password, a hash, a salt
-// or a key.
+// site is as its worker starts (starts, the site's STARTS, site.js).
+// never a password, a hash, a salt or a key.
 //
 // POST takes json { site: 'main' | 'dev', locked?: true | false,
 // password?: '...' }, one of the two at least: a password of 1 to
@@ -30,14 +29,14 @@
 import { GATE, keep } from '../server/gate.js';
 
 export const CONTROLS = {
-  SITES: { main: 'MAIN', dev: 'DEV' },   // each site, and its database's binding
-  STARTS: { main: false, dev: true },    // whether each is locked with no row yet, as its worker starts (OPEN, wrangler.toml)
-  BYTES: 8192,                           // the most a body may hold
+  SITES: { main: 'MAIN', dev: 'DEV' }, // each site, and its database's binding
+  BYTES: 8192,                         // the most a body may hold
 };
 
-// a request to /controls answered
-export async function controls(request, env) {
-  if (request.method === 'GET') return answer(env);
+// a request to /controls answered, starts whether each site is locked
+// with no row yet, as its worker starts, { main, dev }
+export async function controls(request, env, starts) {
+  if (request.method === 'GET') return answer(env, starts);
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'GET, POST' } });
   const type = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
   if (type !== 'application/json' || request.headers.get('Origin') !== new URL(request.url).origin) {
@@ -53,20 +52,20 @@ export async function controls(request, env) {
   try {
     // with no row yet the site is as it starts, so locked not given is that
     await db.prepare('INSERT INTO gate (id, locked, hash, salt, key, at) VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ' + sets.join(', '))
-      .bind((b.locked === undefined ? CONTROLS.STARTS[b.site] : b.locked) ? 1 : 0, k.hash, k.salt, k.key, Date.now()).run();
+      .bind((b.locked === undefined ? starts[b.site] : b.locked) ? 1 : 0, k.hash, k.salt, k.key, Date.now()).run();
   } catch (e) {
     return failed(e);
   }
-  return answer(env);
+  return answer(env, starts);
 }
 
 // both sites' locks, as GET answers them
-async function answer(env) {
+async function answer(env, starts) {
   const out = {};
   try {
     for (const [site, binding] of Object.entries(CONTROLS.SITES)) {
       const r = await env[binding].prepare('SELECT locked, hash IS NOT NULL AS ops, at FROM gate WHERE id = 1').first();
-      out[site] = r ? { locked: r.locked !== 0, password: r.ops ? 'ops' : 'secret', at: r.at } : { locked: CONTROLS.STARTS[site], password: 'secret', at: null };
+      out[site] = r ? { locked: r.locked !== 0, password: r.ops ? 'ops' : 'secret', at: r.at } : { locked: starts[site], password: 'secret', at: null };
     }
   } catch (e) {
     return failed(e);

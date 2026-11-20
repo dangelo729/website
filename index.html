@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Peter D'Angelo</title>
   <meta name="description" content="Hi! I'm Peter, an inventor, software engineer, and musician based in NYC.">
+  <!-- the tab's icon: none until js/favicon.js draws it, so the browser
+       asks for no /favicon.ico -->
+  <link rel="icon" href="data:,">
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
@@ -22,11 +25,14 @@
     .drawn, .drawn body, .drawn canvas { cursor: none; }
   </style>
   <script>
-    // the paper's colour as the visitor last chose the page, light or dark,
-    // before the scripts under the canvas have loaded (the switch, there)
+    // the paper's colour as the visitor last chose the site, light or
+    // dark, or as the system is where they have not chosen, before any
+    // other script has loaded
     try {
-      const kept = localStorage.getItem('dark');
-      if (kept !== null) document.documentElement.style.background = kept === '1' ? '#000000' : '#fbf6f0';
+      let kept = null;
+      try { kept = localStorage.getItem('dark'); } catch (e) {}
+      const dark = kept !== null ? kept === '1' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.style.background = dark ? '#000000' : '#fbf6f0';
     } catch (e) {}
   </script>
 </head>
@@ -34,6 +40,16 @@
   <canvas id="view"></canvas>
   <script src="font.js"></script>
   <script src="js/raster.js"></script>
+  <script src="js/view.js"></script>
+  <script src="js/letter.js"></script>
+  <script src="js/hover.js"></script>
+  <script src="js/icon.js"></script>
+  <script src="js/switch.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/menu.js"></script>
+  <script src="js/mute.js"></script>
+  <script src="js/shimmer.js"></script>
+  <script src="js/bar.js"></script>
   <script src="js/softbody.js"></script>
   <script src="js/hands.js"></script>
   <script src="js/shop.js"></script>
@@ -44,6 +60,7 @@
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
+  <script src="js/favicon.js"></script>
   <script src="js/about-photos.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/text.js"></script>
@@ -71,16 +88,20 @@
   <script src="js/tally.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
-    // the window is a viewport onto a grid of world pixels, each SCALE css
-    // pixels square. resizing shows more or fewer of them; nothing is ever
-    // stretched. every pixel is drawn into one framebuffer (js/raster.js)
-    // the size of the visible world, each pixel lit or dark; once a frame
-    // it is copied whole into the canvas bitmap, which is that size exactly,
-    // and the browser blows it up by SCALE. nothing draws to the canvas
-    // itself.
-    const SCALE = 1;
-
+    // the window is a viewport onto a grid of world pixels, each View.SCALE
+    // css pixels square (js/view.js). resizing shows more or fewer of them;
+    // nothing is ever stretched. every pixel is drawn into one framebuffer
+    // (js/raster.js) the size of the visible world, each pixel lit or dark;
+    // once a frame it is copied whole into the canvas bitmap, which is that
+    // size exactly, and the browser blows it up by View.SCALE. nothing draws
+    // to the canvas itself. a world pixel is a css pixel, but a window fewer
+    // than View.across css pixels wide still shows View.across world pixels
+    // across, each as much smaller as fits them in, and no smaller than one
+    // of the screen's own pixels (resize). View.across is VIEW.ACROSS unless
+    // the address gives another (?across=700), 0 for none: every world
+    // pixel a css pixel.
     const canvas = document.getElementById('view');
+    View.load(window, canvas); // the viewport onto the window, through the canvas
     const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
     let W = 0, H = 0; // the viewport, in world pixels
     let fb = null;    // the world bitmap, remade at the viewport's size
@@ -90,17 +111,13 @@
     let qfb = null;   // a menu's insides, the upgrades' or a demo's settings', drawn apart and copied through its skin (drawShop, drawSettings)
 
     function resize() {
-      W = Math.max(1, Math.floor(window.innerWidth / SCALE));
-      H = Math.max(1, Math.floor(window.innerHeight / SCALE));
-      canvas.width = W;
-      canvas.height = H;
+      ({ W, H } = View.resize());
       fb = new Framebuffer(W, H);
+      Letter.fb = fb; // the letters draw into it unless given another (js/letter.js)
       cfb = new Framebuffer(W, H);
       ofb = new Framebuffer(W, H);
       pfb = new Framebuffer(W, H);
       qfb = new Framebuffer(W, H);
-      canvas.style.width = (W * SCALE) + 'px';
-      canvas.style.height = (H * SCALE) + 'px';
       placeMute();
       placeHand();
       placeSwitch();
@@ -108,24 +125,21 @@
     }
 
     // --- letters -----------------------------------------------------------------
-    // a letter is one object: its glyph from font.js cut to its ink, a home
-    // position in continuous world space, a scale and a tilt, and slow sines
-    // of its own on each, at rates and phases seeded from its place in the
-    // text. it is drawn as a sprite (js/raster.js), as daedalus's head is:
-    // every world pixel in its box is carried back through the transform
-    // into the glyph and lit when enough of it lands on ink, so a sub-pixel
-    // move or a touch of scale shows as edge pixels popping, never as the
-    // block stepping, and a 1 px stroke at these scales always lights one
-    // pixel and only doubles when it sits almost exactly between two. the
-    // bubble's face goes through the same sampler.
-    const LETTER_SCALE = 1.56;
-    const SWAY_PX  = 0.1,   SWAY_HZ    = 0.4;  // along x
-    const BOB_PX   = 0.1,   BOB_HZ     = 0.23; // along y
-    const BREATHE  = 0.008, BREATHE_HZ = 0.31; // of the scale: 1.55 to 1.57
-    const TILT_RAD = 0.006, TILT_HZ    = 0.17; // about the centre
-    // the four together, as makeLetter takes them: the name's letters take
-    // these too (NAME.WOBBLE), and could be given their own
-    const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
+    // a letter (js/letter.js) is one object: its glyph from font.js cut to
+    // its ink, a home position in continuous world space, a scale and a
+    // tilt, and slow sines of its own on each, at rates and phases seeded
+    // from its place in the text. it is drawn as a sprite (js/raster.js),
+    // as daedalus's head is: every world pixel in its box is carried back
+    // through the transform into the glyph and lit when enough of it lands
+    // on ink, so a sub-pixel move or a touch of scale shows as edge pixels
+    // popping, never as the block stepping, and a 1 px stroke at these
+    // scales always lights one pixel and only doubles when it sits almost
+    // exactly between two. the bubble's face goes through the same
+    // sampler. a picture (the photo or a logo) is a letter in its own
+    // colours, and a letter with no bitmap is the wobble alone, for
+    // something drawn its own way (the bubble). the name's letters take
+    // LETTER.WOBBLE too (NAME.WOBBLE), and could be given their own
+
     // none of it: a letter, or a picture, that holds still
     const STILL = { SWAY_PX: 0, SWAY_HZ: 0, BOB_PX: 0, BOB_HZ: 0, BREATHE: 0, BREATHE_HZ: 0, TILT_RAD: 0, TILT_HZ: 0 };
 
@@ -141,62 +155,11 @@
       return Framebuffer.ink(rows.map((r) => r.slice(lo, hi + 1)));
     }
 
-    // a stable number in [0, 1) from two integers
-    function noise(i, k) {
-      const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
-      return s - Math.floor(s);
-    }
-
-    // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
-    // its rates and phases seeded from i, in v: ink, or a colour of the
-    // framebuffer's palette. g a picture ({ px, w, h }, the photo or a logo)
-    // rather than ink, it goes through Framebuffer.spritePixels in its own
-    // colours, wobbling as a letter does. g null, it is the wobble alone,
-    // for something drawn its own way (the bubble)
-    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
-      const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
-      const phase = (k) => 2 * Math.PI * noise(i, k);
-      return {
-        g, cx, cy, scale, wob, v,
-        swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
-        swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
-        // where it is at time t: its centre, its scale and its tilt, { x, y, s, a }
-        pose(t) {
-          const w = 2 * Math.PI * t, m = this.wob;
-          return {
-            x: this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
-            y: this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
-            s: this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
-            a: m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
-          };
-        },
-        // at time t, dy world px down from home (up, for a scroll) and dx
-        // across, into
-        // the page's framebuffer or another, turned turn radians more
-        // (clockwise) than its tilt, in v if given rather than its own. its
-        // pose is pose(t)'s, worked out in place with no object made for
-        // it. a picture unturned at its own size with its top left (x0, y0)
-        // on a whole pixel is blitted, which lands it pixel for pixel as
-        // the sprite would
-        draw(t, dy = 0, into = fb, turn = 0, v = this.v, dx = 0) {
-          const w = 2 * Math.PI * t, m = this.wob, g = this.g;
-          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh) + dx;
-          const y = this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh) + dy;
-          const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
-          const a = m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn;
-          const x0 = x - g.w / 2, y0 = y - g.h / 2;
-          if (!g.px) into.sprite(g, x, y, s, a, v);
-          else if (s === 1 && a === 0 && Number.isInteger(x0) && Number.isInteger(y0)) into.blitPixels(g, x0, y0);
-          else into.spritePixels(g, x, y, s, a);
-        },
-      };
-    }
-
     // --- the name ----------------------------------------------------------------
     // the name across the top left, in helvetica, as big as the page gives
     // it room for. it is not browser text: js/type.js fills each glyph once,
     // big, into an offscreen canvas and reads it back as a bitmap, and here
-    // each one is a letter (makeLetter), drawn through the same sampler
+    // each one is a letter (Letter.make), drawn through the same sampler
     // at the name's size with the same sway, bob, breathe and tilt, seeded
     // from its own place in the name. the bitmaps are made once, at the em;
     // a resize only places them and sets their scale, size over the em. at
@@ -224,7 +187,7 @@
       TOP: 21,         // world px from the top edge to its tallest ink
       GAP: 21,         // from its box's bottom to anything under it
       FIRST: 100,      // its letters' seeds run from here
-      WOBBLE,          // the letters' sway, bob, breathe and tilt
+      WOBBLE: LETTER.WOBBLE, // the letters' sway, bob, breathe and tilt
     };
     const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
 
@@ -245,7 +208,7 @@
       // the line's origin on its baseline, from where its ink's top left goes
       const ox = (stacked ? (W - ems * size) / 2 : NAME.X) + k * t.left, base = NAME.TOP + k * t.ascent;
       const keys = t.glyphs.map((gl, i) => {
-        const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE);
+        const L = Letter.make(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, NAME.FIRST + gl.at, k, NAME.WOBBLE);
         letters.push(L);
         return { L, lo: L.cx - k * gl.g.w / 2, hi: L.cx + k * gl.g.w / 2, v: tagLines[i % 3].v };
       });
@@ -374,7 +337,7 @@
         const t = l.type, ox = x + tagStair.lefts[i] * size + k * t.left;
         base = top + size * asc + i * lead;
         for (const gl of t.glyphs)
-          letters.push(makeLetter(gl.g, ox + k * (gl.x + gl.dx + (gl.at >= l.at ? l.shift : 0)), base + k * gl.dy, TAG.FIRST + 50 * i + gl.at, k, WOBBLE, l.v));
+          letters.push(Letter.make(gl.g, ox + k * (gl.x + gl.dx + (gl.at >= l.at ? l.shift : 0)), base + k * gl.dy, TAG.FIRST + 50 * i + gl.at, k, LETTER.WOBBLE, l.v));
         tagBubbles.push(makeTagBubble(ox + k * l.bx, base - TAG.RISE * size, TAG.BUBBLE * size / 2, l.v));
       });
       return base + k * tagLines[n - 1].type.descent;
@@ -491,8 +454,6 @@
       RADIUS: 0.15,  // of the word's size: the open box's corners
       LINE: 2,       // world px, the outline's thickness open, and the x's strokes'
       CLOSE: 1,      // the scale the pixel font's X is drawn at, turned a quarter: 1 is its own pixels, 11 world px wide
-      RATE: 0.3,     // an item's text: of the way left to open each 60 hz frame opening, of the way from open shutting
-      HEAD: 0.08,    // an item's text shutting: the way from open grows as if this much further, its start's speed over its end's
       RESPONSE: 0.4, // seconds, the box's spring's swing undamped: how quick it swings
       BOUNCE: 0.35,  // how far it swings past open and back: its damping is 1 - BOUNCE, so over 0 and under 1 (0.35 swings about 7 % past open)
       WARBLE: 0.24,  // world px each edge drifts either way, on its own slow sine at the letters' rates
@@ -564,7 +525,7 @@
     }));
     const backType = new Type('<', () => document.createElement('canvas'), TAG.FACE);
     const onType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
-    const caretType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
+    Menu.load(() => document.createElement('canvas')); // the menus' caret, Menu.caret: a > in UI.FACE (js/ui.js), the face TAG.FACE is
     const LINK_SEP = ' | '; // between an item's links
 
     // each section: its word, what goes in its box (paragraphs of type,
@@ -676,9 +637,9 @@
         linkType: new Type((x.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
         open: false, p: 0, turn: 0, caret: null, letters: [], text: [], base: 0, clip: 0, span: 0, ext: 0, hit: null, shift: 0, right: 0, wide: 0,
         shut: null, full: null, ring: null, skin: null,
-        warble: [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
-          hz: hz * (0.8 + 0.4 * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e)),
-          ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e + 4),
+        warble: [LETTER.WOBBLE.SWAY_HZ, LETTER.WOBBLE.BOB_HZ, LETTER.WOBBLE.SWAY_HZ, LETTER.WOBBLE.BOB_HZ].map((hz, e) => ({
+          hz: hz * (0.8 + 0.4 * Letter.noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e)),
+          ph: 2 * Math.PI * Letter.noise(BOX.FIRST + 10000 * n + 3000 + 100 * i - 3, e + 4),
         })),
       })),
       rest: 0,
@@ -703,9 +664,9 @@
       // its warble: each edge its own sine, left and right at about the
       // letters' sway rate and top and bottom their bob's, rates and
       // phases seeded as a letter's are
-      warble: [WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ, WOBBLE.SWAY_HZ, WOBBLE.BOB_HZ].map((hz, e) => ({
-        hz: hz * (0.8 + 0.4 * noise(BOX.FIRST + 10000 * n - 2, e)),
-        ph: 2 * Math.PI * noise(BOX.FIRST + 10000 * n - 2, e + 4),
+      warble: [LETTER.WOBBLE.SWAY_HZ, LETTER.WOBBLE.BOB_HZ, LETTER.WOBBLE.SWAY_HZ, LETTER.WOBBLE.BOB_HZ].map((hz, e) => ({
+        hz: hz * (0.8 + 0.4 * Letter.noise(BOX.FIRST + 10000 * n - 2, e)),
+        ph: 2 * Math.PI * Letter.noise(BOX.FIRST + 10000 * n - 2, e + 4),
       })),
     }));
     // the sections in each one's box (subs) as the page keeps them, each
@@ -978,7 +939,7 @@
       const t = s.type, k = size / TYPE.EM, ox = left + k * t.left, base = y + k * t.ascent;
       let o = null, os = 0;
       for (const gl of t.glyphs) {
-        const L = makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, WOBBLE);
+        const L = Letter.make(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, ABOUT.FIRST + 100 * s.n + gl.at, k, LETTER.WOBBLE);
         s.letters.push(L);
         // its o, the first glyph until there is one, and the last
         // o it has if it has fewer: its letter laid out for its place
@@ -1046,7 +1007,7 @@
         const xs = BOX.CLOSE, xw = xg.h * xs, xh = xg.w * xs, cy = s.ink.y0;
         // strip: the band across the top of the box it answers for, from the
         // box's top to halfway down to what is under it
-        box.close = { x: ix0, y: cy, w: xw, h: xh, strip: [y0, cy + xh + 0.45 * bs], letter: makeLetter(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, WOBBLE) };
+        box.close = { x: ix0, y: cy, w: xw, h: xh, strip: [y0, cy + xh + 0.45 * bs], letter: Letter.make(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, LETTER.WOBBLE) };
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
       if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
@@ -1103,7 +1064,7 @@
           const ox = left + ck * t.left;
           return {
             x: left, y: base - ck * t.ascent, w: wide(t), h: ck * (t.ascent + t.descent),
-            letters: t.glyphs.map((gl) => makeLetter(gl.g, ox + ck * (gl.x + gl.dx), base + ck * gl.dy, sd + gl.at, ck, WOBBLE)),
+            letters: t.glyphs.map((gl) => Letter.make(gl.g, ox + ck * (gl.x + gl.dx), base + ck * gl.dy, sd + gl.at, ck, LETTER.WOBBLE)),
           };
         };
         // the first line's baseline cb: on it the >, its ink ending at the
@@ -1127,7 +1088,7 @@
         for (const line of lines) {
           right = Math.max(right, ix0 + bk * (line.right - line.left));
           for (const gl of line.glyphs)
-            s.bodyLetters.push(makeLetter(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, seed + 1000 * p + gl.at, bk, WOBBLE));
+            s.bodyLetters.push(Letter.make(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, seed + 1000 * p + gl.at, bk, LETTER.WOBBLE));
           last = base;
           base += BOX.LEAD * bs;
         }
@@ -1175,14 +1136,14 @@
         const ow = og ? BOX.BOB * Math.max(so.x1 - so.x0, so.y1 - so.y0) : 0, oh = ow, below = og ? ik * (og.dy + og.g.h / 2) : 0;
         if (og) base += Math.max(0, oh - below - BOX.ITEM_CAP * is);
         let nx = ix0 + bx; // the name's ink's left
-        if (caretType.glyphs.length) {
-          const gl = caretType.glyphs[0];
-          it.caret = makeLetter(gl.g, ix0 + bx + ik * gl.g.w / 2, base + ik * gl.dy, seed + 3000 + 100 * i + 99, ik, WOBBLE);
+        if (Menu.caret.glyphs.length) {
+          const gl = Menu.caret.glyphs[0];
+          it.caret = Letter.make(gl.g, ix0 + bx + ik * gl.g.w / 2, base + ik * gl.dy, seed + 3000 + 100 * i + 99, ik, LETTER.WOBBLE);
           nx = ix0 + bx + ik * gl.g.w + BOX.CARET * is;
         }
         const ox = nx + ik * t.left, push = og ? ow - ik * og.g.w : 0;
         for (const gl of t.glyphs) if (gl !== og)
-          it.letters.push(makeLetter(gl.g, ox + ik * (gl.x + gl.dx) + (og && gl.at > og.at ? push : 0), base + ik * gl.dy, seed + 3000 + 100 * i + gl.at, ik, WOBBLE));
+          it.letters.push(Letter.make(gl.g, ox + ik * (gl.x + gl.dx) + (og && gl.at > og.at ? push : 0), base + ik * gl.dy, seed + 3000 + 100 * i + gl.at, ik, LETTER.WOBBLE));
         const ring = og ? { x0: ox + ik * (og.x + og.dx - og.g.w / 2), y0: base + below - oh, x1: ox + ik * (og.x + og.dx - og.g.w / 2) + ow, y1: base + below, r: Math.min(ow, oh) / 2 } : null;
         it.hit = { x0: ix0, y0: Math.min(base - ik * t.ascent, ring ? ring.y0 : Infinity), x1: ox + ik * t.right + push, y1: base + ik * t.descent };
         it.right = it.hit.x1; // its furthest ink right, its text's too
@@ -1226,7 +1187,7 @@
           it.span = 0;
           it.logosAt = [];
           const qx = Math.ceil(ix0 + BOX.LINE), qy = Math.ceil(fy + BOX.LINE);
-          s.room = { x: qx, y: qy, w: Math.floor(ix1 - BOX.LINE) - qx, h: Math.floor(fy + tall - BOX.LINE) - qy, size: bs, inset: ix0 + bx - qx, letter: makeLetter(null, 0, 0, seed + 9000, 1, WOBBLE) };
+          s.room = { x: qx, y: qy, w: Math.floor(ix1 - BOX.LINE) - qx, h: Math.floor(fy + tall - BOX.LINE) - qy, size: bs, inset: ix0 + bx - qx, letter: Letter.make(null, 0, 0, seed + 9000, 1, LETTER.WOBBLE) };
           base += BOX.ROW * is;
           return;
         }
@@ -1329,7 +1290,7 @@
           }
           else {
             const g = ditherLogo(a.art, a.w, a.h);
-            if (g) it.logosAt.push({ g, x, y, letter: makeLetter(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? WOBBLE : STILL) });
+            if (g) it.logosAt.push({ g, x, y, letter: Letter.make(g, x + a.w / 2, y + a.h / 2, seed + 9000 + 10 * i + it.logosAt.length, 1, (a.l.warble ?? BOX.LOGO_WARBLE) ? LETTER.WOBBLE : STILL) });
           }
           it.right = Math.max(it.right, x + a.w);
           logoBottom = Math.max(logoBottom, y + a.h);
@@ -1341,7 +1302,7 @@
           for (const line of wrapType(pt, tw / bk)) {
             it.right = Math.max(it.right, nx + bk * (line.right - line.left));
             for (const gl of line.glyphs)
-              it.text.push(makeLetter(gl.g, nx + bk * (gl.x + gl.dx - line.left), tb + bk * gl.dy, seed + 4000 + 1500 * i + 700 * p + gl.at, bk, WOBBLE));
+              it.text.push(Letter.make(gl.g, nx + bk * (gl.x + gl.dx - line.left), tb + bk * gl.dy, seed + 4000 + 1500 * i + 700 * p + gl.at, bk, LETTER.WOBBLE));
             tl = tb;
             tb += BOX.LEAD * bs;
           }
@@ -1355,7 +1316,7 @@
           const spans = it.links.map((k) => { const from = at; at += k.label.length + LINK_SEP.length; return from; });
           for (const k of it.links) k.letters = [];
           for (const gl of lt.glyphs) {
-            const L = makeLetter(gl.g, ox + bk * (gl.x + gl.dx), tb + bk * gl.dy, seed + 4000 + 1500 * i + 1400 + gl.at, bk, WOBBLE);
+            const L = Letter.make(gl.g, ox + bk * (gl.x + gl.dx), tb + bk * gl.dy, seed + 4000 + 1500 * i + 1400 + gl.at, bk, LETTER.WOBBLE);
             const j = spans.findIndex((from, j) => gl.at >= from && gl.at < from + it.links[j].label.length);
             (j >= 0 ? it.links[j].letters : it.text).push(L);
           }
@@ -1499,7 +1460,7 @@
         push += willPush(s);
         end = s.ink.y1 + push;
       }
-      scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
+      scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * View.SCALE;
     }
 
     // a press on a word: open its box out of the o, or send it back in.
@@ -1529,7 +1490,7 @@
     // has loaded or the frame is laid out
     function showSlide(s) {
       const f = s.show, g = f && ditherPhoto(slides[s.slide], f.w, f.h);
-      s.photoAt = g ? { g, x: f.x, y: f.y, letter: makeLetter(g, f.x + f.w / 2, f.y + f.h / 2, BOX.FIRST + 10000 * s.n + 9000, 1, PHOTO.WARBLE ? WOBBLE : STILL) } : null;
+      s.photoAt = g ? { g, x: f.x, y: f.y, letter: Letter.make(g, f.x + f.w / 2, f.y + f.h / 2, BOX.FIRST + 10000 * s.n + 9000, 1, PHOTO.WARBLE ? LETTER.WOBBLE : STILL) } : null;
     }
 
     // a press on the slideshow: by slides on (1) or back (-1), round from
@@ -1539,28 +1500,12 @@
       showSlide(s);
     }
 
-    // p, how far an item's text is open (or its caret turned), dt on
-    // toward open or back to shut, travel px the most anything moves on
-    // the way, speed times as fast. in the way left to open, q = 1 - p:
-    // opening it shrinks by RATE of itself a 60 hz frame, and goes to
-    // nothing once under a px of travel; shutting, it and HEAD grow by as
-    // much, so it leaves open going and speeds up into shut, and out at 1
-    // it is shut. a frame of any other length moves it as far as that
-    // many 60 hz frames would
-    function ease(p, open, dt, travel, speed = 1) {
-      const px = 1 / Math.max(1, travel), f = Math.pow(1 - BOX.RATE, 60 * dt * speed);
-      let q = 1 - p;
-      if (open) q = q * f < px ? 0 : q * f;
-      else q = Math.min(1, (q + BOX.HEAD) / f - BOX.HEAD);
-      return 1 - q;
-    }
-
-    // a box's items dt on toward open or shut (ease), and their carets
-    // turning FLIP times as fast
+    // a box's items dt on toward open or shut (Menu.ease, js/menu.js), and
+    // their carets turning FLIP times as fast
     function stepItems(s, dt) {
       for (const it of s.items) {
-        it.p = ease(it.p, it.open, dt, it.ext);
-        it.turn = ease(it.turn, it.open, dt, 4 * BOX.ITEM * BOX.LEAST, BOX.FLIP);
+        it.p = Menu.ease(it.p, it.open, dt, it.ext);
+        it.turn = Menu.ease(it.turn, it.open, dt, 4 * BOX.ITEM * BOX.LEAST, BOX.FLIP);
       }
     }
 
@@ -1996,7 +1941,7 @@
 
     // a click: the mute button mutes the page or gives it its sound back
     // (muteAt, below), the switch sends the page to its other end, dark or
-    // light (sendDark, below), the x shuts its box, a link opens its site in a new
+    // light (Switch.send, js/switch.js), the x shuts its box, a link opens its site in a new
     // tab, the slideshow's < shows the slide before and its > or its photo
     // the one after, an item opens or shuts its text, a word opens its box;
     // a button of the shop's buys a level of its upgrade, the demo's
@@ -2027,9 +1972,9 @@
     // film, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
-      const p = worldPointer(e);
-      if (muteAt(p.x, p.y)) { setMuted(!muted); return; }
-      if (switchAt(p.x, p.y)) { sendDark(darkTo < 0.5 ? 1 : 0); return; }
+      const p = View.pointer(e);
+      if (muteAt(p.x, p.y)) { setMuted(!Mute.on); return; }
+      if (switchAt(p.x, p.y)) { Switch.send(Switch.to < 0.5 ? 1 : 0); return; }
       const h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) {
@@ -2079,8 +2024,9 @@
     // Engineer's), and a link, a menu's header, its outline, caret and
     // words with it, and a demo's ribbon, the third (Musician's); a finger
     // has no hover. in a box inside another's each of them is the next
-    // colour on, the first again after the third (tint). where it is, in
-    // world px on the screen, or null; what
+    // colour on, the first again after the third (tint). where a mouse's
+    // pointer is, in world px on the screen, or null, is Hover.at
+    // (js/hover.js); what
     // it is over is worked out afresh each frame, so it follows the page as
     // it scrolls and the boxes move under a still pointer. the name's
     // letters light their own way, under a finger too (the name's keys,
@@ -2095,10 +2041,7 @@
     // whether hit, what the pointer is on, is section s's word, or its
     // box's outline while that is not open
     const onWord = (hit, s) => !!hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide;
-    let hoverAt = null;
-    canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
-    canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
-    canvas.addEventListener('pointerleave', () => { hoverAt = null; });
+    Hover.listen(canvas, View);
 
     // --- the name's keys ---------------------------------------------------------
     // the name is a row of piano keys (js/piano.js), a letter a degree of
@@ -2127,8 +2070,8 @@
       }
       nameOn = i;
     }
-    canvas.addEventListener('pointerdown', (e) => { if (e.isPrimary) nameTo(worldPointer(e)); });
-    canvas.addEventListener('pointermove', (e) => { if (e.isPrimary) nameTo(worldPointer(e)); });
+    canvas.addEventListener('pointerdown', (e) => { if (e.isPrimary) nameTo(View.pointer(e)); });
+    canvas.addEventListener('pointermove', (e) => { if (e.isPrimary) nameTo(View.pointer(e)); });
     // a finger lifted, or its press taken by a scroll, is on nothing
     const nameLift = (e) => { if (e.isPrimary && e.pointerType === 'touch') nameOn = -1; };
     canvas.addEventListener('pointerup', nameLift);
@@ -2140,28 +2083,19 @@
     Scrub.listen(window);
 
     // --- the mute button ---------------------------------------------------------
-    // a speaker MUTE.GAP world px clear of the window's bottom-right corner,
-    // held there while the page scrolls under it, over everything but the
-    // hand: ICONS.sound (js/icons.js) while the page plays and ICONS.muted
-    // while it is muted. each is drawn as the letters are, wobbling, as two
-    // sprites on one seed so they wobble as one: its paper, with its ink in
-    // it so nothing between the two shows through, then its ink over that,
-    // in the first tag colour while a mouse is over it. a press on it, or a
+    // a speaker (js/mute.js) CORNER.EDGE world px clear of the window's
+    // bottom-right corner, held there while the page scrolls under it, over
+    // everything but the hand: ICONS.sound (js/icons.js) while the page plays
+    // and ICONS.muted while it is muted. each is an icon (js/icon.js), drawn
+    // as the letters are, wobbling, its paper and then its ink, its ink in
+    // the first tag colour while a mouse is over it. a press on it, or a
     // little round it, eases the piano, the voice, the demo's voice and
     // the chess set's sound (js/piano.js, js/voice.js, js/monk.js,
     // js/clack.js) and the film's (js/film.js, js/scrub.js) to silence or
     // brings them back, and presses nothing
     // under it. the browser keeps it, so a visitor who
     // muted the page finds it muted the next time
-    const MUTE = {
-      GAP: 21,             // world px clear of the right and bottom edges, as the tag is of the right
-      SCALE: LETTER_SCALE, // of the icon's px, as the name's letters are of the font's
-      SEED: 99000,         // its wobble's, clear of the letters'
-      KEY: 'muted',        // where the browser keeps it
-    };
-    let muted = false;
     let iconRows = ICONS; // each icon's rows by name, and the scroll hand's frames (below)
-    let muteArt = {};     // each icon as { paper, ink } letters in the corner, by name
 
     // icons (ICONS, js/icons.js) read again and put in the corner, the
     // scroll hand's frames beside them and the switch and its ball beside
@@ -2176,133 +2110,70 @@
       if (chessItem && chessItem.chessAt) chessItem.chessAt.panel.pawn = chessPawn(chessItem.chessAt.panel.shut);
     }
 
-    // rows as an icon along the window's bottom, its two letters on seed,
-    // { paper, ink }: centred so it stands with its right edge at right and
-    // MUTE.GAP clear of the bottom edge; null for an empty one
-    function iconArt(rows = [], right, seed) {
-      const ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
-      if (!ink.w || !ink.h) return null;
-      const s = MUTE.SCALE, x = right - ink.w * s / 2, y = H - MUTE.GAP - ink.h * s / 2;
-      return { paper: makeLetter(paper, x, y, seed, s), ink: makeLetter(ink, x, y, seed, s) };
-    }
-
-    // whether world (x, y) on the screen presses icon a: its box and a
-    // little round it, at least 20 world px across, for a finger
-    function iconAt(a, x, y) {
-      if (!a) return false;
-      const L = a.ink, w = L.g.w * L.scale, h = L.g.h * L.scale;
-      const mx = Math.max(4, (20 - w) / 2), my = Math.max(4, (20 - h) / 2);
-      return Math.abs(x - L.cx) <= w / 2 + mx && Math.abs(y - L.cy) <= h / 2 + my;
-    }
-
-    // icon a, its ink in the first tag colour if over
-    function drawIcon(a, t, over) {
-      if (!a) return;
-      a.paper.draw(t, 0, fb, 0, 0);
-      a.ink.draw(t, 0, fb, 0, over ? HOVER : 1);
-    }
-
-    // each of the mute button's icons, MUTE.GAP clear of the window's
+    // each of the mute button's icons, CORNER.EDGE clear of the window's
     // bottom-right corner; an empty icon has none
     function placeMute() {
-      muteArt = {};
-      for (const name of ['sound', 'muted']) {
-        const a = iconArt(iconRows[name], W - MUTE.GAP, MUTE.SEED);
-        if (a) muteArt[name] = a;
-      }
+      Mute.place(iconRows, W - CORNER.EDGE, H - CORNER.EDGE);
     }
 
     // whether world (x, y) on the screen presses the icon shown
     function muteAt(x, y) {
-      return iconAt(muteArt[muted ? 'muted' : 'sound'], x, y);
+      return Mute.at(x, y);
     }
 
-    // the icon shown
-    function drawMute(t, over) {
-      drawIcon(muteArt[muted ? 'muted' : 'sound'], t, over);
-    }
-
-    // the page muted or given its sound back, and the browser told
+    // the page muted or given its sound back (Mute.set), as the click and
+    // the text editor (tools/text) ask
     function setMuted(on) {
-      muted = on;
+      Mute.set(on);
+    }
+
+    // what muting the page does, and giving it its sound back: the piano,
+    // the voice, the demo's voice, the chess set's sound and the film's
+    // told; muted at once if the browser keeps that it was
+    Mute.load(window, (on) => {
       Piano.mute(on);
       Voice.mute(on);
       Monk.mute(on);
       Clack.mute(on);
       Film.mute(on);
-      try { localStorage.setItem(MUTE.KEY, on ? '1' : '0'); } catch (e) {}
-    }
-    try { if (localStorage.getItem(MUTE.KEY) === '1') setMuted(true); } catch (e) {}
+    });
 
     // --- the switch --------------------------------------------------------------
-    // light or dark: a switch SWITCH.GAP world px left of the scroll hand,
-    // along the window's bottom with it and the mute button and held there
-    // as they are: ICONS.switch (js/icons.js), drawn as the mute button
-    // is, with ICONS.ball over it, the ball a press takes hold of. dark is
-    // how dark the page is, 0 light to 1 dark, and the ball is that far
-    // along the switch, from as far in from its left end as it is from its
-    // top to as far in from its right, where the switch is drawn. between
-    // the two, that share of the page's pixels are their dark colours, the
-    // rest their light, each going over at a point of its own
-    // (Framebuffer's present, js/raster.js): the page's paper to black and
-    // its ink to the paper's colour, a logo's colours to those made for
-    // the dark (imagePalette), a bubble's pulse to its shades up from the
-    // ink there (pulseInks), and the graffiti wall's paper and its black
-    // with the page's, which they are (wallLut). the photos keep their own
-    // colours, and so do the wall's others.
-    // dark eases to where it is going (darkTo) by the house approach,
-    // dt-correct. a click on the switch, or a little round it, sends it to
-    // the other end; a primary press that goes SLOP px across takes the
-    // ball, which then goes as far along as the pointer has gone since the
-    // press, no further than either end, and let go, to the nearer end,
-    // its click pressing nothing. either presses nothing under it. the
-    // switch and the ball are in the first tag colour while a mouse is
-    // over them or the ball is held. the document behind the canvas is the
-    // paper's colour of the end the page is nearer. the page starts
-    // light, until the visitor sends the switch to an end: from then on
-    // the browser keeps which
-    const SWITCH = {
-      GAP: 6,      // world px between it and the scroll hand
-      SEED: 99200, // its wobble's, clear of the hand's
-      KEY: 'dark', // where the browser keeps it
-      SLOP: 3,     // world px across a press goes before it has the ball
-      RATE: 0.7,   // of the way left to where it is going, each 60 hz frame
-      NEAR: 0.002, // of the way: as near as this, it is there
+    // light or dark (js/switch.js): a switch CORNER.GAP world px left of the
+    // scroll hand, along the window's bottom with it and the mute button
+    // and held there as they are: ICONS.switch (js/icons.js), drawn as the
+    // mute button is, with ICONS.ball over it, the ball a press takes hold
+    // of, in the first tag colour while a mouse is over it or the ball is
+    // held. as the page goes dark, that share of its pixels are their dark
+    // colours (Framebuffer's present, js/raster.js): the page's paper to
+    // black and its ink to the paper's colour, a logo's colours to those
+    // made for the dark (imagePalette), a bubble's pulse to its shades up
+    // from the ink there (pulseInks), and the graffiti wall's paper and its
+    // black with the page's, which they are (wallLut). the photos keep
+    // their own colours, and so do the wall's others. a click on the
+    // switch, or a little round it, sends the page to its other end (the
+    // click, above), and a press on it presses nothing under it. the page
+    // starts as the visitor last sent the switch, or as the system is,
+    // light or dark; the document behind the canvas is the paper's colour
+    // of the end the page is nearer, and the tab's icon is that end's: a
+    // dot in each of the tag's colours down its diagonal
+    const CORNER = {
+      EDGE: 21, // world px the mute button, the scroll hand and the switch keep clear of the window's right and bottom edges, as the tag is of the right
+      GAP: 6,   // world px between the switch and the scroll hand, right of it
     };
-    let dark = startsDark() ? 1 : 0; // how dark the page is, 0 light to 1 dark
-    let darkTo = dark;               // where it is going
-    let switchArt = null;            // the switch as { paper, ink } letters, its ball's bitmaps { paper, ink } or null, and reach, its px from its middle to the ball's at either end
-    let switchHold = null;           // the press on it, { id, x, from, on }: where it went down, how dark the page was, and whether it has the ball; or null
+    Switch.load(window, [HOVER, HOVER_ITEM, HOVER_LINK]);
 
-    // whether the page starts dark: only if the browser keeps that the
-    // visitor sent it there
-    function startsDark() {
-      try { return localStorage.getItem(SWITCH.KEY) === '1'; } catch (e) { return false; }
-    }
-
-    // the document behind the canvas in the paper's colour at the end the page is nearer
-    function backPaper() {
-      const w = dark < 0.5 ? Framebuffer.PAPER : Framebuffer.INK;
-      document.documentElement.style.background = 'rgb(' + [w & 255, w >> 8 & 255, w >> 16 & 255].join(',') + ')';
-    }
-    backPaper();
-
-    // the switch, SWITCH.GAP clear of the scroll hand's widest frame's
-    // left, and its ball; an empty switch is none, and an empty ball none
+    // the switch, CORNER.GAP clear of the scroll hand's widest frame's
+    // left, and its ball
     function placeSwitch() {
       let w = 0;
       for (const f of handArt) w = Math.max(w, f.ink.w);
-      switchArt = iconArt(iconRows.switch, handWob.cx - w * HAND.SCALE / 2 - SWITCH.GAP, SWITCH.SEED);
-      if (!switchArt) return;
-      const rows = iconRows.ball || [], ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
-      const g = switchArt.ink.g;
-      switchArt.ball = ink.w && ink.h ? { paper, ink } : null;
-      switchArt.reach = Math.max(0, (g.w - g.h + ink.h - ink.w) / 2);
+      Switch.place(iconRows.switch, iconRows.ball, handWob.cx - w * HAND.SCALE / 2 - CORNER.GAP, H - CORNER.EDGE);
     }
 
     // whether world (x, y) on the screen presses the switch
     function switchAt(x, y) {
-      return iconAt(switchArt, x, y);
+      return Switch.at(x, y);
     }
 
     // whether world (x, y) on the screen presses the mute button or the switch
@@ -2310,61 +2181,9 @@
       return muteAt(x, y) || switchAt(x, y);
     }
 
-    // the switch, and its ball as far along it as the page is dark, where
-    // the switch is drawn, their ink in the first tag colour if over or held
-    function drawSwitch(t, over) {
-      const a = switchArt, lit = over || (switchHold && switchHold.on);
-      drawIcon(a, t, lit);
-      if (!a || !a.ball) return;
-      const p = a.ink.pose(t), along = (2 * dark - 1) * a.reach * p.s;
-      const x = p.x + Math.cos(p.a) * along, y = p.y + Math.sin(p.a) * along;
-      fb.sprite(a.ball.paper, x, y, p.s, p.a, 0);
-      fb.sprite(a.ball.ink, x, y, p.s, p.a, lit ? HOVER : 1);
-    }
-
-    // the page sent to an end, 1 dark or 0 light, and the browser told
-    function sendDark(to) {
-      darkTo = to;
-      try { localStorage.setItem(SWITCH.KEY, to ? '1' : '0'); } catch (e) {}
-    }
-
-    // dark eased toward where it is going, the house approach dt-correct,
-    // and there once it is near; the document behind the canvas follows
-    // it over the middle
-    function stepSwitch(dt) {
-      if (dark === darkTo) return;
-      const was = dark < 0.5;
-      dark += (darkTo - dark) * (1 - Math.pow(1 - SWITCH.RATE, 60 * dt));
-      if (Math.abs(darkTo - dark) < SWITCH.NEAR) dark = darkTo;
-      if (dark < 0.5 !== was) backPaper();
-    }
-
-    // a primary press on the switch is watched: SLOP px across, it has the
-    // ball, which goes with the pointer from there
-    canvas.addEventListener('pointerdown', (e) => {
-      const p = worldPointer(e);
-      if (e.isPrimary && !switchHold && switchAt(p.x, p.y)) switchHold = { id: e.pointerId, x: p.x, from: dark, on: false };
-    });
-    canvas.addEventListener('pointermove', (e) => {
-      const h = switchHold;
-      if (!h || e.pointerId !== h.id || !switchArt || !switchArt.reach) return;
-      const across = worldPointer(e).x - h.x;
-      if (!h.on && Math.abs(across) < SWITCH.SLOP) return;
-      h.on = true;
-      darkTo = Math.min(1, Math.max(0, h.from + across / (2 * switchArt.reach * MUTE.SCALE)));
-    });
-    // the press over: a ball that was held goes to the nearer end, and the
-    // click it ends in presses nothing
-    const switchGo = (e) => {
-      const h = switchHold;
-      if (!h || e.pointerId !== h.id) return;
-      switchHold = null;
-      if (!h.on) return;
-      sendDark(darkTo < 0.5 ? 0 : 1);
-      if (e.type === 'pointerup') grabbed = true;
-    };
-    canvas.addEventListener('pointerup', switchGo);
-    canvas.addEventListener('pointercancel', switchGo);
+    // a primary press on the switch is watched, and the click a press that
+    // took its ball ends in presses nothing (grabbed, the drag below)
+    Switch.listen(canvas, View, switchAt, () => { grabbed = true; });
 
     // --- the demo ----------------------------------------------------------------
     // monk mouth's item, in personal work, holds a small demo of its voice
@@ -2394,12 +2213,12 @@
     // drawn as the mute button's icons are, its paper and then its ink,
     // wobbling on a seed of its own, so each one sways, bobs, breathes and
     // tilts as a letter does. the ribbon is a bar (RIBBON) outlined
-    // BOX.LINE px and round at its corners, with a tick in the middle of
+    // UI.LINE px and round at its corners, with a tick in the middle of
     // each zone, a line a degree, and, while it is held, a dot on the line
     // of the degree being sung, or of the one the finger is on until it
     // sings: there at once at a press, and from line to line as the degree
-    // changes by the house approach, SNAP of the way left each 60 hz frame
-    // (stepDots). the ribbon is in the links' hover colour while a mouse is
+    // changes by the house approach, BAR.SNAP of the way left each 60 hz
+    // frame (stepDots). the ribbon is in the links' hover colour while a mouse is
     // over it or a press holds it. until the ribbon has been pressed a small hand stands left
     // of it, outside the box, pointing at its left end: the scroll hand's
     // first frame, which points down (the scroll hand, below), turned a
@@ -2412,8 +2231,8 @@
     //
     // the menu is built as bubble bob's is (the shop, below), on his
     // SHOP_UI, and moves as his does, on the same spring with the same
-    // bounce and kick, a skin chasing it and its edges warbling (stepMenu,
-    // menuAt). shut, it is a button in the box's top left corner, a caret
+    // bounce and kick, a skin chasing it and its edges warbling (Menu.step,
+    // Menu.at). shut, it is a button in the box's top left corner, a caret
     // and TITLE in the box text's face at the size his menu's rule gives
     // the item's text size, filled with paper and outlined. a press on it
     // opens it down and across the whole box, over the face and short of
@@ -2456,7 +2275,6 @@
       RIBBON: { H: 15, R: 5.5, TICK_IN: 4, MARK: 3 },
       SLIDER: { H: 10, R: 4, TICK_IN: 3, MARK: 2 },
       KNOB: 0.05,     // of a knob's slider's bar, how far in from each end its turn starts and stops, so its dot stays inside the bar
-      SNAP: 0.3,      // of the way left to its line a dot goes, each 60 hz frame
       HAND: { GAP: 2, BOB: 3, HZ: 0.8, DOWN: 2 }, // the hand pointing at the ribbon: world px from its tip to the ribbon's left at the nearest and how far it bobs back from there, its bobs a second, and how far its middle stands under the ribbon's so its finger is level with it
       TITLE: 'settings', BUTTON: 'randomize voice', // what the menu's header says, and its button
       // the menu's sliders, top to bottom, each one of the page's scale's
@@ -2564,9 +2382,9 @@
     // subtitles, below), { size, face, bar, hand, menu }
     function placeDemo(x, y, bs, seed) {
       const D = DEMO, face = [], h = demoH(bs), top = y + h - D.H;
-      for (let i = 0; i < D.FEATURES; i++) face.push(makeLetter(null, x + D.HEAD_X, top + D.HEAD_Y, seed + i, 1));
+      for (let i = 0; i < D.FEATURES; i++) face.push(Letter.make(null, x + D.HEAD_X, top + D.HEAD_Y, seed + i, 1));
       const bar = { x0: x, y0: y + h - D.RIBBON.H, x1: x + D.W, y1: y + h };
-      return { size: bs, face, bar, hand: makeLetter(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(demoMenu, x, y, y + h, bs, seed) };
+      return { size: bs, face, bar, hand: Letter.make(null, bar.x0, (bar.y0 + bar.y1) / 2 + D.HAND.DOWN, seed + 9, HAND.SCALE), menu: placeSettings(demoMenu, x, y, y + h, bs, seed) };
     }
 
     // settings menu m laid out for its box, S.W wide with its top left at
@@ -2595,12 +2413,12 @@
       };
       const wide = (t) => k * (t.left + t.right);
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
-      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
+      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => Letter.make(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, sd + gl.at, k, LETTER.WOBBLE));
       // the header, the shut menu: the caret and the title
-      const tt = type(S.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, cx = x + U.PAD_X * size;
+      const tt = type(S.TITLE), cg = Menu.caret.glyphs[0], cw = cg ? k * cg.g.w : 0, cx = x + U.PAD_X * size;
       const shut = { x0: x, y0: y, x1: x + Math.round(cw + apart + wide(tt) + 2 * U.PAD_X * size), y1: y + h };
       const header = {
-        caret: cg ? makeLetter(cg.g, cx + cw / 2, y + size * (U.PAD_Y + U.CAP) + k * cg.dy, seed + 50, k, WOBBLE) : null,
+        caret: cg ? Letter.make(cg.g, cx + cw / 2, y + size * (U.PAD_Y + U.CAP) + k * cg.dy, seed + 50, k, LETTER.WOBBLE) : null,
         title: letters(tt, cx + cw + apart, y, seed + 60),
       };
       // the rows under it
@@ -2637,7 +2455,7 @@
     // back from pointing down, its tip GAP and its bob left of the ribbon;
     // the subtitle of the syllable the face is singing (the subtitles,
     // below), over the item's text;
-    // the menu over the face (drawSettings); and the ribbon (drawBar), its
+    // the menu over the face (drawSettings); and the ribbon (Bar.draw), its
     // dot where it has got to (dotAt) while it is held, in the links' hover
     // colour while hover is on it or a press holds it
     function drawDemo(it, t, d, hover) {
@@ -2660,28 +2478,13 @@
       }
       if (monkSub && monkSub.at === a) drawLine(monkSub, monkSub.ends.length, t, d, pfb);
       drawSettings(it, a.menu, demoMenu, t, dy, hover);
-      drawBar(pfb, a.bar, dy, Monk.DEGREES, dotAt, v, DEMO.RIBBON);
-    }
-
-    // a bar into into, its box b as laid out, dy world px down: outlined
-    // BOX.LINE px, look.R round its corners, a tick BOX.LINE px wide
-    // centred on the middle of each of its n zones, stopping look.TICK_IN
-    // short of its top and bottom edges, and, at at (0 .. 1 across it, or
-    // null for none), a dot look.MARK px round, all in v
-    function drawBar(into, b, dy, n, at, v, look) {
-      const y0 = b.y0 + dy, y1 = b.y1 + dy;
-      into.roundRect(b.x0, y0, b.x1, y1, look.R, null, v, BOX.LINE);
-      for (let k = 0; k < n; k++) {
-        const x = Math.round(b.x0 + (b.x1 - b.x0) * (k + 0.5) / n) - 1;
-        into.line(x, y0 + look.TICK_IN, x, y1 - 1 - look.TICK_IN, v, BOX.LINE);
-      }
-      if (at !== null) into.fillCircle(b.x0 + (b.x1 - b.x0) * at, (y0 + y1) / 2, look.MARK, v);
+      Bar.draw(pfb, a.bar, dy, Monk.DEGREES, dotAt, v, DEMO.RIBBON);
     }
 
     // item it's demo's settings menu m, laid out as ui, dy world px down
     // from where it was laid out, hover what the pointer is on: its header
     // and, while it is open at
-    // all, its sliders, each its bar (drawBar) with its dot where it has
+    // all, its sliders, each its bar (Bar.draw) with its dot where it has
     // got to (m.dots) and its words for the value in use, and its button,
     // if it has one,
     // its ring outlined LINE px from point to point, drawn into qfb over
@@ -2696,7 +2499,7 @@
       if (m.p > 0) {
         for (const sl of ui.sliders) {
           const def = m.S.SLIDERS[sl.i], sv = on && on.slider === sl ? tint(it.home, 0) : 1;
-          drawBar(qfb, sl.bar, dy, def.lines, m.dots[sl.i], sv, DEMO.SLIDER);
+          Bar.draw(qfb, sl.bar, dy, def.lines, m.dots[sl.i], sv, DEMO.SLIDER);
           for (const L of sl.words(def.say())) L.draw(t, dy, qfb, 0, sv);
         }
         const b = ui.button, bv = on && on.randomize ? tint(it.home, 0) : 1, n = b ? b.ring.length : 0;
@@ -2714,20 +2517,13 @@
       }
     }
 
-    // a dot at at, 0 .. 1 across its bar, dt on toward to by the house
-    // approach, dt-correct, SNAP of the way left each 60 hz frame; at null,
-    // on to at once
-    function dotTo(at, to, dt) {
-      return at === null ? to : at + (to - at) * (1 - Math.pow(1 - DEMO.SNAP, 60 * dt));
-    }
-
-    // settings menu m's sliders' dots dt on (dotTo), each toward where its
+    // settings menu m's sliders' dots dt on (Bar.dotTo), each toward where its
     // slider's value in use puts it
     function stepSliders(m, dt) {
-      for (let i = 0; i < m.dots.length; i++) m.dots[i] = dotTo(m.dots[i], m.S.SLIDERS[i].at(), dt);
+      for (let i = 0; i < m.dots.length; i++) m.dots[i] = Bar.dotTo(m.dots[i], m.S.SLIDERS[i].at(), dt);
     }
 
-    // the demo's dots dt on (dotTo): its menu's sliders' (stepSliders);
+    // the demo's dots dt on (Bar.dotTo): its menu's sliders' (stepSliders);
     // and the ribbon's, while the ribbon is held, toward the
     // line of the degree being sung (Monk.deg), or of the degree whose
     // zone holds the finger until one is, put on its line at once by a
@@ -2735,7 +2531,7 @@
     function stepDots(dt) {
       stepSliders(demoMenu, dt);
       if (Monk.down === null) { dotAt = null; return; }
-      dotAt = dotTo(dotAt, ((Monk.deg < 0 ? Monk.zone(Monk.down) : Monk.deg) + 0.5) / Monk.DEGREES, dt);
+      dotAt = Bar.dotTo(dotAt, ((Monk.deg < 0 ? Monk.zone(Monk.down) : Monk.deg) + 0.5) / Monk.DEGREES, dt);
     }
 
     // world x on the screen across what is held: across the ribbon, as
@@ -2755,13 +2551,13 @@
     }
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !(h.ribbon || h.slider)) return;
       holding = { id: e.pointerId, it: h.it, i: h.slider ? h.slider.i : null };
       if (h.ribbon) played = true;
       holdTo(p.x);
     });
-    canvas.addEventListener('pointermove', (e) => { if (holding && e.pointerId === holding.id) holdTo(worldPointer(e).x); });
+    canvas.addEventListener('pointermove', (e) => { if (holding && e.pointerId === holding.id) holdTo(View.pointer(e).x); });
     // the click a lifted press on the ribbon or a slider ends in presses
     // nothing, wherever the pointer has got to, as a drag's does (the
     // drag, below), and the ribbon let go leaves the singer's ribbon with
@@ -2808,7 +2604,7 @@
     // nothing to draw at its middle, at scale 1 so its pose's scale is its
     // breathe alone, { box, letter }
     function placeShip(x, y, seed) {
-      return { box: { x0: x, y0: y, x1: x + SHIP.W, y1: y + SHIP.H }, letter: makeLetter(null, x + SHIP.W / 2, y + SHIP.H / 2, seed, 1) };
+      return { box: { x0: x, y0: y, x1: x + SHIP.W, y1: y + SHIP.H }, letter: Letter.make(null, x + SHIP.W / 2, y + SHIP.H / 2, seed, 1) };
     }
 
     // item it's ship, d world px down from where it was laid out, into pfb,
@@ -2832,12 +2628,12 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.ship) turning = { id: e.pointerId, x: p.x };
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!turning || e.pointerId !== turning.id) return;
-      const x = worldPointer(e).x;
+      const x = View.pointer(e).x;
       Ship.turn((turning.x - x) * SHIP.DRAG);
       turning.x = x;
     });
@@ -2887,7 +2683,7 @@
     // nothing to draw at its middle, at scale 1 so its pose's scale is its
     // breathe alone, { box, letter }
     function placeDaedalus(x, y, seed) {
-      return { box: { x0: x, y0: y, x1: x + DAEDALUS.W, y1: y + DAEDALUS.H }, letter: makeLetter(null, x + DAEDALUS.W / 2, y + DAEDALUS.H / 2, seed, 1) };
+      return { box: { x0: x, y0: y, x1: x + DAEDALUS.W, y1: y + DAEDALUS.H }, letter: Letter.make(null, x + DAEDALUS.W / 2, y + DAEDALUS.H / 2, seed, 1) };
     }
 
     // item it's daedalus, d world px down from where it was laid out, into
@@ -3048,11 +2844,11 @@
         const gl = type.glyphs[0];
         if (!gl) continue;
         const m = n % 12, u = (m + (m > 4 ? 1 : 0)) / 2 + 0.5 + 7 * Math.floor(n / 12), black = Number.isInteger(u);
-        labels.push({ n, letter: makeLetter(gl.g, mx + (u - 5) * P.LABEL.PITCH * Keys.SCALE, top + (black ? P.LABEL.BLACK : P.LABEL.WHITE) + lk * gl.dy, seed + 100 + n, lk, WOBBLE, black ? 0 : 1) });
+        labels.push({ n, letter: Letter.make(gl.g, mx + (u - 5) * P.LABEL.PITCH * Keys.SCALE, top + (black ? P.LABEL.BLACK : P.LABEL.WHITE) + lk * gl.dy, seed + 100 + n, lk, LETTER.WOBBLE, black ? 0 : 1) });
       }
       const f = handArt[0], D = DEMO.HAND, reach = f ? box.x1 + D.GAP + D.BOB + f.ink.h * HAND.SCALE : Infinity;
-      const hand = reach <= right ? makeLetter(null, box.x1, my - D.DOWN, seed + 9, HAND.SCALE) : null;
-      return { box, letter: makeLetter(null, mx, my, seed, 1), labels, hand, right: hand ? reach : box.x1, menu: placeSettings(pianoMenu, x, y, top + P.H, bs, seed) };
+      const hand = reach <= right ? Letter.make(null, box.x1, my - D.DOWN, seed + 9, HAND.SCALE) : null;
+      return { box, letter: Letter.make(null, mx, my, seed, 1), labels, hand, right: hand ? reach : box.x1, menu: placeSettings(pianoMenu, x, y, top + P.H, bs, seed) };
     }
 
     // item it's piano, d world px down from where it was laid out, into
@@ -3095,7 +2891,7 @@
     // the keys told which of them a mouse is on, wherever the page has
     // scrolled to and the menu has them pushed, or that it is on none
     function pointKeys() {
-      const h = hoverAt && !cornerAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y);
+      const h = Hover.at && !cornerAt(Hover.at.x, Hover.at.y) && hitAt(Hover.at.x, Hover.at.y);
       Keys.point(h && h.piano ? h.key : -1);
     }
 
@@ -3167,12 +2963,12 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !pianoOn()) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.piano && h.key >= 0) pressKey(e.pointerId, h.key);
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!pianoHolds.has(e.pointerId)) return;
-      const p = worldPointer(e), h = hitAt(p.x, p.y);
+      const p = View.pointer(e), h = hitAt(p.x, p.y);
       if (!h || !h.piano || h.key < 0 || h.key === pianoHolds.get(e.pointerId)) return;
       liftKey(e.pointerId);
       pressKey(e.pointerId, h.key);
@@ -3228,12 +3024,12 @@
       RATE: 0.15,          // of the way left to its frame, each 60 hz frame
     };
     let handArt = [];    // each frame as { paper, ink } bitmaps
-    let handWob = null;  // its wobble, a letter with no bitmap (makeLetter)
+    let handWob = null;  // its wobble, a letter with no bitmap (Letter.make)
     let handAt = 0;      // the frame it is at, unrounded
     let handHold = null; // the frame the editor holds it on, or null
 
     // the frames as bitmaps, centred so the widest and tallest stand
-    // HAND.GAP clear of the mute button's widest icon and MUTE.GAP clear of
+    // HAND.GAP clear of the mute button's widest icon and CORNER.EDGE clear of
     // the bottom edge; an empty frame is left out
     function placeHand() {
       handArt = [];
@@ -3245,20 +3041,20 @@
         w = Math.max(w, ink.w);
         h = Math.max(h, ink.h);
       }
-      let left = W - MUTE.GAP;
-      for (const name in muteArt) {
-        const L = muteArt[name].ink;
+      let left = W - CORNER.EDGE;
+      for (const name in Mute.art) {
+        const L = Mute.art[name].ink;
         left = Math.min(left, L.cx - L.g.w * L.scale / 2);
       }
       const s = HAND.SCALE;
-      handWob = makeLetter(null, left - HAND.GAP - w * s / 2, H - MUTE.GAP - h * s / 2, HAND.SEED, s);
+      handWob = Letter.make(null, left - HAND.GAP - w * s / 2, H - CORNER.EDGE - h * s / 2, HAND.SEED, s);
       if (handHold !== null) holdHand(handHold);
     }
 
     // whether the page is scrolled to its end, to within a world px, or
     // does not scroll
     function atBottom() {
-      return scrolled() >= scrollEnd / SCALE - 1;
+      return scrolled() >= scrollEnd / View.SCALE - 1;
     }
 
     // the frame eased toward the last at the bottom and the first anywhere
@@ -3519,7 +3315,7 @@
       const letters = type.glyphs.map((gl) => {
         const wob = {};
         for (const key in SUBS.WOBBLE) wob[key] = SUBS.WOBBLE[key] * vary();
-        return { at: gl.at, L: makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, Math.floor(Math.random() * 1e6), k, wob) };
+        return { at: gl.at, L: Letter.make(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, Math.floor(Math.random() * 1e6), k, wob) };
       });
       return { ends, letters };
     }
@@ -3644,11 +3440,11 @@
     // its open one reaches down and left round a list of the upgrades under
     // the header, a button each, ROW apart, every one as wide as the
     // widest, MARGIN round them, each with its label and price. it swings
-    // there and back on the boxes' spring, but bouncier (BOUNCE) and set off
+    // there and back on the boxes' spring, but bouncier (UI.BOUNCE) and set off
     // with a KICK when it opens, so it bursts open and swings further past
     // it before it settles, its edges warbling as the boxes' do, and a skin
     // (js/skin.js) chases it as a box's does, its anchors' pull reaching
-    // only SPREAD along it, so it bows between them as a big box's skin
+    // only UI.SPREAD along it, so it bows between them as a big box's skin
     // does, with the menu's insides, drawn apart (pfb), copied through the
     // skin, so it wipes the list in as it grows. its caret turns from > to v as it opens, as an
     // item's does, and a press on the header shuts it. under the pointer
@@ -3665,16 +3461,14 @@
     // small bubbles and under the bubble, as cicada layered them
     // (drawGame). HAND_REACH is how far its art reaches from its palm.
     // the demo's menu (the demo, above) is built on SHOP_UI too, and moves
-    // as this one does (menuAt, stepMenu)
+    // as this one does (Menu.at, Menu.step)
     const SHOP_UI = {
       KEYS: ['drag', 'hands', 'spawn', 'max', 'value', 'voice'], TITLE: 'upgrades', BAR: '|',
       LABELS: { drag: 'drag strength', hands: 'hands', spawn: 'spawn rate', max: 'max bubbles', value: 'bubble value', voice: 'randomize voice' },
       PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
       APART: 0.4,                           // of the text's size, between the header's caret, rate, bars, count and title
       ROW: 0.4, MARGIN: 0.4,                // of the text's size, between the list's buttons, and round them in the open menu
-      BOUNCE: 0.45,                         // the spring's: damped 1 - BOUNCE (the boxes' 0.35, 7 % past open)
-      KICK: 12,                             // a second, added to its speed toward open as it opens: with BOUNCE, about 19 % past open
-      SPREAD: 14,                           // px, how far along the skin an anchor's pull reaches (a box's 80)
+      KICK: 12,                             // a second, added to its speed toward open as it opens: with UI.BOUNCE, about 19 % past open
       CAP: 0.75, DESC: 0.2,                 // of the text's size, the face's caps over its baseline and descenders under
       STEP: 2,                              // px between a button's outline's points, as the box's skin stands
     };
@@ -3729,16 +3523,16 @@
       };
       const wide = (t) => k * (t.left + t.right), h = Math.round(size * (2 * U.PAD_Y + U.CAP + U.DESC));
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
-      const letters = (t, x0, y0, seed) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, seed + gl.at, k, WOBBLE));
+      const letters = (t, x0, y0, seed) => t.glyphs.map((gl) => Letter.make(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, seed + gl.at, k, LETTER.WOBBLE));
       // the header, the shut menu: the caret, the rate, a bar, the count, a bar and the title
-      const rt = type(rate), ct = type(count), bt = type(U.BAR), tt = type(U.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = U.APART * size;
+      const rt = type(rate), ct = type(count), bt = type(U.BAR), tt = type(U.TITLE), cg = Menu.caret.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = U.APART * size;
       const right = room.x + room.w - inset, top = room.y + inset;
       const hw = Math.round(cw + wide(rt) + wide(ct) + 2 * wide(bt) + wide(tt) + 5 * apart + 2 * U.PAD_X * size);
       const shut = { x0: right - hw, y0: top, x1: right, y1: top + h };
       const x = shut.x0 + U.PAD_X * size, xr = x + cw + apart, xa = xr + wide(rt) + apart;
       const xc = xa + wide(bt) + apart, xb = xc + wide(ct) + apart, xt = xb + wide(bt) + apart;
       const header = {
-        caret: cg ? makeLetter(cg.g, x + cw / 2, top + size * (U.PAD_Y + U.CAP) + k * cg.dy, 78999, k, WOBBLE) : null,
+        caret: cg ? Letter.make(cg.g, x + cw / 2, top + size * (U.PAD_Y + U.CAP) + k * cg.dy, 78999, k, LETTER.WOBBLE) : null,
         rate: letters(rt, xr, top, 76000),
         rateBar: letters(bt, xa, top, 76500),
         count: letters(ct, xc, top, 79000),
@@ -3759,49 +3553,6 @@
       const full = { x0: right - Math.max(hw, bw + 2 * margin), y0: top, x1: right, y1: y - row + margin };
       shopUI = { room, key, size, shut, full, header, buttons };
       return shopUI;
-    }
-
-    // menu m's shape at p, from shut (0) to open (1), as laid out in ui
-    // (bubble bob's, or the demo's), its corners a button's, or, where
-    // its shut shape has a roundness of its own (r), that shut and a
-    // button's once it is open; and, given a time t, each edge
-    // warbled WARBLE px either way on its own sine, as boxAt has the boxes
-    function menuAt(m, ui, p, t) {
-      const a = ui.shut, b = ui.full, r = SHOP_UI.RADIUS * ui.size, c = { r: a.r === undefined ? r : a.r + (r - a.r) * Math.min(1, p) };
-      for (const k of ['x0', 'y0', 'x1', 'y1']) c[k] = a[k] + (b[k] - a[k]) * p;
-      if (t !== undefined) {
-        const w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * m.warble[e].hz + m.warble[e].ph);
-        c.x0 += w(0);
-        c.y0 += w(1);
-        c.x1 += w(2);
-        c.y1 += w(3);
-      }
-      return c;
-    }
-
-    // menu m, laid out as ui (bubble bob's, or the demo's), dt on toward
-    // open or back to its button on the boxes' spring made bouncier
-    // (stepBox's closed form, stopping dead at shut, at rest open within a
-    // px on the edge that moves furthest), its caret turning as an item's
-    // does, and its skin after it; laid out again in a new room, a new skin
-    // is settled where the menu now is. with no ui, nothing moves
-    function stepMenu(m, ui, dt, t) {
-      if (!ui) return;
-      const a = ui.shut, b = ui.full;
-      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
-      const target = m.open ? 1 : 0, w = 2 * Math.PI / BOX.RESPONSE, z = 1 - SHOP_UI.BOUNCE;
-      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = m.p - target, v0 = m.v;
-      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
-      m.p = target + e * (x0 * c + (v0 + sg * x0) / wd * sn);
-      m.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
-      if (m.p <= 0) { m.p = 0; m.v = Math.max(0, m.v); }
-      if (m.open && Math.abs(m.p - 1) < px && Math.abs(m.v) / 60 < px) { m.p = 1; m.v = 0; }
-      m.turn = ease(m.turn, m.open, dt, 4 * ui.size, BOX.FLIP);
-      const shape = menuAt(m, ui, m.p, t);
-      if (!m.skin || m.room !== ui.room) {
-        m.skin = new Skin(shape, SHOP_UI.SPREAD);
-        m.room = ui.room;
-      } else m.skin.step(dt, shape);
     }
 
     // a rounded rect's outline as a ring of points about step px apart,
@@ -3978,10 +3729,6 @@
     // nothing held is forgotten, and the eyes stop following it. where it
     // is goes to each world each frame, so a scroll or a box pushing the
     // bubble's moves it in the world as a move would
-    function worldPointer(e) {
-      const rect = canvas.getBoundingClientRect();
-      return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
-    }
     let pointerAt = null, grabbed = false; // the pointer, world px on the screen, or null; whether the last press took hold
     // the pointer's string in the bubble's world snapping TIMES times
     // inside WITHIN ms, each before it had held QUICK ms, is a drag too
@@ -3992,7 +3739,7 @@
     let snapped = []; // when each snap still inside WITHIN came, the frame's ms, oldest first
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
-      const p = worldPointer(e);
+      const p = View.pointer(e);
       cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
       cursor.press();
       pointerAt = p;
@@ -4005,7 +3752,7 @@
       if (b) grabbed = b.world.grab(p.x, p.y);
     });
     canvas.addEventListener('pointermove', (e) => {
-      const p = worldPointer(e);
+      const p = View.pointer(e);
       cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
       pointerAt = p;
     });
@@ -4014,7 +3761,7 @@
     // viewport
     function liftCursor(e) {
       cursor.release();
-      const p = worldPointer(e);
+      const p = View.pointer(e);
       if (e.pointerType === 'touch' || p.x < 0 || p.y < 0 || p.x >= W || p.y >= H) cursor.hide();
     }
     // every world a press can take hold in
@@ -4041,7 +3788,7 @@
     // and, down, twice bubble bob's box, the whole inside of its outline
     // the wall, GROW times its size and still, each of its px off the
     // framebuffer's grid and wobbling a little where it is, so its ink
-    // shimmers as the letters do (drawShimmer). its
+    // shimmers as the letters do (Shimmer.draw). its
     // caret and name stay in its top left corner as its label, over the
     // wall, and a press there is still the item's, not the wall's. in
     // its top right corner, as far in from the top and right as its
@@ -4056,7 +3803,7 @@
     // one picked outlined PICK px thick in the words' hover colour (the
     // inventor's), the first the paper's, which rubs out,
     // along the bottom of them, its brush's slider, a
-    // small ribbon as the demo's menu's are (drawBar): a bar with a tick
+    // small ribbon as the demo's menu's are (Bar.draw): a bar with a tick
     // in the middle of each brush's zone and a dot on the line of the one
     // in use, going from line to line as theirs do, and PEN right of it,
     // the two as wide as the cells; a GAP under that, as
@@ -4133,7 +3880,6 @@
       GAP: 6,   // world px between cells, across and down
       PICK: 1,  // the art's and the tray's px, how thick the outline of the colour picked (a cell's or the tray's blob's) and of a cell hovered is
       GROW: 1.1, // the wall, the tray's paint, the pen, and the cells', the slider's and ERASER's art are drawn this many times their size, off the pixels' grid, so their edges shimmer as a letter's do
-      TILE: 24, // world px, the squares over the wall and over the tray whose corners each wobble on their own (drawShimmer)
       SLOP: 4,  // world px a finger moves before it draws
       HOLD: 80, // ms a finger stays before it draws
       TRAY: 132, // world px, the mixing tray's height: it is as wide as the row of cells
@@ -4158,18 +3904,10 @@
       const U = WALL_UI, w = U.COLS * (U.CELL + U.GAP) - U.GAP, up = Math.ceil(U.PICKS / U.COLS) * (U.CELL + U.GAP) + U.CELL + U.GAP;
       return { w, up, mw: Math.round(w / U.GROW), mh: Math.round(U.TRAY / U.GROW), mup: Math.ceil(up / U.GROW) };
     })();
-    // a rounded box w x h as a sprite's ink, r round its corners: its
-    // inside (fill) and its outline line px thick, BOX.LINE unless given (line)
-    function inkBox(w, h, r, line = BOX.LINE) {
-      const f = new Framebuffer(w, h), l = new Framebuffer(w, h);
-      f.roundRect(0, 0, w, h, r, 1, 1, BOX.LINE);
-      l.roundRect(0, 0, w, h, r, null, 1, line);
-      return { fill: { ink: Uint8Array.from(f.bits), w, h }, line: { ink: Uint8Array.from(l.bits), w, h } };
-    }
     // the menu's art, a GROW'th of the size it is drawn: a cell's, 2 px in
     // from its place all round (cell), and its outline PICK px thick for
     // the one picked or hovered (ring), and the slider's bar with its
-    // ticks (drawBar), for one drawn w px wide (bar(w)), made the first
+    // ticks (Bar.draw), for one drawn w px wide (bar(w)), made the first
     // time and kept
     const wallArt = (() => {
       const U = WALL_UI, a = Math.round(U.CELL / U.GROW), h = DEMO.SLIDER.H, bars = new Map();
@@ -4177,12 +3915,12 @@
         const aw = Math.round(w / U.GROW);
         if (!bars.has(aw)) {
           const f = new Framebuffer(aw, h);
-          drawBar(f, { x0: 0, y0: 0, x1: aw, y1: h }, 0, WALL.SIZES.length, null, 1, DEMO.SLIDER);
+          Bar.draw(f, { x0: 0, y0: 0, x1: aw, y1: h }, 0, WALL.SIZES.length, null, 1, DEMO.SLIDER);
           bars.set(aw, { ink: Uint8Array.from(f.bits), w: aw, h });
         }
         return bars.get(aw);
       };
-      return { cell: inkBox(a - 4, a - 4, 3), ring: inkBox(a - 4, a - 4, 3, U.PICK).line, bar };
+      return { cell: Menu.inkBox(a - 4, a - 4, 3), ring: Menu.inkBox(a - 4, a - 4, 3, U.PICK).line, bar };
     })();
     // the wall's server: the site's own, the deployed worker, from the
     // site's hosts (none, and the site's wall is offline), or one run beside the page,
@@ -4262,7 +4000,7 @@
       const size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), k = size / TYPE.EM, th = Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC));
       // the header, the shut menu: the caret, the title, a bar and the pen
       const pen = Math.ceil(WALL.SIZES[WALL.SIZES.length - 1] * U.GROW), bh = Math.max(th, pen + 2 * BOX.LINE + 2), up = (bh - th) / 2 + size * (S.PAD_Y + S.CAP);
-      const tt = wallWords.title, bt = wallWords.bar, cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
+      const tt = wallWords.title, bt = wallWords.bar, cg = Menu.caret.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
       const wide = (t) => k * (t.left + t.right);
       // as wide shut as open, the wider of its header and its cells, so its words stand at its left either way
       const margin = Math.round(S.MARGIN * size), pitch = U.CELL + U.GAP, gw = wallTray.w;
@@ -4270,19 +4008,19 @@
       const fw = Math.max(Math.round(cw + wide(tt) + wide(bt) + pen + 3 * apart + 2 * S.PAD_X * size), gw + 2 * margin);
       const shut = { x0: right - fw, y0: top, x1: right, y1: top + bh }, hx = shut.x0 + S.PAD_X * size;
       // a line's letters, its ink's left at x0, on the baseline at y0
-      const line = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + k * gl.dy, sd + gl.at, k, WOBBLE));
+      const line = (t, x0, y0, sd) => t.glyphs.map((gl) => Letter.make(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + k * gl.dy, sd + gl.at, k, LETTER.WOBBLE));
       const xt = hx + cw + apart, xb = xt + wide(tt) + apart;
       const header = {
-        caret: cg ? makeLetter(cg.g, hx + cw / 2, top + up + k * cg.dy, seed + 50, k, WOBBLE) : null,
+        caret: cg ? Letter.make(cg.g, hx + cw / 2, top + up + k * cg.dy, seed + 50, k, LETTER.WOBBLE) : null,
         title: line(tt, xt, top + up, seed + 60),
         bar: line(bt, xb, top + up, seed + 90),
-        nib: makeLetter(wallNib, (xb + wide(bt) + shut.x1 - BOX.LINE) / 2, top + bh / 2, seed + 95, U.GROW),
+        nib: Letter.make(wallNib, (xb + wide(bt) + shut.x1 - BOX.LINE) / 2, top + bh / 2, seed + 95, U.GROW),
       };
       // the cells under it, from its left
       const gx = shut.x0 + margin, cells = [];
       for (let i = 0; i < U.PICKS; i++) {
         const cx = gx + (i % U.COLS) * pitch, cy = shut.y1 + Math.floor(i / U.COLS) * pitch;
-        const art = (g) => makeLetter(g, cx + U.CELL / 2, cy + U.CELL / 2, seed + 130 + i, U.GROW);
+        const art = (g) => Letter.make(g, cx + U.CELL / 2, cy + U.CELL / 2, seed + 130 + i, U.GROW);
         cells.push({
           x0: cx, y0: cy, x1: cx + U.CELL, y1: cy + U.CELL, colour: i,
           fill: art(wallArt.cell.fill), line: art(wallArt.cell.line), ring: art(wallArt.ring),
@@ -4294,17 +4032,17 @@
       const slider = {
         bar: { x0: gx, y0: by, x1: gx + bw, y1: by + DEMO.SLIDER.H },
         hit: { x0: gx, y0: ry, x1: gx + bw, y1: ry + U.CELL },
-        art: makeLetter(wallArt.bar(bw), gx + bw / 2, by + DEMO.SLIDER.H / 2, seed + 150, U.GROW),
+        art: Letter.make(wallArt.bar(bw), gx + bw / 2, by + DEMO.SLIDER.H / 2, seed + 150, U.GROW),
         words: line(pt, gx + bw + apart, ry + (U.CELL - th) / 2 + size * (S.PAD_Y + S.CAP), seed + 160),
       };
       // the tray, bare paper, and under it ERASER, a button as the shop's are, its inside and its outline wobbling as one
       const ty = shut.y1 + wallTray.up, tray = { x0: gx, y0: ty, x1: gx + gw, y1: ty + U.TRAY };
       const cy = tray.y1 + U.GAP, ct = wallWords.eraser;
       const rect = { x0: gx, y0: cy, x1: Math.round(gx + wide(ct) + 2 * S.PAD_X * size), y1: cy + th };
-      const art = inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round(th / U.GROW), S.RADIUS * size / U.GROW);
+      const art = Menu.inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round(th / U.GROW), S.RADIUS * size / U.GROW);
       const eraser = {
-        rect, fill: makeLetter(art.fill, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
-        ring: makeLetter(art.line, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
+        rect, fill: Letter.make(art.fill, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
+        ring: Letter.make(art.line, (rect.x0 + rect.x1) / 2, cy + th / 2, seed + 119, U.GROW),
         letters: line(ct, gx + S.PAD_X * size, cy + size * (S.PAD_Y + S.CAP), seed + 120),
       };
       // HINT in the tray's middle, in lines no wider than the tray, each
@@ -4317,66 +4055,29 @@
       const hb = Math.round((tray.y0 + tray.y1 + size * S.CAP - under - U.HINT_GAP - hh) / 2); // the first line's baseline
       const hint = {
         words: lines.flatMap((ln, j) => ln.glyphs.map((gl) =>
-          makeLetter(gl.g, (tray.x0 + tray.x1 - k * (ln.left + ln.right)) / 2 + k * (gl.x + gl.dx), hb + j * lead + k * gl.dy, seed + 190 + gl.at, k, WOBBLE))),
-        hand: makeLetter(null, (tray.x0 + tray.x1) / 2, hb + under + U.HINT_GAP, seed + 230, HAND.SCALE),
+          Letter.make(gl.g, (tray.x0 + tray.x1 - k * (ln.left + ln.right)) / 2 + k * (gl.x + gl.dx), hb + j * lead + k * gl.dy, seed + 190 + gl.at, k, LETTER.WOBBLE))),
+        hand: Letter.make(null, (tray.x0 + tray.x1) / 2, hb + under + U.HINT_GAP, seed + 230, HAND.SCALE),
       };
       // OUT and IN, small square buttons in the opening's bottom right
       // corner, as far in from its bottom and right as the menu is from
       // its top and right, IN the last: paper inside, so the wall's ink
       // never hides them
       const side = Math.max(14, Math.round(size)), zy = Math.round(y + h - inset), zoom = (t, x1, dir, sd) => {
-        const art = inkBox(Math.round(side / U.GROW), Math.round(side / U.GROW), S.RADIUS * size / U.GROW), gl = t.glyphs[0];
-        const at = (g, sc) => makeLetter(g, x1 - side / 2, zy - side / 2, sd, sc, WOBBLE);
+        const art = Menu.inkBox(Math.round(side / U.GROW), Math.round(side / U.GROW), S.RADIUS * size / U.GROW), gl = t.glyphs[0];
+        const at = (g, sc) => Letter.make(g, x1 - side / 2, zy - side / 2, sd, sc, LETTER.WOBBLE);
         return { rect: { x0: x1 - side, y0: zy - side, x1, y1: zy }, dir, fill: at(art.fill, U.GROW), ring: at(art.line, U.GROW), letter: gl ? at(gl.g, k) : null };
       };
       const zooms = [zoom(wallWords.out, right - side - U.GAP, -1, seed + 170), zoom(wallWords.in, right, 1, seed + 180)];
       const full = { x0: shut.x0, y0: top, x1: right, y1: rect.y1 + margin };
       // the words, a line's ink centred on the opening's middle
       const bk = bs / TYPE.EM;
-      const words = (t, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x + w / 2 + bk * (gl.x + gl.dx + (t.left - t.right) / 2), y + h / 2 + bk * gl.dy, sd + gl.at, bk, WOBBLE));
+      const words = (t, sd) => t.glyphs.map((gl) => Letter.make(gl.g, x + w / 2 + bk * (gl.x + gl.dx + (t.left - t.right) / 2), y + h / 2 + bk * gl.dy, sd + gl.at, bk, LETTER.WOBBLE));
       // the wall no smaller than fits the opening, which is kept on it, over its middle the first time
       wallScale = Math.max(wallScale, wallLeast(w, h));
       wallScaleTo = Math.max(wallScaleTo, wallLeast(w, h));
       if (!wallPan) wallPan = { x: (WALL.W - w / wallScale) / 2, y: (WALL.H - h / wallScale) / 2 };
       clampPan(w, h);
       return { box, offline: words(wallWords.offline, seed + 300), zooms, menu: { room: box, size, shut, full, header, cells, slider, tray, eraser, hint } };
-    }
-
-    // picture g into into, s times its size: the w x h box with its top
-    // left at (x, y), whole px, shows g from its (sx, sy) on, each pixel
-    // of the box g's under its middle. that middle is pushed up to SWAY_PX
-    // across and BOB_PX down by a wobble that every corner of a grid of
-    // TILE px squares over the box has of its own, a letter's sway and
-    // bob seeded from seed, going evenly from corner to corner between
-    // them, across along each row of squares and down along each column,
-    // so g's pixels, off the framebuffer's grid, pop at their edges here
-    // and there as a letter's do while the picture holds still. over,
-    // g's 0s are left alone. given paper, a v, and s no less than a half,
-    // g shrunk keeps every pixel of it that is not paper (blitMapped)
-    const shimmer = { n: 0, sway: null, bob: null, cols: new Int32Array(0), rows: new Int32Array(0) };
-    function drawShimmer(into, g, sx, sy, x, y, w, h, s, t, seed, over, paper = -1) {
-      const T = WALL_UI.TILE, nx = Math.ceil(w / T), ny = Math.ceil(h / T), across = nx + 1, n = across * (ny + 1);
-      const S = shimmer, k = 2 * Math.PI * t, m = WOBBLE, cw = w + 1, rh = h + 1;
-      if (S.n < n) { S.n = n; S.sway = new Float64Array(n); S.bob = new Float64Array(n); }
-      if (S.cols.length < ny * cw) S.cols = new Int32Array(ny * cw);
-      if (S.rows.length < nx * rh) S.rows = new Int32Array(nx * rh);
-      const sway = S.sway, bob = S.bob, cols = S.cols, rows = S.rows;
-      for (let c = 0; c < n; c++) {
-        sway[c] = m.SWAY_PX * Math.sin(k * m.SWAY_HZ * (0.8 + 0.4 * noise(seed + c, 1)) + 2 * Math.PI * noise(seed + c, 5));
-        bob[c] = m.BOB_PX * Math.sin(k * m.BOB_HZ * (0.8 + 0.4 * noise(seed + c, 2)) + 2 * Math.PI * noise(seed + c, 6));
-      }
-      // g's column under each column of each row of squares, and its row
-      // under each row of each column of them, and one more of each past the box
-      for (let b = 0; b < ny; b++) for (let i = 0; i <= w; i++) {
-        const a = Math.min(nx - 1, Math.floor(i / T)), c = b * across + a, d = sway[c] + (sway[c + 1] - sway[c]) * (i + 0.5 - a * T) / T;
-        cols[b * cw + i] = Math.min(g.w - 1, Math.max(0, Math.floor(sx + (i + 0.5 - d) / s)));
-      }
-      for (let a = 0; a < nx; a++) for (let j = 0; j <= h; j++) {
-        const b = Math.min(ny - 1, Math.floor(j / T)), c = b * across + a, d = bob[c] + (bob[c + across] - bob[c]) * (j + 0.5 - b * T) / T;
-        rows[a * rh + j] = Math.min(g.h - 1, Math.max(0, Math.floor(sy + (j + 0.5 - d) / s)));
-      }
-      for (let b = 0; b < ny; b++) for (let a = 0; a < nx; a++)
-        into.blitMapped(g, x + a * T, y + b * T, Math.min(T, w - a * T), Math.min(T, h - b * T), cols, b * cw + a * T, rows, a * rh + b * T, over, paper);
     }
 
     // the wall as a picture 2 to the n times smaller, each of its pixels
@@ -4490,7 +4191,7 @@
     // where there is no server, and its
     // menu, drawn as drawSettings draws a demo's: its header, the pen
     // (nibNow) in the middle of its place, and, while it is open at all,
-    // its cells, its slider's bar (drawBar) with its dot where it has
+    // its cells, its slider's bar (Bar.draw) with its dot where it has
     // got to, the tray's paint (js/mix.js) as a picture painted again
     // when it has changed, its blob ringed while it is picked (trayNow),
     // over HINT and its hand until paint is first
@@ -4513,7 +4214,7 @@
       let half = 0;
       while (sc * (1 << half) <= 0.5) half++;
       const f = 1 << half;
-      drawShimmer(pfb, wallMip(half), (wallPan.x + x0 / sc) / f, (wallPan.y + y0 / sc) / f, b.x0 + x0, wy + y0, x1 - x0, y1 - y0, sc * f, t, 91000, false, sc * f < 1 ? wallLut[0] : -1);
+      Shimmer.draw(pfb, wallMip(half), (wallPan.x + x0 / sc) / f, (wallPan.y + y0 / sc) / f, b.x0 + x0, wy + y0, x1 - x0, y1 - y0, sc * f, t, 91000, false, sc * f < 1 ? wallLut[0] : -1);
       // its edges, where they are inside the opening
       if (y0 > 0) pfb.line(b.x0 + x0, wy + y0 - 1, b.x0 + x1 - 1, wy + y0 - 1);
       if (y1 < bh) pfb.line(b.x0 + x0, wy + y1, b.x0 + x1 - 1, wy + y1);
@@ -4565,7 +4266,7 @@
         }
         // the paint: the air's rows of its picture over the cells and the slider, the tray's on the tray
         const tr = ui.tray, M = wallMixed;
-        drawShimmer(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, U.GROW, t, 93000, true);
+        Shimmer.draw(qfb, M, 0, wallTray.mup - wallTray.up / U.GROW, tr.x0, tr.y0 - wallTray.up + dy, tr.x1 - tr.x0, wallTray.up + U.TRAY, U.GROW, t, 93000, true);
         const E = ui.eraser, ev = wallEraser || (on && on.eraser) ? HOVER : 1, ex = wallOut.x, ey = dy + wallOut.y;
         E.fill.draw(t, ey, qfb, 0, 0, ex);
         E.ring.draw(t, ey, qfb, 0, ev, ex);
@@ -4591,7 +4292,7 @@
     // whether a press is on the wall itself, or on its menu's cells,
     // slider, tray or eraser
     function onWall(e) {
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       return !!(h && (h.canvas || h.cell || h.width || h.tray || h.eraser));
     }
 
@@ -4715,7 +4416,7 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.wall) return;
       // a cell's paint taken up, packed in the cell as it is drawn, or the tray's under the pen
       if ((h.cell || h.tray) && e.isPrimary && wallMixer === null) {
@@ -4755,7 +4456,7 @@
       if (e.pointerType !== 'touch') penTo(p);
     });
     canvas.addEventListener('pointermove', (e) => {
-      const p = worldPointer(e), f = wallFingers.get(e.pointerId);
+      const p = View.pointer(e), f = wallFingers.get(e.pointerId);
       if (f) {
         // each of the fingers moving the wall carries it its share of the
         // way, and two coming together or apart shrink or grow it about
@@ -4827,7 +4528,7 @@
     // drawn there as the wall is, GROW times its size (WALL_UI.GROW) and
     // still, each of its px off the framebuffer's grid and wobbling a
     // little where it is, so its ink shimmers as the letters do
-    // (drawShimmer): its canvas is the opening GROW times smaller. the
+    // (Shimmer.draw): its canvas is the opening GROW times smaller. the
     // table the board lies on is the page's own paper and is never drawn,
     // so the opening has no edge but where a piece lying on the table is
     // cut by it. the board's files are lettered along white's side and its
@@ -4944,14 +4645,9 @@
     let chessHold = null; // the press on the opening, { id, x, y, held }: its pointer, where it was last, world px on the screen, and 1 while it holds a piece, 0 the view, -1 neither; or null
     // what the menu's button that picks picks from, as it lists them, each its place in GAMES: the first is the one picked
     const chessOrder = GAMES.map((g, i) => i);
-    // a menu as bubble bob's is (menu, above), shut
-    const chessShut = () => ({
-      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
-      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
-    });
-    const chessMenu = chessShut(); // the menu,
-    const chessPick = chessShut(); // its button that picks, a menu too,
-    const chessPane = chessShut(); // and the pane
+    const chessMenu = Menu.shut(); // the menu,
+    const chessPick = Menu.shut(); // its button that picks, a menu too,
+    const chessPane = Menu.shut(); // and the pane
     let chessScrub = null; // the pointer holding the scrubber, or null
     let chessDot = null;   // how far along the scrubber's bar its dot has got to, 0 .. 1, or null with no famous game played back
     const chessFingers = new Map(); // each finger down on the board, by its pointer, where it was last, world px on the screen
@@ -4969,7 +4665,7 @@
     // porthole port, PAWN of it tall, or null with no icon
     function chessPawn(port) {
       const g = Framebuffer.ink(iconRows.pawn || []);
-      return g.w && g.h ? makeLetter(g, (port.x0 + port.x1) / 2, (port.y0 + port.y1) / 2, CHESS.SEED, CHESS.PAWN * (port.y1 - port.y0) / g.h, WOBBLE) : null;
+      return g.w && g.h ? Letter.make(g, (port.x0 + port.x1) / 2, (port.y0 + port.y1) / 2, CHESS.SEED, CHESS.PAWN * (port.y1 - port.y0) / g.h, LETTER.WOBBLE) : null;
     }
 
     // the board's opening with its top left at (x, y), w x h, world px on
@@ -5016,17 +4712,17 @@
       const left = Math.round(x + margin), top = Math.round(y + margin), right = Math.round(x + w - margin), bottom = Math.round(y + h - margin);
       const wide = (t) => k * (t.left + t.right), pad = S.PAD_X * size;
       // a line's letters, its ink's left at x0, on the baseline of a row whose top is y0
-      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (S.PAD_Y + S.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
+      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => Letter.make(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (S.PAD_Y + S.CAP) + k * gl.dy, sd + gl.at, k, LETTER.WOBBLE));
       // a box's inside and outline as letters wobbling as one
       const boxed = (rect, sd) => {
-        const art = inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round((rect.y1 - rect.y0) / U.GROW), S.RADIUS * size / U.GROW);
+        const art = Menu.inkBox(Math.round((rect.x1 - rect.x0) / U.GROW), Math.round((rect.y1 - rect.y0) / U.GROW), S.RADIUS * size / U.GROW);
         const cx = (rect.x0 + rect.x1) / 2, cy = (rect.y0 + rect.y1) / 2;
-        return { rect, fill: makeLetter(art.fill, cx, cy, sd, U.GROW), ring: makeLetter(art.line, cx, cy, sd, U.GROW) };
+        return { rect, fill: Letter.make(art.fill, cx, cy, sd, U.GROW), ring: Letter.make(art.line, cx, cy, sd, U.GROW) };
       };
       // the board's labels, a row for its files and one for its ranks
       const label = (ch, lx, lz, sd) => {
         const gl = chessType(ch).glyphs[0];
-        return { x: lx, z: lz, up: gl.dy, letter: makeLetter(gl.g, 0, 0, sd, 1, WOBBLE) };
+        return { x: lx, z: lz, up: gl.dy, letter: Letter.make(gl.g, 0, 0, sd, 1, LETTER.WOBBLE) };
       };
       const rows = [[...C.FILES].map((ch, f) => label(ch, f - 3.5, -C.EDGE, seed + 4000 + f)), [...C.RANKS].map((ch, r) => label(ch, -C.EDGE, r - 3.5, seed + 4100 + r))];
       for (const of of rows) {
@@ -5036,12 +4732,12 @@
       const rt = chessType(C.RESET), reset = boxed({ x0: Math.round(right - wide(rt) - 2 * pad), y0: bottom - th, x1: right, y1: bottom }, seed + 10);
       reset.letters = letters(rt, reset.rect.x0 + pad, reset.rect.y0, seed + 20);
       // the menu: its button, its words at its left, and under it its column
-      const tt = chessType(C.TITLE), cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
+      const tt = chessType(C.TITLE), cg = Menu.caret.glyphs[0], cw = cg ? k * cg.g.w : 0, apart = S.APART * size;
       const games = GAMES.map((g) => chessType(g.name)), pt = chessType(C.PLAY), gt = chessType(C.GO);
       const col = Math.max(Math.round(Math.max(wide(gt), ...games.map(wide)) + 2 * pad), Math.round(cw + apart + wide(tt) + 2 * pad) - 2 * margin);
       const shut = { x0: right - col - 2 * margin, y0: top, x1: right, y1: top + th }, hx = shut.x0 + pad;
       const header = {
-        caret: cg ? makeLetter(cg.g, hx + cw / 2, top + size * (S.PAD_Y + S.CAP) + k * cg.dy, seed + 50, k, WOBBLE) : null,
+        caret: cg ? Letter.make(cg.g, hx + cw / 2, top + size * (S.PAD_Y + S.CAP) + k * cg.dy, seed + 50, k, LETTER.WOBBLE) : null,
         title: letters(tt, hx + cw + apart, top, seed + 60),
       };
       const room = { x0: x, y0: y, x1: x + w, y1: y + h };
@@ -5098,27 +4794,27 @@
     // how far down the menu's button that picks has opened past its
     // bottom shut, world px, in a menu laid out as ui
     function chessGrown(ui) {
-      return Math.max(0, menuAt(chessPick, ui.pick, chessPick.p).y1 - ui.pick.shut.y1);
+      return Math.max(0, Menu.at(chessPick, ui.pick, chessPick.p).y1 - ui.pick.shut.y1);
     }
 
     // chess's menu dt on: its button that picks toward open or shut
-    // (stepMenu), shut once the menu is, and the menu itself, as much
+    // (Menu.step), shut once the menu is, and the menu itself, as much
     // taller as that has opened; its pane, toward open, kicked as it
     // starts, round a famous game's controls while one is played back,
     // and toward its porthole with none; and the scrubber's dot toward
     // as far along its bar as the famous game is through its moves
-    // (dotTo), the scrubber let go once none is played back
+    // (Bar.dotTo), the scrubber let go once none is played back
     function stepChessMenu(dt, t) {
       const a = chessItem && chessItem.chessAt, ui = a && a.menu;
       if (!ui) return;
       if (!chessMenu.open) chessPick.open = false;
-      stepMenu(chessPick, ui.pick, dt, t);
+      Menu.step(chessPick, ui.pick, dt, t);
       ui.full.y1 = ui.bottom + chessGrown(ui);
-      stepMenu(chessMenu, ui, dt, t);
+      Menu.step(chessMenu, ui, dt, t);
       if (Replay.on && !chessPane.open) chessPane.v += SHOP_UI.KICK;
       chessPane.open = Replay.on;
-      stepMenu(chessPane, a.panel, dt, t);
-      chessDot = Replay.on ? dotTo(chessDot, Replay.at / Math.max(1, Replay.line.length), dt) : null;
+      Menu.step(chessPane, a.panel, dt, t);
+      chessDot = Replay.on ? Bar.dotTo(chessDot, Replay.at / Math.max(1, Replay.line.length), dt) : null;
       if (!Replay.on) chessScrub = null;
     }
 
@@ -5156,7 +4852,7 @@
           for (let i = 0; i < says.length; i++) says[i].draw(t, dy, qfb, 0, v);
         }
         const bar = ui.replay.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
-        drawBar(qfb, bar, dy, 0, chessDot === null ? null : end + chessDot * (1 - 2 * end), chessScrub !== null || (on && on.scrub) ? tint(chessHome, 0) : 1, DEMO.SLIDER);
+        Bar.draw(qfb, bar, dy, 0, chessDot === null ? null : end + chessDot * (1 - 2 * end), chessScrub !== null || (on && on.scrub) ? tint(chessHome, 0) : 1, DEMO.SLIDER);
       }
       const pts = m.skin.screen(dy), n = pts.length;
       pfb.fillPolygon(pts, qfb);
@@ -5202,7 +4898,7 @@
     // item it's chess set, d world px down from where it was laid out,
     // into pfb, hover what the pointer is on: once it is in, its picture
     // in the opening's middle, GROW times its size and shimmering
-    // (drawShimmer), and its labels over that (drawLabels); its pane
+    // (Shimmer.draw), and its labels over that (drawLabels); its pane
     // (drawPane); RESET over the picture, paper inside, its outline and
     // word in
     // the links' hover colour while the pointer is on it; and its menu,
@@ -5219,7 +4915,7 @@
       const a = it.chessAt, dy = Math.round(d), on = hover && hover.it === it && hover.chess ? hover : null;
       if (Chess.ready) {
         const r = chessRect(a);
-        drawShimmer(pfb, Chess.picture, 0, 0, r.x, r.y + dy, r.w, r.h, WALL_UI.GROW, t, 95000, false);
+        Shimmer.draw(pfb, Chess.picture, 0, 0, r.x, r.y + dy, r.w, r.h, WALL_UI.GROW, t, 95000, false);
         drawLabels(a, r, t, dy);
       }
       drawPane(a, t, dy, on);
@@ -5285,7 +4981,7 @@
 
     // whether a press is on the board's opening, or on the scrubber
     function onChess(e) {
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       return !!(h && (h.board || h.scrub));
     }
 
@@ -5317,7 +5013,7 @@
       }
       if (!Chess.ready || !shownBox(chessHome) || chessItem.p <= 0 || !chessSeen()) return;
       Chess.size(chessItem.chessAt.w, chessItem.chessAt.h);
-      const h = hoverAt && !cornerAt(hoverAt.x, hoverAt.y) && hitAt(hoverAt.x, hoverAt.y), q = h && h.board && inChess(hoverAt);
+      const h = Hover.at && !cornerAt(Hover.at.x, Hover.at.y) && hitAt(Hover.at.x, Hover.at.y), q = h && h.board && inChess(Hover.at);
       Chess.hover(q ? Chess.at(q.x, q.y) : -1);
       Chess.step(dt);
       Replay.step(dt);
@@ -5330,7 +5026,7 @@
     // the scrubber takes hold of it, there
     canvas.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || !Chess.ready) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (h && h.scrub && e.isPrimary) {
         chessScrub = e.pointerId;
         scrubTo(p.x);
@@ -5354,10 +5050,10 @@
     // leaves the opening; the view held is turned by the way the pointer
     // went; and the scrubber held goes where the pointer is
     canvas.addEventListener('pointermove', (e) => {
-      if (e.pointerId === chessScrub) scrubTo(worldPointer(e).x);
+      if (e.pointerId === chessScrub) scrubTo(View.pointer(e).x);
       const f = chessFingers.get(e.pointerId);
       if (f) {
-        const at = worldPointer(e);
+        const at = View.pointer(e);
         if (chessFingers.size === 2) {
           let o = null;
           for (const [id, q] of chessFingers) if (id !== e.pointerId) o = q;
@@ -5367,7 +5063,7 @@
         chessFingers.set(e.pointerId, at);
       }
       if (!chessHold || e.pointerId !== chessHold.id) return;
-      const p = worldPointer(e);
+      const p = View.pointer(e);
       if (chessHold.held === 1 && !inOpening(p)) {
         Chess.drop();
         chessHold.held = -1;
@@ -5488,7 +5184,7 @@
       const S = SHOP_UI, F = FILMS.cicada, size = Math.max(BOX.CAP_LEAST, BOX.CAP * bs), k = size / TYPE.EM;
       const h = Math.round(w * F.h / F.w), th = Math.round(size * (2 * S.PAD_Y + S.CAP + S.DESC)), row = Math.round(S.ROW * size), top = y + h + row;
       const wide = (t) => k * (t.left + t.right), bw = Math.round(Math.max(...filmSays.map(wide)) + 2 * S.PAD_X * size), sh = DEMO.SLIDER.H;
-      const says = filmSays.map((t, j) => t.glyphs.map((gl) => makeLetter(gl.g, x + (bw - wide(t)) / 2 + k * (gl.x + gl.dx + t.left), top + size * (S.PAD_Y + S.CAP) + k * gl.dy, seed + 100 * j + gl.at, k, WOBBLE)));
+      const says = filmSays.map((t, j) => t.glyphs.map((gl) => Letter.make(gl.g, x + (bw - wide(t)) / 2 + k * (gl.x + gl.dx + t.left), top + size * (S.PAD_Y + S.CAP) + k * gl.dy, seed + 100 * j + gl.at, k, LETTER.WOBBLE)));
       const by = top + Math.round((th - sh) / 2), bar = { x0: x + bw + row, y0: by, x1: x + w, y1: by + sh };
       return {
         box: { x0: x, y0: y, x1: x + w, y1: y + h }, w, h, size,
@@ -5524,7 +5220,7 @@
       pfb.roundRect(r.x0, r.y0 + dy, r.x1, r.y1 + dy, SHOP_UI.RADIUS * a.size, null, v, BOX.LINE);
       for (let i = 0; i < says.length; i++) says[i].draw(t, dy, pfb, 0, v);
       const bar = a.bar, end = (bar.y1 - bar.y0) / 2 / (bar.x1 - bar.x0);
-      drawBar(pfb, bar, dy, 0, filmDot === null ? null : end + filmDot * (1 - 2 * end), filmHold !== null || (on && on.reel) ? tint(it.home, 0) : 1, DEMO.SLIDER);
+      Bar.draw(pfb, bar, dy, 0, filmDot === null ? null : end + filmDot * (1 - 2 * end), filmHold !== null || (on && on.reel) ? tint(it.home, 0) : 1, DEMO.SLIDER);
     }
 
     // whether any of the film's picture is on the screen
@@ -5537,7 +5233,7 @@
 
     // whether a press is on the film's bar's row
     function onFilm(e) {
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       return !!(h && h.reel);
     }
 
@@ -5550,9 +5246,9 @@
 
     // the film stopped and its bar let go once cicada or its box is shut;
     // its dot on toward as far along its bar as the film is wanted
-    // through (dotTo); and, while cicada is at least partly open in a box out of
+    // through (Bar.dotTo); and, while cicada is at least partly open in a box out of
     // its o, its porthole's skin on after its shape at rest, each edge
-    // warbled WARBLE px either way on its own sine at time t, as menuAt
+    // warbled WARBLE px either way on its own sine at time t, as Menu.at
     // has a menu's, a new skin settled there when it has been laid out
     // again; and, while the picture is on the screen too, the picture,
     // the size it is laid out at, brought up to the film (Film.step)
@@ -5563,7 +5259,7 @@
         Film.hold(false);
         Film.pause();
       }
-      filmDot = dotTo(filmDot, Film.at(), dt);
+      filmDot = Bar.dotTo(filmDot, Film.at(), dt);
       const a = filmItem.filmAt;
       if (!a || !shownBox(filmHome) || filmItem.p <= 0) return;
       const shape = { ...a.port }, w = (e) => BOX.WARBLE * Math.sin(2 * Math.PI * t * filmPort.warble[e].hz + filmPort.warble[e].ph);
@@ -5585,13 +5281,13 @@
     // is held wants it on
     canvas.addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button !== 0 || !filmItem) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !h.reel) return;
       filmHold = e.pointerId;
       reelTo(p.x);
       Film.hold(true);
     });
-    canvas.addEventListener('pointermove', (e) => { if (e.pointerId === filmHold) reelTo(worldPointer(e).x); });
+    canvas.addEventListener('pointermove', (e) => { if (e.pointerId === filmHold) reelTo(View.pointer(e).x); });
     // the bar let go, the film is held no longer; the click a lifted press
     // on it ends in presses nothing, wherever the pointer has got to, as
     // the ribbon's does
@@ -5639,7 +5335,7 @@
 
     // how far the page is scrolled, in whole world px
     function scrolled() {
-      return Math.round(swipeY / SCALE);
+      return Math.round(swipeY / View.SCALE);
     }
 
     // y css px of the page's scroll, no further than either end
@@ -5781,7 +5477,7 @@
     // the chess set's board it zooms the camera as much, the same way
     canvas.addEventListener('wheel', (e) => {
       if (!e.ctrlKey && !e.metaKey) return;
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y), v = wallView(), U = WALL_UI;
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y), v = wallView(), U = WALL_UI;
       if (!h || !(h.board || (h.canvas && v))) return;
       e.preventDefault();
       const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
@@ -5797,7 +5493,7 @@
     // as much. fingers on a screen are the pointers' (the wall and chess,
     // above)
     canvas.addEventListener('gesturestart', (e) => {
-      const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
       if (!h || !(h.canvas || h.board)) return;
       e.preventDefault();
       if (h.board) chessPinch = 1;
@@ -5812,7 +5508,7 @@
       }
       if (wallPinch === null) return;
       e.preventDefault();
-      const p = worldPointer(e), v = wallView();
+      const p = View.pointer(e), v = wallView();
       if (v && !wallFingers.size && e.scale > 0) {
         zoomTo(wallScale * e.scale / wallPinch, p.x - v.x, p.y - v.y);
         wallScaleTo = wallScale;
@@ -5826,14 +5522,14 @@
       const px = e.deltaMode === 1 ? WHEEL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
       let zoomed = false;
       if (now - wheelAt >= WHEEL.RUN) {
-        const p = worldPointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+        const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
         wheelShip = !!(h && h.ship);
         wheelWall = !!(h && h.canvas);
         wheelChess = zoomed = !!(h && h.board) && Chess.zoom(Math.exp(-e.deltaY * px * CHESS.WHEEL));
       }
       wheelAt = now;
       if (wheelShip) Ship.turn((Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * px * SHIP.WHEEL);
-      else if (wheelWall) swipeY = swipeTo = clampSwipe(swipeY + panWall(e.deltaX * px / SCALE, e.deltaY * px / SCALE) * SCALE);
+      else if (wheelWall) swipeY = swipeTo = clampSwipe(swipeY + panWall(e.deltaX * px / View.SCALE, e.deltaY * px / View.SCALE) * View.SCALE);
       else if (!wheelChess) swipeY = swipeTo = clampSwipe(swipeY + e.deltaY * px);
       else if (!zoomed) Chess.zoom(Math.exp(-e.deltaY * px * CHESS.WHEEL));
     }, { passive: true });
@@ -5930,11 +5626,11 @@
       Voice.update();
       Monk.update(now);
       stepDots(dt);
-      stepMenu(demoMenu, demoItem && demoItem.demoAt && demoItem.demoAt.menu, dt, t);
+      Menu.step(demoMenu, demoItem && demoItem.demoAt && demoItem.demoAt.menu, dt, t);
       // the piano's menu and its dots, and what is under the menu pushed
       // down as far as it has opened
       stepSliders(pianoMenu, dt);
-      stepMenu(pianoMenu, pianoItem && pianoItem.pianoAt && pianoItem.pianoAt.menu, dt, t);
+      Menu.step(pianoMenu, pianoItem && pianoItem.pianoAt && pianoItem.pianoAt.menu, dt, t);
       if (pianoItem && pianoItem.pianoAt) pushItem(pianoItem, pianoPush(pianoItem));
       // the demo's face to the voice as heard, while monk mouth is at least
       // partly open in a box out of its o
@@ -5991,24 +5687,24 @@
       // each item's skin after its bubble while its box is out of the o,
       // and the box that one is in
       for (const s of sections) if (shownBox(s)) for (const it of s.items) if (it.skin) it.skin.step(dt, itemAt(it, t));
-      stepMenu(menu, shopNow(), dt, t);
-      stepMenu(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
+      Menu.step(menu, shopNow(), dt, t);
+      Menu.step(wallMenu, wallItem && wallItem.wallAt && wallItem.wallAt.menu, dt, t);
       stepChessMenu(dt, t);
       wallMix.step(dt);
       takeMixed();
       stepEraser(dt);
       stepZoom(dt);
-      wallDot = dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
+      wallDot = Bar.dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
       stepSwipe(dt);
       stepHand(dt);
-      stepSwitch(dt);
+      Switch.step(dt);
       fb.clear();
       // the words and their boxes first, scrolled and pushed down by the
       // boxes above them, each box over its word, so the header's letters
       // cover them all
       const sy = scrolled();
-      const overMute = !!hoverAt && muteAt(hoverAt.x, hoverAt.y), overSwitch = !!hoverAt && !overMute && switchAt(hoverAt.x, hoverAt.y);
-      const hit = hoverAt && !overMute && !overSwitch && hitAt(hoverAt.x, hoverAt.y);
+      const overMute = !!Hover.at && muteAt(Hover.at.x, Hover.at.y), overSwitch = !!Hover.at && !overMute && switchAt(Hover.at.x, Hover.at.y);
+      const hit = Hover.at && !overMute && !overSwitch && hitAt(Hover.at.x, Hover.at.y);
       for (const s of tops) {
         const v = onWord(hit, s) ? tint(s, 0) : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
@@ -6023,10 +5719,10 @@
       if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
       for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
       drawHand(t);
-      drawSwitch(t, overSwitch);
-      drawMute(t, overMute);
+      Switch.draw(fb, t, overSwitch);
+      Mute.draw(fb, t, overMute ? HOVER : 1);
       cursor.draw(fb);
-      fb.present(ctx, dark);
+      fb.present(ctx, Switch.dark);
       if (!drawn) {
         drawn = true;
         document.documentElement.classList.add('drawn');
