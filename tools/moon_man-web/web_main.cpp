@@ -187,7 +187,7 @@ TD_Light      wing_; // the second wing; scene_.light is the first
 TD_MonoTarget target_(plotLips, nullptr, kLipsW, kLipsH);
 MouthModel    mouth_;
 GazeModel     gaze_;
-float         state_[kStateHead + wp::kMaxSections];
+float         state_[kStateHead + mm::kMaxSections];
 float         scale_ = 1.0f; // canvas px a sprite px, at rest
 
 // the idle glance: its look and where it eases to, radians, the time till
@@ -397,7 +397,7 @@ void moon_init(float spriteScale, int seed)
     moon_step(0.0f, 0);
 }
 
-// the state buffer: kStateHead floats and up to wp::kMaxSections diameters
+// the state buffer: kStateHead floats and up to mm::kMaxSections diameters
 float* moon_state() { return state_; }
 
 // one frame, dt seconds on: the voice's state from the state buffer when
@@ -410,7 +410,7 @@ float* moon_state() { return state_; }
 void moon_step(float dt, int sounding)
 {
     if (!(dt > 0.0f)) dt = 0.0f;
-    wp::BodyState s;
+    mm::BodyState s;
     int           n = 0;
     if (sounding) {
         s.breath        = state_[0];
@@ -420,10 +420,10 @@ void moon_step(float dt, int sounding)
         s.whistleHz     = state_[4];
         s.lips          = state_[5];
         s.vibrato       = state_[6];
-        s.phoneme       = state_[7] >= 0.0f && state_[7] < 255.0f ? (uint8_t)state_[7] : (uint8_t)wp::ph::none;
+        s.phoneme       = state_[7] >= 0.0f && state_[7] < 255.0f ? (uint8_t)state_[7] : (uint8_t)mm::ph::none;
         s.slotActive[0] = state_[8] != 0.0f;
         s.slotActive[1] = state_[9] != 0.0f;
-        n = state_[10] > 0.0f ? (state_[10] < (float)wp::kMaxSections ? (int)state_[10] : wp::kMaxSections) : 0;
+        n = state_[10] > 0.0f ? (state_[10] < (float)mm::kMaxSections ? (int)state_[10] : mm::kMaxSections) : 0;
     }
     mouth_.update(s, state_ + kStateHead, n, dt);
     gaze_.update(s, dt);

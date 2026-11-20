@@ -1,4 +1,4 @@
-// monk_mouth on the web: one wp::Voice, the articulatory voice, a tube
+// monk_mouth on the web: one mm::Voice, the articulatory voice, a tube
 // shaped like a vocal tract with air moving through it, compiled with
 // nothing else into ../../monk_mouth/monk_mouth.wasm, which
 // js/voice-worklet.js plays a block at a time. the voice is made in place
@@ -12,7 +12,7 @@
 #include <new>
 #include <stdint.h>
 
-#include "core/wp_voice.h"
+#include "core/mm_voice.h"
 
 namespace {
 
@@ -20,17 +20,17 @@ constexpr int   kFrames = 128;      // a block: the voice's control block and a 
 constexpr float kRate   = 44100.0f; // the voice's rate, and the page's audio context's
 constexpr int   kText   = 256;      // the text buffer, its nul included
 
-alignas(wp::Voice) unsigned char store_[sizeof(wp::Voice)];
-wp::Voice* voice_ = nullptr;
+alignas(mm::Voice) unsigned char store_[sizeof(mm::Voice)];
+mm::Voice* voice_ = nullptr;
 float out_[kFrames];
 char  text_[kText];
 
 // the line's vowels in order, a syllable each, and how many have been
 // heard: the voice's readback has come to each, in turn, from something else
-uint8_t vowels_[wp::kMaxSyllables];
+uint8_t vowels_[mm::kMaxSyllables];
 int     vowelCount_ = 0;
 int     heard_ = 0;
-uint8_t last_ = wp::ph::none;   // the readback as of the last block
+uint8_t last_ = mm::ph::none;   // the readback as of the last block
 
 // the mouth as moon_man's face reads it (its face/mouth_model.cpp): the
 // front cavity runs from the palate to the lips and the lips are the last
@@ -43,12 +43,12 @@ constexpr float kLipFrom   = 0.886f;
 constexpr float kFrontShut = 0.6f;
 constexpr float kLipFull   = 1.5f;
 float mouth_[6];
-float tube_[wp::kMaxSections];
+float tube_[mm::kMaxSections];
 
 // the voice's raw state as moon_man's mouth and gaze read it: kStateHead
 // floats, the last of them the tube's length in sections, then the tube
 constexpr int kStateHead = 11;
-float state_[kStateHead + wp::kMaxSections];
+float state_[kStateHead + mm::kMaxSections];
 
 // the vowels of the phones in text_, in order, into vowels_
 void listVowels()
@@ -59,8 +59,8 @@ void listVowels()
         const char* tok = s;
         while (*s && *s != ' ' && *s != '\t' && *s != '\n' && *s != '\r') ++s;
         if (s == tok) break;
-        const uint8_t p = wp::parsePhone(tok, (int)(s - tok));
-        if (wp::isVowel(p) && vowelCount_ < wp::kMaxSyllables) vowels_[vowelCount_++] = p;
+        const uint8_t p = mm::parsePhone(tok, (int)(s - tok));
+        if (mm::isVowel(p) && vowelCount_ < mm::kMaxSyllables) vowels_[vowelCount_++] = p;
     }
 }
 
@@ -71,7 +71,7 @@ extern "C" {
 // the voice made, sections long (22 is the engine's adult), seeded
 void voice_init(float sections, int seed)
 {
-    voice_ = new (store_) wp::Voice(sections, (uint32_t)seed, kRate);
+    voice_ = new (store_) mm::Voice(sections, (uint32_t)seed, kRate);
 }
 
 // the text buffer: phones in ascii, nul-terminated, kText bytes
@@ -84,7 +84,7 @@ char* voice_text() { return text_; }
 int voice_speak(float midi, float range, float speed, float breath)
 {
     text_[kText - 1] = 0;
-    wp::Speech s;
+    mm::Speech s;
     s.midi = midi;
     s.range = range;
     s.speed = speed;
@@ -92,7 +92,7 @@ int voice_speak(float midi, float range, float speed, float breath)
     if (!voice_->speak(text_, s)) return 0;
     listVowels();
     heard_ = 0;
-    last_ = wp::ph::none;
+    last_ = mm::ph::none;
     return 1;
 }
 
@@ -109,7 +109,7 @@ void voice_sections(float sections) { voice_->setSections(sections); }
 // hold every vowel, toward 1 pursed, toward -1 wide open)
 void voice_tune(int field, float value)
 {
-    wp::Tuning t = voice_->tuning();
+    mm::Tuning t = voice_->tuning();
     switch (field) {
         case 0: t.glottisRest = value; break;
         case 1: t.growl = value; break;
@@ -149,8 +149,8 @@ void voice_stop() { voice_->stop(); }
 // 1 while the voice names an L with the tongue against something, else 0
 float* voice_mouth()
 {
-    const wp::BodyState s = voice_->state();
-    const int n = voice_->diameters(tube_, wp::kMaxSections);
+    const mm::BodyState s = voice_->state();
+    const int n = voice_->diameters(tube_, mm::kMaxSections);
     float front = 0.0f, lipMin = kLipFull;
     int count = 0;
     for (int i = 0; i < n; ++i) {
@@ -167,19 +167,19 @@ float* voice_mouth()
     mouth_[2] = s.lips;
     mouth_[3] = count > 0 ? front / (float)count : kFrontShut;
     mouth_[4] = lipMin;
-    mouth_[5] = s.phoneme == wp::ph::L && (s.slotActive[0] || s.slotActive[1]) ? 1.0f : 0.0f;
+    mouth_[5] = s.phoneme == mm::ph::L && (s.slotActive[0] || s.slotActive[1]) ? 1.0f : 0.0f;
     return mouth_;
 }
 
 // the voice's raw state at the end of the last block, 11 + n floats: the
 // breath, how voiced, how much hiss (0 .. 1), the whistle's lock (0 .. 1)
 // and its pitch in hz, the lips' own pose (0 shut), the vibrato's swing in
-// cents, the phoneme being said (a wp::ph), 1 while each of the two
+// cents, the phoneme being said (a mm::ph), 1 while each of the two
 // constriction slots holds the tract and else 0, n the tube's length in
 // sections, and then the tube's n diameters from the glottis to the lips
 float* voice_state()
 {
-    const wp::BodyState s = voice_->state();
+    const mm::BodyState s = voice_->state();
     state_[0] = s.breath;
     state_[1] = s.voicing;
     state_[2] = s.hiss;
@@ -190,7 +190,7 @@ float* voice_state()
     state_[7] = (float)s.phoneme;
     state_[8] = s.slotActive[0] ? 1.0f : 0.0f;
     state_[9] = s.slotActive[1] ? 1.0f : 0.0f;
-    const int n = voice_->diameters(state_ + kStateHead, wp::kMaxSections);
+    const int n = voice_->diameters(state_ + kStateHead, mm::kMaxSections);
     state_[10] = (float)n;
     return state_;
 }
