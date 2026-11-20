@@ -24,7 +24,8 @@
 // names the server takes (tools/server/tally.js) are exactly those the
 // page can send: its sections' and their boxes' sections', the doodles'
 // things, and work's, each name once, and every word the page tells the
-// tally a title. exits 1 on failure.
+// tally a title. last, that index.html's meta description is the first
+// sentence of its About text (js/text.js). exits 1 on failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -357,6 +358,12 @@ function literal(text, i) {
   check('every word the page tells the tally of is a title', calls.length > 0 && notTitles.length === 0, notTitles.join(', ') || calls.length + ' calls');
   const told = (html.match(/openThings\.push\(([^)]*)\)/) || [])[1];
   check('and so is every thing it tells it is open', !!told && /\.title$/.test(told.trim()), told);
+
+  // --- the page's description -------------------------------------------------------------
+  const TEXT = vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'js', 'text.js'), 'utf8') + '\nTEXT', {});
+  const first = (/^.*?\.(?=\s|$)/.exec(TEXT.About[0]) || [])[0];
+  const metas = [...html.matchAll(/<meta name="description" content="([^"]*)">/g)].map((m) => m[1].replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+  check('index.html\'s one description is the first sentence of TEXT.About', !!first && metas.length === 1 && metas[0] === first, metas.join(' / ') + ' / ' + first);
 
   console.log('\n' + (failures ? failures + ' failed' : 'all passed'));
   process.exit(failures ? 1 : 0);
