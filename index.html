@@ -4,20 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Peter D'Angelo</title>
+  <meta name="description" content="Hi! I'm Peter, an inventor, software engineer, and musician based in NYC.">
   <style>
     /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
     html, body { margin: 0; background: #fbf6f0; }
-    /* no system cursor over the document either, as over the canvas */
-    html, body { cursor: none; }
     /* the document never scrolls: the page scrolls itself, in the script
        (the swipe and the wheel), drawn that far up the canvas, which stays
        fixed over the window. no bar, no bounce */
     html, body { overflow: hidden; overscroll-behavior: none; }
     /* a press on the canvas is the page's own, and so is a swipe: a finger
-       scrolls the page itself (the swipe, in the script). no selecting. no
-       cursor either: the pointer is drawn into the frame as a hand */
-    canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated; cursor: none;
+       scrolls the page itself (the swipe, in the script). no selecting */
+    canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated;
              touch-action: none; user-select: none; -webkit-user-select: none; }
+    /* no system cursor over the document or the canvas once a frame has
+       been drawn (drawn, set by the frame): the pointer is drawn into the
+       frame as a hand */
+    .drawn, .drawn body, .drawn canvas { cursor: none; }
   </style>
   <script>
     // the paper's colour as the visitor last chose the page, light or dark,
@@ -31,7 +33,6 @@
 <body>
   <canvas id="view"></canvas>
   <script src="font.js"></script>
-  <script src="daedalus/daedalus.js"></script>
   <script src="js/raster.js"></script>
   <script src="js/softbody.js"></script>
   <script src="js/hands.js"></script>
@@ -40,13 +41,13 @@
   <script src="js/face-art.js"></script>
   <script src="js/mouth.js"></script>
   <script src="js/face.js"></script>
-  <!-- <script src="js/beard.js"></script> -->
   <script src="js/hand-art.js"></script>
   <script src="js/cursor.js"></script>
   <script src="js/type.js"></script>
   <script src="js/about-photos.js"></script>
   <script src="js/logos.js"></script>
   <script src="js/text.js"></script>
+  <script src="js/words.js"></script>
   <script src="js/icons.js"></script>
   <script src="js/scale.js"></script>
   <script src="js/piano.js"></script>
@@ -191,47 +192,20 @@
       };
     }
 
-    // a line of text as letters, x and y the top-left of the first cell:
-    // proportional, one column of air after each glyph, a space half a cell
-    // wide, everything at LETTER_SCALE
-    function layoutText(text, x, y, firstIndex) {
-      const out = [];
-      let i = firstIndex;
-      for (const ch of text) {
-        const g = glyphInk(ch);
-        if (!g) { x += (FONT.width >> 1) * LETTER_SCALE; i++; continue; }
-        out.push(makeLetter(g, x + g.w * LETTER_SCALE / 2, y + g.h * LETTER_SCALE / 2, i++));
-        x += (g.w + 1) * LETTER_SCALE;
-      }
-      return out;
-    }
-
-    // the width of a line of text as layoutText lays it out
-    function textWidth(text) {
-      let w = 0, last = false;
-      for (const ch of text) {
-        const g = glyphInk(ch);
-        w += (g ? g.w + 1 : (FONT.width >> 1)) * LETTER_SCALE;
-        last = !!g;
-      }
-      return last ? w - LETTER_SCALE : w;
-    }
-
     // --- the name ----------------------------------------------------------------
     // the name across the top left, in helvetica, as big as the page gives
     // it room for. it is not browser text: js/type.js fills each glyph once,
     // big, into an offscreen canvas and reads it back as a bitmap, and here
-    // each one is a letter like the menu's, drawn through the same sampler
+    // each one is a letter (makeLetter), drawn through the same sampler
     // at the name's size with the same sway, bob, breathe and tilt, seeded
     // from its own place in the name. the bitmaps are made once, at the em;
     // a resize only places them and sets their scale, size over the em. at
     // these sizes the breathe and the tilt do most of the moving: the sway
     // and the bob are a tenth of a world pixel whatever its size. wide,
-    // its ink's top left sits on the menu's margin, at SIZE or smaller when
-    // the page is too narrow for that; narrow, it is centred across the top
-    // and the bubble and the menu stack under it. the rest of the page keeps
-    // GAP clear of its box. with no 2d canvas there is no name, as there
-    // is no menu without font.js.
+    // its ink's top left sits X in from the left edge, at SIZE or smaller
+    // when the page is too narrow for that; narrow, it is centred across
+    // the top. the rest of the page keeps GAP clear of its box. with no 2d
+    // canvas there is no name.
     //
     // its letters are a row of keys, each one struck on the piano as the
     // pointer comes onto it (the name's keys, below): a key is a column
@@ -246,11 +220,11 @@
       SIZE: 114,       // world px to the em, the most it will be
       WIDTH: 0.68,     // of the viewport's width its ink may span, wide
       NARROW: 0.9,     // the same, stacked
-      X: 21,           // its ink's left edge, wide: the menu's margin
+      X: 21,           // its ink's left edge, wide
       TOP: 21,         // world px from the top edge to its tallest ink
       GAP: 21,         // from its box's bottom to anything under it
-      FIRST: 100,      // its letters' seeds run from here, clear of the menu's
-      WOBBLE,          // the menu's sway, bob, breathe and tilt
+      FIRST: 100,      // its letters' seeds run from here
+      WOBBLE,          // the letters' sway, bob, breathe and tilt
     };
     const nameType = new Type(NAME.TEXT, () => document.createElement('canvas'));
 
@@ -470,8 +444,8 @@
     // hovered. it is
     // drawn over the word, so it covers the word as it grows and shows it
     // again as it shrinks. open, an x stands in its top left corner, inside
-    // its padding where the word's ink starts: the pixel font's X (font.js,
-    // the old menu's) at CLOSE of its own size, with the text's wobble, the
+    // its padding where the word's ink starts: the pixel font's X (font.js)
+    // at CLOSE of its own size, with the text's wobble, the
     // text and photo
     // starting under it where the word was. a press on the x sends the
     // box back into the o,
@@ -768,6 +742,9 @@
       }
     }
     readText(TEXT);
+    // the same words inside the canvas as html, for whatever cannot see the
+    // canvas (js/words.js)
+    Words.build(document, canvas, NAME.TEXT, SECTIONS, TEXT, LINK_SEP);
 
     // the logos, each once it has loaded with its own few colours worked
     // out once, as the photos' are, by key: { img, photo, colours,
@@ -1781,7 +1758,6 @@
         const view = roomView(into, t, sy, b);
         drawSkin(view, bubble);
         face.draw(view);
-        // beard.draw(view);
       }
       if (!all) return;
       if (sub) drawSubtitle(t, sy, into);
@@ -3315,45 +3291,26 @@
     }
 
     // --- layout ------------------------------------------------------------------
-    // wide: the menu down the left side and daedalus's panel in the middle,
-    // each centred on the viewport's height, or pushed down clear of the
-    // name when the page is too short for that. narrow (a phone): the panel
-    // on top and the menu under it, every line centred, the stack centred
-    // in what the name leaves. the menu is off for now; true brings it
-    // back.
+    // the header (the name and its tag) and the sections under it, wide or,
+    // on a viewport narrower than STACK_BELOW (a phone), stacked.
     //
     // the bubble's world is its room in bubble bob's box (layoutItems),
     // the bubble locked to its middle. the bubble is made here the first
     // time there is a room; after that a resize carries its lock, skin,
     // face and all to the new middle, so nothing flies across. with no room
     // the world is the viewport, empty, so a press grabs nothing
-    const SHOW_MENU = false;
-    const MENU = ['PLAYGROUND', 'PROJECTS', 'PAST WORKS'];
-    const PANEL_W = 128, PANEL_H = 64;
     const STACK_BELOW = 463; // viewport width in world px under which it stacks
-    const GAP = 28;          // between the bubble and the menu when stacked
     let letters = [];
-    let panelX = 0, panelY = 0;
 
     function layout() {
       letters = [];
-      const lineH = (typeof FONT !== 'undefined' ? FONT.height : 14) * LETTER_SCALE + 11;
-      const menuH = MENU.length * lineH - 11;
       const stacked = W < STACK_BELOW;
       // the name first, and its tag beside it or, stacked, under it:
       // everything else keeps clear under them
       const name = layoutName(stacked);
       const tagBottom = layoutTag(name, stacked);
       const headerBottom = name === null ? 0 : Math.max(name.bottom, tagBottom === null ? -Infinity : tagBottom);
-      const under = name === null ? 0 : headerBottom + NAME.GAP;
       layoutSections(name, headerBottom, stacked);
-      const top = stacked ? under + (H - under - (2 * BUBBLE_R + GAP + menuH)) / 2 : 0;
-      // the middle of the centre object, unrounded; the panel, when shown,
-      // sits on the same middle
-      const cx = W / 2, cy = stacked ? top + BUBBLE_R : Math.max(H / 2, under + BUBBLE_R);
-      panelX = Math.floor(cx - PANEL_W / 2);
-      panelY = Math.floor(cy - PANEL_H / 2);
-      // before the font check: the bubble does not need the font
       const room = bubbleHome && bubbleHome.room, ww = room ? room.w : W, wh = room ? room.h : H;
       if (!world) world = new World(ww, wh);
       else world.resize(ww, wh);
@@ -3361,24 +3318,12 @@
         bubble = new SoftBlob(ww / 2, wh / 2, BUBBLE_POINTS, BUBBLE_R, BUBBLE_PUFF, true);
         world.blobs.push(bubble);
         face = new Face(bubble);
-        // beard = new Beard(ww, wh);
       } else if (bubble) {
         const dx = ww / 2 - bubble.lockX, dy = wh / 2 - bubble.lockY;
         face.moveBy(dx, dy);
         for (const b of world.blobs) if (b !== bubble) { const c = b.getCenter(); b.moveLockTo(c.x + dx, c.y + dy); }
         for (const h of world.hands) { h.x += dx; h.y += dy; }
         bubble.moveLockTo(ww / 2, wh / 2);
-        // the face is carried in one jump: the strands pose afresh on the
-        // mouth rather than whip across after it
-        // beard.resize(ww, wh);
-        // beard.reset();
-      }
-      if (!SHOW_MENU || typeof FONT === 'undefined') return;
-      let y = stacked ? top + 2 * BUBBLE_R + GAP : Math.max((H - menuH) / 2, under), i = 0;
-      for (const line of MENU) {
-        letters.push(...layoutText(line, stacked ? (W - textWidth(line)) / 2 : NAME.X, y, i));
-        i += line.length;
-        y += lineH;
       }
     }
 
@@ -3395,9 +3340,7 @@
     // breathe and tilt about its lock. it is filled with paper and then
     // outlined, the skin a bresenham line from point to point, so it covers
     // whatever is under it as a solid thing, and its face (js/face.js)
-    // goes on top, trailing the skin when it moves. the beard (js/beard.js,
-    // daedalus's) is commented out; uncommented, it hangs from the mouth, so
-    // it trails as the mouth does and swings when it is carried. the face's
+    // goes on top, trailing the skin when it moves. the face's
     // art goes down 1:1 on a bubble of FACE.DEFAULT_RADIUS (js/face.js) and
     // scales with the radius, each feature by its own size, drawn as line
     // art (roomView), so its strokes are BUBBLE_LINE px at any size, as the
@@ -3421,7 +3364,6 @@
     // air: the area it fills over its circle's
     const BUBBLE_R = FACE.DEFAULT_RADIUS * BUBBLE_SCALE, BUBBLE_POINTS = 32, BUBBLE_PUFF = 1.2;
     let world = null, bubble = null, face = null; // made at the first layout
-    // let beard = null;
     const bubbleHome = sections.find((s) => s.items.some((it) => it.game)) || null; // the section whose box it is in
     const bubbleItem = bubbleHome ? bubbleHome.items.find((it) => it.game) : null; // bubble bob, the item it is in
 
@@ -5920,74 +5862,6 @@
       }
     }
 
-    // --- daedalus ----------------------------------------------------------------
-    // the program's 128x64 panel, one world pixel per panel pixel, in the
-    // middle of the viewport, copied bit for bit into the framebuffer, dark
-    // bits too, so it reads as a screen over whatever is under it. it runs
-    // 80 frames a second on its own clock; each browser frame runs as many
-    // as wall time has moved on.
-    // the bubble has taken its place in the middle; SHOW_DAEDALUS brings it back.
-    const SHOW_DAEDALUS = false; // false: no module, no panel, no keyboard
-    const FRAME_MS = 12.5;
-    let panel = null; // set once the module is up
-
-    if (SHOW_DAEDALUS) createDaedalus().then((m) => {
-      m._daed_init(0x64616564);
-      const PW = m._daed_width(), PH = m._daed_height();
-      const stride = (PW + 7) >> 3;
-      let acc = 0, last = performance.now();
-
-      panel = {
-        step(now) {
-          acc += now - last;
-          last = now;
-          if (acc > 100) acc = 100; // after a stall, catch up a little, not forever
-          while (acc >= FRAME_MS) { m._daed_frame(); acc -= FRAME_MS; }
-        },
-        draw() {
-          // HEAPU8 re-read each frame: the heap view changes if memory grows
-          fb.blitPacked(m.HEAPU8, m._daed_buffer(), PW, PH, stride, panelX, panelY);
-        },
-      };
-
-      // the computer keyboard as a midi keyboard, the sim window's layout:
-      // A W S E D F T G Y H U J K O L P ; are C4..E5, Z/X the octave, C/V the
-      // velocity by 20, space the sustain pedal (a hand on every bell).
-      const KEYS = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7,
-                     KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14,
-                     KeyP: 15, Semicolon: 16 };
-      let base = 60, vel = 100, pedal = false;
-      const held = {};
-      const send = (s, a, b) => m._daed_midi(s, a, b);
-      window.addEventListener('keydown', (e) => {
-        if (e.repeat) return;
-        if (e.code in KEYS) {
-          if (held[e.code] !== undefined) return;
-          held[e.code] = base + KEYS[e.code];
-          send(0x90, held[e.code], vel);
-        } else if (e.code === 'Space') {
-          e.preventDefault();
-          if (!pedal) { pedal = true; send(0xB0, 64, 127); }
-        } else if (e.code === 'KeyZ') { if (base - 12 >= 0) base -= 12; }
-        else if (e.code === 'KeyX') { if (base + 12 <= 108) base += 12; }
-        else if (e.code === 'KeyC') { vel = Math.max(1, vel - 20); }
-        else if (e.code === 'KeyV') { vel = Math.min(127, vel + 20); }
-      });
-      window.addEventListener('keyup', (e) => {
-        if (e.code in KEYS) {
-          if (held[e.code] === undefined) return;
-          send(0x80, held[e.code], 0);
-          delete held[e.code];
-        } else if (e.code === 'Space') {
-          if (pedal) { pedal = false; send(0xB0, 64, 0); }
-        }
-      });
-      window.addEventListener('blur', () => {
-        for (const k in held) { send(0x80, held[k], 0); delete held[k]; }
-        if (pedal) { pedal = false; send(0xB0, 64, 0); }
-      });
-    });
-
     // --- the tally ---------------------------------------------------------------
     // the tally (js/tally.js) is told each frame's ms and the things open
     // in it, by their words: every item open in a box that is open, as the
@@ -6014,12 +5888,17 @@
     // their boxes drawn scrolled, a shut box in its word's o's place with
     // its insides showing through it, the bubble in its box, every other
     // letter over them on its own
-    // clock, the tag's bubbles, daedalus's panel if it is shown, the
+    // clock, the tag's bubbles, the
     // drag's marks, the scroll hand and the mute button, and last the hand on its backing, over
     // the end of the drag's line, each layer simply writing over the bits of the last. then
-    // the whole of it goes to the canvas in one copy.
+    // the whole of it goes to the canvas in one copy, and the system cursor
+    // is hidden (drawn, on the root) once there is a hand drawn in its
+    // place. the next frame is asked for first, so one that throws does
+    // not stop the ones after it.
     let lastNow = null; // the last frame's time, for the face's dt
+    let drawn = false;  // a frame has been presented
     function frame(now) {
+      requestAnimationFrame(frame);
       const t = now / 1000;
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
@@ -6120,8 +5999,6 @@
       stepEraser(dt);
       stepZoom(dt);
       wallDot = dotTo(wallDot, (WALL.SIZES.indexOf(wallBrush) + 0.5) / WALL.SIZES.length, dt);
-      // if (bubble) beard.step(dt, face.mouf, face.scale);
-      if (panel) panel.step(now);
       stepSwipe(dt);
       stepHand(dt);
       stepSwitch(dt);
@@ -6141,7 +6018,6 @@
       const lit = nameRow && nameRow.keys[nameOn];
       for (const L of letters) L.draw(t, 0, fb, 0, lit && L === lit.L ? lit.v : undefined);
       for (const b of tagBubbles) drawTagBubble(b);
-      if (SHOW_DAEDALUS && panel) panel.draw();
       // the pointer's hold's line, from the skin where it is drawn: the
       // bubble's as bubbleAt has it, a small bubble's in the room
       if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
@@ -6151,7 +6027,10 @@
       drawMute(t, overMute);
       cursor.draw(fb);
       fb.present(ctx, dark);
-      requestAnimationFrame(frame);
+      if (!drawn) {
+        drawn = true;
+        document.documentElement.classList.add('drawn');
+      }
     }
 
     // the tally (js/tally.js) told that the page has opened and, whenever

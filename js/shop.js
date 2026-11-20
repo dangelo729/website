@@ -1,5 +1,5 @@
 // --- the shop ------------------------------------------------------------------
-// what the bubbles in Personal work's box buy (index.html): every bubble the
+// what the bubbles in Doodles' box buy (index.html): every bubble the
 // bubble eats pays by its size, LEAST for the smallest its world spawns
 // (js/softbody.js's SPAWN) to MOST for the largest, in step with its
 // radius, and on past MOST for any bigger; one that has eaten others pays
