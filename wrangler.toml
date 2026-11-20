@@ -1,11 +1,18 @@
-# the site on cloudflare: the repo's own files, served as they are, with no
-# script in front of them. two workers, each built and deployed by
-# cloudflare from github on a push: website, from main, at
-# dangelo.engineering and www.dangelo.engineering, and website-dev, from
-# dev, at dev.dangelo.engineering. by hand: `npx wrangler deploy --env=""`
-# and `npx wrangler deploy --env dev`. what the repo holds that the site
-# does not is listed in .assetsignore
+# the site on cloudflare: the repo's own files, served as they are, each
+# site its own worker, built and deployed by cloudflare from github on a
+# push: website, from main, at dangelo.engineering and
+# www.dangelo.engineering, and website-dev, from dev, at
+# dev.dangelo.engineering. the site's worker (tools/server) is in front of
+# the page and of whatever is no file of the repo's, and of nothing else:
+# its gate lets the page out only to a visitor its lock lets in, each site
+# with a password of its own, and /api/tally counts what the page is used
+# for. every other file is served without it. a third worker, website-ops
+# (tools/ops), is ops.dangelo.engineering. by hand: `npx wrangler deploy
+# --env=""`, `npx wrangler deploy --env dev` and `npx wrangler deploy --env
+# ops`. what the repo holds that the site does not is listed in
+# .assetsignore
 name = "website"
+main = "tools/server/worker.js"
 compatibility_date = "2026-11-13"
 workers_dev = false
 preview_urls = false
@@ -16,9 +23,63 @@ routes = [
 
 [assets]
 directory = "."
+binding = "ASSETS"
+run_worker_first = ["/", "/index", "/index.html", "/api/*", "/gate"]
+
+# dangelo.engineering starts open: with no gate row in its database, or
+# none it can read, its lock is open (tools/server/gate.js). an environment
+# does not take the top level's vars, so dev and ops start locked
+[vars]
+OPEN = "1"
+
+# the site's numbers, counted by /api/tally (tools/server/tally.js), and
+# its lock (tools/server/gate.js). each site has its own database, its
+# tables made by tools/server/migrations, applied by hand
+[[d1_databases]]
+binding = "DB"
+database_name = "website-ops"
+database_id = "e54bcfb5-ae20-4a2f-b850-9dc11c10b17c"
+migrations_dir = "tools/server/migrations"
 
 # website-dev
 [env.dev]
 workers_dev = false
 preview_urls = false
 routes = [{ pattern = "dev.dangelo.engineering", custom_domain = true }]
+
+# its own database, an environment not taking the top level's
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "website-ops-dev"
+database_id = "a913647c-6924-4006-b77f-e70027b01cce"
+migrations_dir = "tools/server/migrations"
+
+# ops.dangelo.engineering, the sites' numbers and their locks (tools/ops),
+# behind a gate and a password of its own, deployed as its own worker,
+# website-ops, from dev. the repo's files are its too, for the look's
+# scripts, every one of them behind its gate
+[env.ops]
+main = "tools/ops/worker.js"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "ops.dangelo.engineering", custom_domain = true }]
+
+[env.ops.assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = true
+
+# both sites' databases, dangelo.engineering's as MAIN and
+# dev.dangelo.engineering's as DEV, an environment not taking the top
+# level's
+[[env.ops.d1_databases]]
+binding = "MAIN"
+database_name = "website-ops"
+database_id = "e54bcfb5-ae20-4a2f-b850-9dc11c10b17c"
+migrations_dir = "tools/server/migrations"
+
+[[env.ops.d1_databases]]
+binding = "DEV"
+database_name = "website-ops-dev"
+database_id = "a913647c-6924-4006-b77f-e70027b01cce"
+migrations_dir = "tools/server/migrations"

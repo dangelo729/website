@@ -67,6 +67,7 @@
   <script src="js/films.js"></script>
   <script src="js/film.js"></script>
   <script src="js/subtitle.js"></script>
+  <script src="js/tally.js"></script>
   <script>
     // --- the viewport ------------------------------------------------------------
     // the window is a viewport onto a grid of world pixels, each SCALE css
@@ -1524,11 +1525,13 @@
       scrollEnd = Math.max(0, Math.ceil(end + ABOUT.END - H)) * SCALE;
     }
 
-    // a press on a word: open its box out of the o, or send it back in
+    // a press on a word: open its box out of the o, or send it back in.
+    // an opening is counted (js/tally.js)
     function toggleBox(s) {
       const box = s.box;
       if (!box.shut || !box.full) return;
       box.open = !box.open;
+      if (box.open) Tally.section(s.title);
       if (box.open && !box.shown) {
         box.shown = true;
         box.p = 0;
@@ -1536,9 +1539,11 @@
       }
     }
 
-    // a press on an item: its text accordions out under it, or back
+    // a press on an item: its text accordions out under it, or back. an
+    // opening is counted (js/tally.js)
     function toggleItem(s, it) {
       it.open = !it.open;
+      if (it.open) Tally.item(it.title);
     }
 
     // the slide a section's slideshow shows, its photo dithered to fill the
@@ -2051,7 +2056,10 @@
       if (switchAt(p.x, p.y)) { sendDark(darkTo < 0.5 ? 1 : 0); return; }
       const h = hitAt(p.x, p.y);
       if (!h) return;
-      if (h.link) window.open(h.link.url, '_blank', 'noopener');
+      if (h.link) {
+        window.open(h.link.url, '_blank', 'noopener');
+        Tally.link(h.it.title);
+      }
       else if (h.buy) buy(h.buy);
       else if (h.randomize) Monk.randomize();
       else if (h.menu) {
@@ -4049,6 +4057,7 @@
       const q = toRoom(p);
       const free = !hitAt(p.x, p.y) && !cornerAt(p.x, p.y); // the press presses nothing else
       grabbed = !!(playing() && free) && world.grab(q.x, q.y);
+      if (grabbed) Tally.play(bubbleItem.title); // a bubble of bubble bob's taken hold of: he is counted as played with (js/tally.js)
       if (grabbed && world.drag.blob === bubble) Voice.complain(); // the bubble, taken hold of, complains out loud (js/voice.js)
       const b = !grabbed && free && tagBubbleAt(p.x, p.y);
       if (b) grabbed = b.world.grab(p.x, p.y);
@@ -4719,13 +4728,14 @@
     }
 
     // the pen down at, or moved to, p, world px on the screen, kept inside
-    // the opening and on the wall: the wall's px drawn there
+    // the opening and on the wall: the wall's px drawn there, and the wall
+    // counted as played with (js/tally.js)
     function penTo(p) {
       const v = wallView();
       if (!v) return;
       wallPen.on = true;
       const x = Math.floor(wallPan.x + Math.min(Math.max(p.x - v.x, 0), v.w - 1) / wallScale), y = Math.floor(wallPan.y + Math.min(Math.max(p.y - v.y, 0), v.h - 1) / wallScale);
-      wall.pen(wallPen.ink, wallBrush, Math.min(WALL.W - 1, Math.max(0, x)), Math.min(WALL.H - 1, Math.max(0, y)), performance.now());
+      if (wall.pen(wallPen.ink, wallBrush, Math.min(WALL.W - 1, Math.max(0, x)), Math.min(WALL.H - 1, Math.max(0, y)), performance.now())) Tally.play(wallItem.title);
     }
 
     // the wall on to now, on the clock its presses are timed by: joined
@@ -5978,6 +5988,21 @@
       });
     });
 
+    // --- the tally ---------------------------------------------------------------
+    // the tally (js/tally.js) is told each frame's ms and the things open
+    // in it, by their words: every item open in a box that is open, as the
+    // box that one is in is, so it knows how long each was open for
+    const openThings = [];
+    function tellFrame(now) {
+      openThings.length = 0;
+      for (let n = 0; n < sections.length; n++) {
+        const s = sections[n];
+        if (!s.box.open || (s.up && !s.up.box.open)) continue;
+        for (let j = 0; j < s.items.length; j++) if (s.items[j].open) openThings.push(s.items[j].title);
+      }
+      Tally.frame(now, openThings);
+    }
+
     // --- the frame ---------------------------------------------------------------
     // the world is drawn fresh every browser frame, all of it into the
     // framebuffer. first the bubble's world, its face, the demo's voice,
@@ -5998,6 +6023,7 @@
       const t = now / 1000;
       const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
       lastNow = now;
+      tellFrame(now);
       if (pointerAt) { const q = toRoom(pointerAt); world.pointer(q.x, q.y); }
       if (bubble) world.spawning = playing();
       // each bubble's worth at its size before it can eat anything
@@ -6127,6 +6153,13 @@
       fb.present(ctx, dark);
       requestAnimationFrame(frame);
     }
+
+    // the tally (js/tally.js) told that the page has opened and, whenever
+    // it is hidden or left, how long was spent on it
+    Tally.load(window);
+    Tally.open();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') Tally.away(); });
+    window.addEventListener('pagehide', () => Tally.away());
 
     window.addEventListener('resize', resize);
     resize();

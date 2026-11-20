@@ -1,0 +1,1946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- the look's scripts from this site, the page's own script and style
+       inline, and its connections to this site only: its numbers and its
+       controls -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>ops</title>
+  <style>
+    /* the paper colour, as in js/raster.js: any sliver past the canvas matches */
+    html, body { margin: 0; background: #fbf6f0; }
+    /* no system cursor: the pointer is drawn into the frame as a hand */
+    html, body { cursor: none; }
+    /* the document never scrolls: the page scrolls itself, in the frame */
+    html, body { overflow: hidden; overscroll-behavior: none; }
+    /* a press on the canvas is the page's own. no selecting */
+    canvas { position: fixed; top: 0; left: 0; display: block; image-rendering: pixelated; cursor: none;
+             touch-action: none; user-select: none; -webkit-user-select: none; }
+    /* the one field: never seen, a pixel across, under where the page
+       draws the field that has the keys, its font big enough that a phone
+       does not zoom in to it. a pointer passes through it to the canvas */
+    input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; margin: 0; padding: 0; border: 0;
+            opacity: 0; font-size: 16px; pointer-events: none; }
+  </style>
+  <script>
+    // the paper's colour as the visitor last chose the site, light or
+    // dark, before the scripts under the canvas have loaded
+    try {
+      const kept = localStorage.getItem('dark');
+      if (kept !== null) document.documentElement.style.background = kept === '1' ? '#000000' : '#fbf6f0';
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <input id="key" type="text" maxlength="1024" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="a new password">
+  <script src="/js/raster.js"></script>
+  <script src="/js/skin.js"></script>
+  <script src="/js/type.js"></script>
+  <script src="/js/icons.js"></script>
+  <script src="/js/hand-art.js"></script>
+  <script src="/js/cursor.js"></script>
+  <script>
+    // --- ops ---------------------------------------------------------------------
+    // the sites' numbers and their locks, for their owner, drawn as
+    // dangelo.engineering is. across the top, the page's name at the left
+    // (the name, below) and the light and dark switch at the right (the
+    // switch, below). under the name two menus, made as that page's menus
+    // are (the menus, below): metrics, a site's numbers and
+    // graphs as /stats answers them (tools/ops/stats.js), and under it
+    // controls, each site's lock and password as /controls answers and
+    // takes them (tools/ops/controls.js). the page is as tall as what is
+    // open, and scrolls itself (the scroll, below); the document never
+    // does. the sections, top to bottom: the viewport, the letters, the
+    // page's numbers, the hover colours, the menus, the boxes, the switch,
+    // the name, the words, the answers, the graphs, metrics, the controls,
+    // the field, the keys, the scroll, the layout, what a press presses,
+    // the click, the cursor and the frame.
+
+    // --- the viewport ------------------------------------------------------------
+    // the window is a viewport onto a grid of world pixels, each SCALE css
+    // pixels square. every pixel is drawn into one framebuffer
+    // (js/raster.js) the size of the visible world, and once a frame it is
+    // copied whole into the canvas bitmap, which is that size exactly.
+    // nothing draws to the canvas itself
+    const SCALE = 1;
+
+    const canvas = document.getElementById('view');
+    const ctx = canvas.getContext('2d'); // only the framebuffer's present uses it
+    let W = 0, H = 0; // the viewport, in world pixels
+    let fb = null;    // the world bitmap, remade at the viewport's size
+    let qfb = null;   // a menu's insides, drawn apart and copied through its skin (drawMenu)
+    let pfb = null;   // a submenu's insides, or a field's, drawn apart and copied through its skin into qfb (drawSub, drawField)
+
+    function resize() {
+      W = Math.max(1, Math.floor(window.innerWidth / SCALE));
+      H = Math.max(1, Math.floor(window.innerHeight / SCALE));
+      canvas.width = W;
+      canvas.height = H;
+      fb = new Framebuffer(W, H);
+      qfb = new Framebuffer(W, H);
+      pfb = new Framebuffer(W, H);
+      canvas.style.width = (W * SCALE) + 'px';
+      canvas.style.height = (H * SCALE) + 'px';
+      layout();
+    }
+
+    // --- letters -----------------------------------------------------------------
+    // a letter is one object: a bitmap of ink (a glyph of js/type.js's, cut
+    // to its ink, an icon, or a box's art), a home position in continuous
+    // world space, a scale and a tilt, and slow sines of its own on each,
+    // at rates and phases seeded from its place in the text, drawn as a
+    // sprite (js/raster.js), so a sub-pixel move or a touch of scale shows
+    // as edge pixels popping, never as the block stepping
+    const LETTER_SCALE = 1.56; // of a bitmap's px, a letter's scale unless it is given its own
+    const SWAY_PX  = 0.1,   SWAY_HZ    = 0.4;  // along x
+    const BOB_PX   = 0.1,   BOB_HZ     = 0.23; // along y
+    const BREATHE  = 0.008, BREATHE_HZ = 0.31; // of the scale
+    const TILT_RAD = 0.006, TILT_HZ    = 0.17; // about the centre
+    // the four together, as makeLetter takes them
+    const WOBBLE = { SWAY_PX, SWAY_HZ, BOB_PX, BOB_HZ, BREATHE, BREATHE_HZ, TILT_RAD, TILT_HZ };
+
+    // a stable number in [0, 1) from two integers
+    function noise(i, k) {
+      const s = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+      return s - Math.floor(s);
+    }
+
+    // the bitmap g centred on (cx, cy), drawn at scale and wobbled by wob,
+    // its rates and phases seeded from i, in v: ink, or a colour of the
+    // framebuffer's palette
+    function makeLetter(g, cx, cy, i, scale = LETTER_SCALE, wob = WOBBLE, v = 1) {
+      const rate = (base, k) => base * (0.8 + 0.4 * noise(i, k));
+      const phase = (k) => 2 * Math.PI * noise(i, k);
+      return {
+        g, cx, cy, scale, wob, v,
+        swayHz: rate(wob.SWAY_HZ, 1), bobHz: rate(wob.BOB_HZ, 2), breatheHz: rate(wob.BREATHE_HZ, 3), tiltHz: rate(wob.TILT_HZ, 4),
+        swayPh: phase(5), bobPh: phase(6), breathePh: phase(7), tiltPh: phase(8),
+        // where it is at time t: its centre, its scale and its tilt, { x, y, s, a }
+        pose(t) {
+          const w = 2 * Math.PI * t, m = this.wob;
+          return {
+            x: this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh),
+            y: this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh),
+            s: this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh)),
+            a: m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh),
+          };
+        },
+        // at time t, dy world px down from home and dx across, into the
+        // page's framebuffer or another, turned turn radians more
+        // (clockwise) than its tilt, in v if given rather than its own
+        draw(t, dy = 0, into = fb, turn = 0, v = this.v, dx = 0) {
+          const w = 2 * Math.PI * t, m = this.wob;
+          const x = this.cx + m.SWAY_PX * Math.sin(w * this.swayHz + this.swayPh) + dx;
+          const y = this.cy + m.BOB_PX * Math.sin(w * this.bobHz + this.bobPh) + dy;
+          const s = this.scale * (1 + m.BREATHE * Math.sin(w * this.breatheHz + this.breathePh));
+          into.sprite(this.g, x, y, s, m.TILT_RAD * Math.sin(w * this.tiltHz + this.tiltPh) + turn, v);
+        },
+      };
+    }
+
+    // the page's words are js/type.js's lines in FACE, helvetica neue's
+    // medium. a menu's caret is a > in it
+    const FACE = { weight: 500, family: '"Helvetica Neue", Helvetica, Arial, sans-serif' };
+    const caretType = new Type('>', () => document.createElement('canvas'), FACE);
+
+    // --- the numbers -------------------------------------------------------------
+    // the page's sizes, springs and rates, as dangelo.engineering's menus' are
+    const UI = {
+      EDGE: 21,         // world px, how far everything keeps from the window's edges
+      STACK_BELOW: 463, // world px, the window's width under which the text is PHONE
+      MOST: 16,         // the text's world px to the em
+      PHONE: 11,        // the text's world px to the em, under STACK_BELOW
+      CAPTION: 0.85,    // of the text's size, the menus' words', no less than CAP_LEAST
+      CAP_LEAST: 10,    // world px to the em
+      CAP_LEAD: 1.3,    // a caption's ems, baseline to baseline
+      LINE: 2,          // world px, an outline's thickness
+      RATE: 0.3,        // a caret's turn: of the way left to open each 60 hz frame opening, of the way from open shutting
+      HEAD: 0.08,       // a caret's turn shutting: the way from open grows as if this much further, its start's speed over its end's
+      FLIP: 2.76,       // how many times as fast as RATE has it a menu's caret turns
+      RESPONSE: 0.4,    // seconds, the menus' spring's swing undamped: how quick it swings
+      WARBLE: 0.24,     // world px each edge drifts either way, on its own slow sine at the letters' rates
+      PAD_X: 0.5, PAD_Y: 0.25, RADIUS: 0.4, // of the text's size: round a button's words, and its corners
+      APART: 0.4,                           // of the text's size, between the header's caret and title
+      ROW: 0.4, MARGIN: 0.4,                // of the text's size, between a menu's buttons, and round them in the open menu
+      BOUNCE: 0.45,                         // the spring's: damped 1 - BOUNCE
+      KICK: 12,                             // a second, added to its speed toward open as it opens
+      SPREAD: 14,                           // px, how far along the skin an anchor's pull reaches
+      CAP: 0.75, DESC: 0.2,                 // of the text's size, the face's caps over its baseline and descenders under
+      GROW: 1.1,  // a box's art is drawn this many times its size, off the pixels' grid, so its edges shimmer as a letter's do
+    };
+
+    // the page's own: its name, the menus' column, the sites and the windows
+    const OPS = {
+      TEXT: 'ops',  // the page's name,
+      SIZE: 32,     // its world px to the em,
+      SEED: 98000,  // and its letters' seeds, from here
+      COLUMN: 600,  // world px, the most the menus' column is across
+      APART: 2,     // rows of ROW between the two menus, and between the controls' sites
+      METRICS: 'metrics', CONTROLS: 'controls', // what the two menus' headers say
+      SITES: { main: 'dangelo.engineering', dev: 'dev.dangelo.engineering' }, // each site, as /stats and /controls name it, and as the page calls it
+      DAYS: ['7', '30', '90'], WINDOW: ' days', // the windows /stats takes, days long, and what follows one's length
+      LOADING: 'loading', // what waits on an answer
+      CUT: '...',         // what ends a line cut short
+    };
+    const SITE_KEYS = Object.keys(OPS.SITES);
+    const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+    // --- hover -------------------------------------------------------------------
+    // a mouse's pointer over anything a press would press, or over a day of
+    // a graph, turns it one of three colours while it is there, by how deep
+    // it is (level): each menu's header, its outline, caret and words, in
+    // HOVER; what a menu holds (a submenu, a button that picks and the one
+    // picked, a field, a button) in HOVER_ITEM; what that holds (another of
+    // those a button that picks picks from, a graph's day) in HOVER_LINK.
+    // the switch is in HOVER. a finger has no hover. where it is, in world
+    // px on the screen, or null; what it is over is worked out afresh each
+    // frame, so it follows the menus as they move under a still pointer
+    const HOVER = Framebuffer.colour('#49B6B0'), HOVER_ITEM = Framebuffer.colour('#B8B693'), HOVER_LINK = Framebuffer.colour('#B5979A');
+    const LEVELS = [HOVER, HOVER_ITEM, HOVER_LINK]; // a menu's levels' colours, in turn from the top
+    // the hover colour of what is n levels into a menu, 0 the menu itself
+    const level = (n) => LEVELS[n % LEVELS.length];
+    let hoverAt = null;
+    canvas.addEventListener('pointermove', (e) => { hoverAt = e.pointerType === 'touch' ? null : worldPointer(e); });
+    canvas.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') hoverAt = null; });
+    canvas.addEventListener('pointerleave', () => { hoverAt = null; });
+
+    // --- the menus ---------------------------------------------------------------
+    // a menu, shut, is a button: a rounded rect, RADIUS of its text's size
+    // round its corners, filled with paper and outlined LINE px, a caret
+    // and its words at its left. a press on it opens it: the button is its
+    // shut shape, and its open one reaches round what it holds. it swings
+    // there and back on a spring, set off with a KICK when it opens, its
+    // edges warbling WARBLE px either way, and a skin (js/skin.js) chases
+    // it, with the menu's insides, drawn apart (qfb), copied through the
+    // skin, so it wipes them in as it grows. its caret turns from > to v as
+    // it opens, and a press on its header shuts it. a submenu is a menu
+    // inside a menu, its insides drawn apart again (pfb) and copied through
+    // its own skin. a button that picks is a menu too: shut, round the one
+    // picked; pressed, it opens down round the others, and a press on one
+    // of the others picks it and shuts the button. whatever opens pushes
+    // everything under it down as far as it has opened
+
+    // p, how far a caret has turned, dt on toward open or back to shut,
+    // travel px the most anything moves on the way, speed times as fast.
+    // in the way left to open, q = 1 - p: opening it shrinks by RATE of
+    // itself a 60 hz frame, and goes to nothing once under a px of travel;
+    // shutting, it and HEAD grow by as much, so it leaves open going and
+    // speeds up into shut, and out at 1 it is shut. a frame of any other
+    // length moves it as far as that many 60 hz frames would
+    function ease(p, open, dt, travel, speed = 1) {
+      const px = 1 / Math.max(1, travel), f = Math.pow(1 - UI.RATE, 60 * dt * speed);
+      let q = 1 - p;
+      if (open) q = q * f < px ? 0 : q * f;
+      else q = Math.min(1, (q + UI.HEAD) / f - UI.HEAD);
+      return 1 - q;
+    }
+
+    // menu m's shape at p, from shut (0) to open (1), as laid out in ui,
+    // its corners a button's; and, given a time t, each edge warbled
+    // WARBLE px either way on its own sine
+    function menuAt(m, ui, p, t) {
+      const a = ui.shut, b = ui.full, c = { r: UI.RADIUS * ui.size };
+      c.x0 = a.x0 + (b.x0 - a.x0) * p;
+      c.y0 = a.y0 + (b.y0 - a.y0) * p;
+      c.x1 = a.x1 + (b.x1 - a.x1) * p;
+      c.y1 = a.y1 + (b.y1 - a.y1) * p;
+      if (t !== undefined) {
+        const w = (e) => UI.WARBLE * Math.sin(2 * Math.PI * t * m.warble[e].hz + m.warble[e].ph);
+        c.x0 += w(0);
+        c.y0 += w(1);
+        c.x1 += w(2);
+        c.y1 += w(3);
+      }
+      return c;
+    }
+
+    // menu m, laid out as ui, dt on toward open or back to its button on
+    // the spring: p and its speed v stepped exactly by dt, by the
+    // underdamped spring's closed form (RESPONSE s a swing undamped, damped
+    // 1 - BOUNCE), so it moves alike at any frame rate, stopping dead at
+    // shut and at rest open within a px on the edge that moves furthest;
+    // its caret turning FLIP times as fast as ease has it, and its skin
+    // after it; laid out again in a new room, a new skin is settled where
+    // the menu now is
+    function stepMenu(m, ui, dt, t) {
+      const a = ui.shut, b = ui.full;
+      const px = 1 / Math.max(1, Math.abs(b.x0 - a.x0), Math.abs(b.y0 - a.y0), Math.abs(b.x1 - a.x1), Math.abs(b.y1 - a.y1));
+      const target = m.open ? 1 : 0, w = 2 * Math.PI / UI.RESPONSE, z = 1 - UI.BOUNCE;
+      const sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = m.p - target, v0 = m.v;
+      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      m.p = target + e * (x0 * c + (v0 + sg * x0) / wd * sn);
+      m.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+      if (m.p <= 0) { m.p = 0; m.v = Math.max(0, m.v); }
+      if (m.open && Math.abs(m.p - 1) < px && Math.abs(m.v) / 60 < px) { m.p = 1; m.v = 0; }
+      m.turn = ease(m.turn, m.open, dt, 4 * ui.size, UI.FLIP);
+      const shape = menuAt(m, ui, m.p, t);
+      if (!m.skin || m.room !== ui.room) {
+        m.skin = new Skin(shape, UI.SPREAD);
+        m.room = ui.room;
+      } else m.skin.step(dt, shape);
+    }
+
+    // s, { p, v }, a place and its speed, stepped exactly by dt toward to
+    // by the menus' spring's closed form, as stepMenu steps a menu
+    function spring(s, to, dt) {
+      const w = 2 * Math.PI / UI.RESPONSE, z = 1 - UI.BOUNCE, sg = z * w, wd = w * Math.sqrt(1 - z * z), x0 = s.p - to, v0 = s.v;
+      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      s.p = to + e * (x0 * c + (v0 + sg * x0) / wd * sn);
+      s.v = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+    }
+
+    // the measures and makers of a menu's parts in room at the text's
+    // size size: { room, size, k,
+    // pad, apart, th, ph, lead, margin, row, wide, letters, headed, head,
+    // pick }. th is a button's height and ph a row of a button that picks,
+    // a button's less the room under its words for descenders; wide(t) how
+    // wide the ink of t, a line's Type, is; letters(t, x0, y0, sd) its
+    // letters, its ink's left at x0, on the baseline of a row whose top is
+    // y0, their seeds from sd; headed(t) how wide a header saying t is, its
+    // caret and t with two pads; head(t, x0, y0, sd) a header's caret and
+    // words saying t, from x0 across on the row whose top is y0, { caret,
+    // title }; and pick(types, x0, x1, py, sd) a button that picks from x0
+    // across to x1 with its top at py, a menu of its own ({ room, size,
+    // shut, full, rows }): shut, round one row; open, down round a row for
+    // each of types, rows[j] its place and, for each of them, the letters
+    // that say it there, { j, rect, says }
+    function menuKit(room, size) {
+      const U = UI, k = size / TYPE.EM, pad = U.PAD_X * size, apart = U.APART * size, cg = caretType.glyphs[0], cw = cg ? k * cg.g.w : 0;
+      const th = Math.round(size * (2 * U.PAD_Y + U.CAP + U.DESC)), ph = Math.round(size * (2 * U.PAD_Y + U.CAP));
+      const wide = (t) => k * (t.left + t.right);
+      const letters = (t, x0, y0, sd) => t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (U.PAD_Y + U.CAP) + k * gl.dy, sd + gl.at, k, WOBBLE));
+      return {
+        room, size, k, pad, apart, th, ph, lead: Math.round(U.CAP_LEAD * size), margin: Math.round(U.MARGIN * size), row: Math.round(U.ROW * size),
+        wide, letters,
+        headed: (t) => Math.round(cw + apart + wide(t) + 2 * pad),
+        head: (t, x0, y0, sd) => ({
+          caret: cg ? makeLetter(cg.g, x0 + pad + cw / 2, y0 + size * (U.PAD_Y + U.CAP) + k * cg.dy, sd, k, WOBBLE) : null,
+          title: letters(t, x0 + pad + cw + apart, y0, sd + 10),
+        }),
+        pick: (types, x0, x1, py, sd) => {
+          const rows = types.map((nt, j) => ({
+            j, rect: { x0, y0: py + j * ph, x1, y1: py + (j + 1) * ph },
+            says: types.map((ct) => letters(ct, x0 + pad, py + j * ph, sd + 100 * j)),
+          }));
+          return { room, size, shut: rows[0].rect, full: { x0, y0: py, x1, y1: py + types.length * ph }, rows };
+        },
+      };
+    }
+
+    // a menu, shut: whether it is open, how far (p, 0 shut, 1 open and past
+    // as it swings) and how fast, its caret's turn, its skin and the room
+    // it was made in, and each edge's warble
+    const shutMenu = () => ({
+      open: false, p: 0, v: 0, turn: 0, skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    });
+
+    // how far down button that picks pm, laid out as pick, has opened past
+    // its bottom shut, world px
+    function grownOf(pm, pick) {
+      return Math.max(0, menuAt(pm, pick, pm.p).y1 - pick.shut.y1);
+    }
+
+    // menu m, laid out as ui, dy world px down, on what the pointer is on
+    // (on): its header into qfb over the menu's skin's box and, while it
+    // is open at all, its insides drawn there by inside, dy down; then qfb
+    // copied into fb through the skin and the skin outlined over it, in
+    // level(0) while the header is hovered
+    function drawMenu(ui, m, dy, t, on, inside) {
+      if (!m.skin) return;
+      const v = on && on.menu === m ? level(0) : 1, box = m.skin.bounds();
+      if (box.y0 + dy > H + UI.LINE || box.y1 + dy < -UI.LINE) return;
+      qfb.clearRows(Math.floor(box.y0 + dy) - UI.LINE, Math.ceil(box.y1 + dy) + UI.LINE + 1);
+      if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
+      drawSaid(ui.header.title, t, dy, qfb, v);
+      if (m.p > 0) inside(ui, dy, t, on);
+      const pts = m.skin.screen(dy), n = pts.length;
+      fb.fillPolygon(pts, qfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        fb.line(p.x, p.y, q.x, q.y, v, UI.LINE);
+      }
+    }
+
+    // submenu sm, laid out as S, dy world px down, into qfb, on what the
+    // pointer is on (on), drawn as a menu is, a level in: its header and,
+    // while it is open at all, what it holds, drawn by inside, dy down,
+    // into pfb over the submenu's skin's box; then pfb copied into qfb
+    // through the submenu's skin and the skin outlined over it, in
+    // level(1) while its header is hovered
+    function drawSub(S, sm, dy, t, on, inside) {
+      if (!sm.skin) return;
+      const v = on && on.menu === sm ? level(1) : 1, box = sm.skin.bounds();
+      if (box.y0 + dy > H + UI.LINE || box.y1 + dy < -UI.LINE) return;
+      pfb.clearRows(Math.floor(box.y0 + dy) - UI.LINE, Math.ceil(box.y1 + dy) + UI.LINE + 1);
+      if (S.header.caret) S.header.caret.draw(t, dy, pfb, sm.turn * Math.PI / 2, v);
+      drawSaid(S.header.title, t, dy, pfb, v);
+      if (sm.p > 0) inside(S, dy, t, on);
+      const pts = sm.skin.screen(dy), n = pts.length;
+      qfb.fillPolygon(pts, pfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        qfb.line(p.x, p.y, q.x, q.y, v, UI.LINE);
+      }
+    }
+
+    // button that picks pm, laid out as P and listing order, dy world px
+    // down, into into, depth levels into its menu, on what the pointer is
+    // on (on): its skin outlined round the one picked and, as far down as
+    // it has opened (grown), the others under it. under the pointer its
+    // outline and the one picked are in level(depth), and another of those
+    // it picks from in level(depth + 1)
+    function drawPick(P, pm, order, dy, grown, t, on, into, depth) {
+      const pv = on && on.option === P.rows[0] ? level(depth) : 1;
+      for (let j = 0; j < order.length; j++) {
+        const r = P.rows[j];
+        if (j && r.rect.y1 - UI.PAD_Y * P.size > P.shut.y1 + grown) break;
+        const rv = !j ? pv : on && on.option === r ? level(depth + 1) : 1;
+        drawSaid(r.says[order[j]], t, dy, into, rv);
+      }
+      if (!pm.skin) return;
+      const ring = pm.skin.screen(dy), n = ring.length;
+      for (let i = 0; i < n; i++) {
+        const p = ring[i], q = ring[i + 1 < n ? i + 1 : 0];
+        into.line(p.x, p.y, q.x, q.y, pv, UI.LINE);
+      }
+    }
+
+    // --- the boxes ---------------------------------------------------------------
+    // a rounded box w x h as a sprite's ink, r round its corners: its
+    // inside (fill) and its outline line px thick, UI.LINE unless given
+    // (line), as the chess set's RESET is made on dangelo.engineering
+    function inkBox(w, h, r, line = UI.LINE) {
+      const f = new Framebuffer(w, h), l = new Framebuffer(w, h);
+      f.roundRect(0, 0, w, h, r, 1, 1, UI.LINE);
+      l.roundRect(0, 0, w, h, r, null, 1, line);
+      return { fill: { ink: Uint8Array.from(f.bits), w, h }, line: { ink: Uint8Array.from(l.bits), w, h } };
+    }
+
+    // a bar's art: a box's inside (inkBox), w x h art px, r round its
+    // corners; or, given from or to, only the part of it from row from
+    // down and left of column to, the rest left out, so drawn where the
+    // whole is drawn it lands on the whole's pixels exactly. each is made
+    // the first time it is asked for and kept, so a bar rising asks for
+    // each height once
+    const arts = new Map();
+    const ARTS_KEPT = 8000; // the most kept, past which they are made again as asked for
+    function barArt(w, h, r, from = 0, to = w) {
+      const key = w + ' ' + h + ' ' + r + ' ' + from + ' ' + to;
+      let g = arts.get(key);
+      if (g) return g;
+      if (arts.size > ARTS_KEPT) arts.clear();
+      if (!from && to === w) g = inkBox(w, h, r).fill;
+      else {
+        const whole = barArt(w, h, r), ink = new Uint8Array(w * h);
+        for (let y = from; y < h; y++) for (let x = 0; x < to; x++) ink[y * w + x] = whole.ink[y * w + x];
+        g = { ink, w, h };
+      }
+      arts.set(key, g);
+      return g;
+    }
+
+    // --- the switch --------------------------------------------------------------
+    // light or dark, as dangelo.engineering's: a switch EDGE world px in from the
+    // window's right edge, its middle level with the middle of the page's
+    // name's ink above its baseline: ICONS.switch (js/icons.js), drawn as
+    // the letters are, wobbling, its paper and then its ink, in HOVER while
+    // a mouse is over it; with ICONS.ball over it, the ball a press takes
+    // hold of. dark is how dark the page is, 0 light to 1 dark, and the
+    // ball is that far along the switch. between the two, that share of the
+    // page's pixels are their dark colours, the rest their light, each
+    // going over at a point of its own (Framebuffer's present). dark eases
+    // to where it is going (darkTo) by the house approach, dt-correct. a
+    // click on the switch, or a little round it, sends it to the other
+    // end; a primary press that goes SLOP px across takes the ball, which
+    // then goes as far along as the pointer has gone since the press, and
+    // let go, to the nearer end, its click pressing nothing. it scrolls
+    // with the page. the browser keeps which end it was sent to, for this
+    // page and the sites' alike
+    const SWITCH = {
+      SCALE: LETTER_SCALE, // of the icon's px, as a letter's
+      SEED: 99200,         // its wobble's, clear of the letters'
+      KEY: 'dark',         // where the browser keeps it
+      SLOP: 3,             // world px across a press goes before it has the ball
+      RATE: 0.7,           // of the way left to where it is going, each 60 hz frame
+      NEAR: 0.002,         // of the way: as near as this, it is there
+    };
+    let dark = startsDark() ? 1 : 0; // how dark the page is, 0 light to 1 dark
+    let darkTo = dark;               // where it is going
+    let switchArt = null;            // the switch as { paper, ink } letters, its ball's bitmaps { paper, ink } or null, and reach, its px from its middle to the ball's at either end
+    let switchHold = null;           // the press on it, { id, x, from, on }: where it went down, how dark the page was, and whether it has the ball; or null
+
+    // whether the page starts dark: only if the browser keeps that the
+    // visitor sent it there
+    function startsDark() {
+      try { return localStorage.getItem(SWITCH.KEY) === '1'; } catch (e) { return false; }
+    }
+
+    // the document behind the canvas in the paper's colour at the end the page is nearer
+    function backPaper() {
+      const w = dark < 0.5 ? Framebuffer.PAPER : Framebuffer.INK;
+      document.documentElement.style.background = 'rgb(' + [w & 255, w >> 8 & 255, w >> 16 & 255].join(',') + ')';
+    }
+    backPaper();
+
+    // the switch at the window's top right, its middle cy down the page,
+    // and its ball; an empty switch is none, and an empty ball none
+    function placeSwitch(cy) {
+      const rows = ICONS.switch || [], ink = Framebuffer.ink(rows), paper = Framebuffer.ink(rows.map((r) => r.replace(/o/g, '#')));
+      switchArt = null;
+      if (!ink.w || !ink.h) return;
+      const s = SWITCH.SCALE, x = W - UI.EDGE - ink.w * s / 2;
+      switchArt = { paper: makeLetter(paper, x, cy, SWITCH.SEED, s), ink: makeLetter(ink, x, cy, SWITCH.SEED, s) };
+      const br = ICONS.ball || [], bi = Framebuffer.ink(br), bp = Framebuffer.ink(br.map((r) => r.replace(/o/g, '#')));
+      switchArt.ball = bi.w && bi.h ? { paper: bp, ink: bi } : null;
+      switchArt.reach = Math.max(0, (ink.w - ink.h + bi.h - bi.w) / 2);
+    }
+
+    // whether world (x, y) on the screen presses the switch: its box and a
+    // little round it, at least 20 world px across, for a finger, where the
+    // page has scrolled it to
+    function switchAt(x, y) {
+      if (!switchArt) return false;
+      const L = switchArt.ink, w = L.g.w * L.scale, h = L.g.h * L.scale;
+      const mx = Math.max(4, (20 - w) / 2), my = Math.max(4, (20 - h) / 2);
+      return Math.abs(x - L.cx) <= w / 2 + mx && Math.abs(y + scrolled() - L.cy) <= h / 2 + my;
+    }
+
+    // the switch, dy world px down, and its ball as far along it as the
+    // page is dark, their ink in HOVER if over or held
+    function drawSwitch(t, over, dy) {
+      const a = switchArt, lit = over || (switchHold && switchHold.on);
+      if (!a) return;
+      a.paper.draw(t, dy, fb, 0, 0);
+      a.ink.draw(t, dy, fb, 0, lit ? HOVER : 1);
+      if (!a.ball) return;
+      const p = a.ink.pose(t), along = (2 * dark - 1) * a.reach * p.s;
+      const x = p.x + Math.cos(p.a) * along, y = p.y + Math.sin(p.a) * along + dy;
+      fb.sprite(a.ball.paper, x, y, p.s, p.a, 0);
+      fb.sprite(a.ball.ink, x, y, p.s, p.a, lit ? HOVER : 1);
+    }
+
+    // the page sent to an end, 1 dark or 0 light, and the browser told
+    function sendDark(to) {
+      darkTo = to;
+      try { localStorage.setItem(SWITCH.KEY, to ? '1' : '0'); } catch (e) {}
+    }
+
+    // dark eased toward where it is going, the house approach dt-correct,
+    // and there once it is near; the document behind the canvas follows
+    // it over the middle
+    function stepSwitch(dt) {
+      if (dark === darkTo) return;
+      const was = dark < 0.5;
+      dark += (darkTo - dark) * (1 - Math.pow(1 - SWITCH.RATE, 60 * dt));
+      if (Math.abs(darkTo - dark) < SWITCH.NEAR) dark = darkTo;
+      if (dark < 0.5 !== was) backPaper();
+    }
+
+    // a primary press on the switch is watched: SLOP px across, it has the
+    // ball, which goes with the pointer from there
+    canvas.addEventListener('pointerdown', (e) => {
+      const p = worldPointer(e);
+      if (e.isPrimary && !switchHold && switchAt(p.x, p.y)) switchHold = { id: e.pointerId, x: p.x, from: dark, on: false };
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const h = switchHold;
+      if (!h || e.pointerId !== h.id || !switchArt || !switchArt.reach) return;
+      const across = worldPointer(e).x - h.x;
+      if (!h.on && Math.abs(across) < SWITCH.SLOP) return;
+      h.on = true;
+      darkTo = Math.min(1, Math.max(0, h.from + across / (2 * switchArt.reach * SWITCH.SCALE)));
+    });
+    // the press over: a ball that was held goes to the nearer end, and the
+    // click it ends in presses nothing
+    const switchGo = (e) => {
+      const h = switchHold;
+      if (!h || e.pointerId !== h.id) return;
+      switchHold = null;
+      if (!h.on) return;
+      sendDark(darkTo < 0.5 ? 0 : 1);
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', switchGo);
+    canvas.addEventListener('pointercancel', switchGo);
+
+    // --- the name ----------------------------------------------------------------
+    // the page's name, OPS.TEXT in the page's face, each glyph a letter in
+    // ink, its ink EDGE world px clear of the page's top and left edges,
+    // SIZE world px to the em. it scrolls with the page
+    let nameAt = { letters: [], bottom: UI.EDGE, middle: UI.EDGE }; // its letters, where its ink ends down the page, and the middle of its ink above its baseline
+    function placeName() {
+      const t = typeOf(OPS.TEXT), k = OPS.SIZE / TYPE.EM, ox = UI.EDGE + k * t.left, base = UI.EDGE + k * t.ascent;
+      nameAt = {
+        letters: t.glyphs.map((gl) => makeLetter(gl.g, ox + k * (gl.x + gl.dx), base + k * gl.dy, OPS.SEED + gl.at, k)),
+        bottom: base + k * t.descent, middle: UI.EDGE + k * t.ascent / 2,
+      };
+    }
+
+    // --- the words ---------------------------------------------------------------
+    // every line of text the page says is a Type (js/type.js) in FACE, made
+    // once for each text and kept, and its letters made once for each place
+    // they are said at and kept until the next layout (said)
+    const types = new Map();
+    function typeOf(text) {
+      let t = types.get(text);
+      if (!t) {
+        if (types.size > 4000) types.clear();
+        types.set(text, t = new Type(text, () => document.createElement('canvas'), FACE));
+      }
+      return t;
+    }
+
+    // how wide the ink of text is at the text's size size, world px
+    function wideOf(text, size) {
+      const t = typeOf(text);
+      return size / TYPE.EM * (t.left + t.right);
+    }
+
+    // text's letters at the text's size size, its ink's left at x0, on the
+    // baseline of a row whose top is y0, their seeds from sd, as a menu's
+    // are (menuKit); or, given w, the text no wider than that (fit)
+    const kept = new Map();
+    function said(text, x0, y0, size, sd, w = 0) {
+      const key = text + '|' + x0 + '|' + y0 + '|' + size + '|' + sd + '|' + w;
+      let got = kept.get(key);
+      if (!got) {
+        if (kept.size > 8000) kept.clear();
+        const t = typeOf(w ? fit(text, w, size) : text), k = size / TYPE.EM;
+        got = t.glyphs.map((gl) => makeLetter(gl.g, x0 + k * (gl.x + gl.dx + t.left), y0 + size * (UI.PAD_Y + UI.CAP) + k * gl.dy, sd + gl.at, k));
+        kept.set(key, got);
+      }
+      return got;
+    }
+
+    // letters into into, dy world px down, in v
+    function drawSaid(ls, t, dy, into, v = 1) {
+      for (let i = 0; i < ls.length; i++) ls[i].draw(t, dy, into, 0, v);
+    }
+
+    // text no wider than w at the text's size size: as it is, or the most
+    // of it that fits with CUT after it
+    function fit(text, w, size) {
+      if (wideOf(text, size) <= w) return text;
+      let lo = 0, hi = text.length;
+      while (lo < hi) {
+        const n = (lo + hi + 1) >> 1;
+        if (wideOf(text.slice(0, n).trimEnd() + OPS.CUT, size) <= w) lo = n;
+        else hi = n - 1;
+      }
+      return text.slice(0, lo).trimEnd() + OPS.CUT;
+    }
+
+    // text as lines no wider than w at the text's size size, broken where
+    // sep stands in it, most of them at the most, what is past the last
+    // cut short (fit)
+    function wrap(text, sep, w, size, most = 3) {
+      const bits = text.split(sep), lines = [];
+      let line = '';
+      for (let i = 0; i < bits.length; i++) {
+        const next = line ? line + sep + bits[i] : bits[i];
+        if (!line || wideOf(next, size) <= w) line = next;
+        else {
+          lines.push(line);
+          line = bits[i];
+        }
+      }
+      if (line) lines.push(line);
+      if (lines.length > most) lines.splice(most - 1, lines.length, lines.slice(most - 1).join(sep));
+      return lines.map((l) => fit(l, w, size));
+    }
+
+    // a count as it is said, its thousands apart: 1,204
+    const num = (n) => Math.round(n).toLocaleString('en-US');
+    // n of of as a whole percent
+    const pct = (n, of) => (of > 0 ? Math.round(100 * n / of) : 0) + '%';
+    // n over of to a tenth, 0 for none of
+    const per = (n, of) => (of > 0 ? n / of : 0).toFixed(1);
+    // s as a length of time: 48 s, 1 m 5 s, 2 h 3 m
+    function clock(s) {
+      s = Math.round(s);
+      const m = Math.floor(s / 60) % 60, h = Math.floor(s / 3600);
+      return s < 60 ? s + ' s' : s < 3600 ? m + ' m' + (s % 60 ? ' ' + s % 60 + ' s' : '') : h + ' h' + (m ? ' ' + m + ' m' : '');
+    }
+    // a section's or a thing's name as it is said: a space for each -
+    const wordOf = (name) => name.replace(/-/g, ' ');
+    // a day, yyyy-mm-dd, as its month and day, 'nov 16', read from the
+    // text so no zone moves it
+    function dayName(day) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+      return m && MONTHS[Number(m[2]) - 1] ? MONTHS[Number(m[2]) - 1] + ' ' + Number(m[3]) : String(day);
+    }
+    // ms as the day it is here, 'nov 16'
+    function atName(ms) {
+      const d = new Date(ms);
+      return MONTHS[d.getMonth()] + ' ' + d.getDate();
+    }
+
+    // --- the answers -------------------------------------------------------------
+    // the page asks its own worker (tools/ops/worker.js), one fetch for
+    // each thing it needs: a site's numbers over a window from /stats, and
+    // both sites' locks from /controls, which a POST there changes. each
+    // answer is json; a good one says no error, and anything else is what
+    // went wrong, in words: the worker's own, or the status, or no answer.
+    // the answers of /stats are kept for the page's life, by site and
+    // window, and asked for again only after one failed
+    const stats = new Map(); // by 'site|days': { state: 'loading' | 'ok' | 'failed', data, error }
+    let controls = { state: 'loading', data: null, error: '' }; // both sites' locks, as /controls last answered
+
+    // a response read: { data }, its json, when it is good and says no
+    // error, else { error }
+    async function answered(res) {
+      let body = null;
+      try { body = await res.json(); } catch (e) {}
+      if (res.ok && body && typeof body === 'object' && !body.error) return { data: body };
+      if (body && typeof body.error === 'string') return { error: body.error };
+      return { error: res.status === 401 ? 'locked out · load the page again' : 'answered ' + res.status };
+    }
+
+    // url fetched, init as fetch takes it, and its answer read (answered),
+    // or { error } with none
+    async function ask(url, init) {
+      try {
+        return await answered(await fetch(url, init));
+      } catch (e) {
+        return { error: 'no answer' };
+      }
+    }
+
+    // a site's numbers over days, asked for unless they are kept or being asked for
+    async function fetchStats(site, days) {
+      const key = site + '|' + days, had = stats.get(key);
+      if (had && had.state !== 'failed') return;
+      stats.set(key, { state: 'loading' });
+      const got = await ask('/stats?site=' + site + '&days=' + days), d = got.data;
+      const ok = d && Array.isArray(d.days) && d.days.length > 0 && d.actives && typeof d.median === 'number' &&
+        !!d.names && ['sections', 'work', 'doodles'].every((k) => Array.isArray(d.names[k]));
+      stats.set(key, ok ? { state: 'ok', data: d } : { state: 'failed', error: got.error || 'an answer not understood' });
+    }
+
+    // whether d is both sites' locks as /controls answers them
+    function lockShaped(d) {
+      return !!d && SITE_KEYS.every((k) => d[k] && typeof d[k].locked === 'boolean' && (d[k].password === 'secret' || d[k].password === 'ops'));
+    }
+
+    // both sites' locks asked for
+    async function fetchControls() {
+      const got = await ask('/controls');
+      controls = lockShaped(got.data) ? { state: 'ok', data: got.data, error: '' } : { state: 'failed', data: null, error: got.error || 'an answer not understood' };
+    }
+
+    // --- the graphs --------------------------------------------------------------
+    // what metrics' submenus hold, each laid out for the numbers of the
+    // site and window picked (contentOf). until those come, a submenu says
+    // LOADING, and if they could not be had, what went wrong. with them,
+    // visitors, visits, time and doodles hold a daily graph (placeDaily):
+    // over it two lines of numbers, then the tallest day's value in small
+    // type over its left end; then a bar a day, oldest at the left, each a
+    // rounded box made as the chess set's RESET is (inkBox), its art drawn
+    // GROW times its size as a letter, so its edges shimmer and it wobbles,
+    // a px or two apart, 1 where two would leave a bar under two px; no
+    // gridlines and no axes; under the bars the first and last days in
+    // small type, and where a bar is split into parts, a legend in words,
+    // each part's word in its colour. a pointer over a day lights its bar
+    // in level(2), and the two lines say that day's date and its numbers in
+    // their place; a finger's press on a day does the same until the next
+    // press. sections, work and where hold rows (placeRows): a row for
+    // each section, each of work's things or each of the top countries,
+    // its word, a bar across and its count, the most first, where's under
+    // a bar split between phones and desktops; a pointer over a row lights
+    // it and the two lines say its word and its numbers. as a submenu
+    // opens, and again whenever what it shows changes while it is open, its
+    // bars rise from nothing on the menus' spring, each kicked as a menu is
+    // as it opens, one after another from the left, or from the top, over
+    // RISE s (stepRise)
+    const METRICS = {
+      SUBS: [['visitors', 'visitors'], ['visits', 'visits'], ['time', 'time'], ['sections', 'sections'], ['work', 'work'], ['doodles', 'doodles'], ['where', 'where']], // each submenu, and what its header says
+      GRAPH: 7,   // of the text's size, how tall a graph is
+      SMALL: 0.8, // of the text's size, the small type's, no less than CAP_LEAST
+      BAR: 0.6,   // of the text's size, how thick a bar across is (a row's),
+      MID: 0.27,  // and how far over its row's baseline its middle is: the face's small letters' middle
+      TOP: 8,     // the most countries where lists
+      ROWS: ['sections', 'work', 'where'], // the submenus that hold rows, the others a daily graph
+      RISE: 0.3,  // s from the first bar's kick to the last's
+      SEED: 20000, // their letters' seeds run from here
+      UNKNOWN: 'unknown', // where's word for a country not known,
+      NOTHING: 'nothing counted', // and what it says with no visitors in the window
+    };
+    const PART_COLOURS = [HOVER_ITEM, 1, HOVER, HOVER_LINK]; // the doodles' colours, in turn, from the bottom of a bar up
+    // a bar lying across wobbles only along x and y: turned or breathing,
+    // one as long as a row's would move its ends a px or more
+    const LYING = Object.assign({}, WOBBLE, { BREATHE: 0, TILT_RAD: 0 });
+    const BLANK = { ink: new Uint8Array(1), w: 1, h: 1 }; // a bar's art before it is first drawn
+    const rises = {}; // each submenu's bars as they rise, by its key: { key, t0, p, v, on }
+
+    // count name of a day's counts, 0 for none
+    const count = (c, name) => c[name] || 0;
+
+    // what the daily graph keyed key shows of the numbers d: parts(c), each
+    // day's bar's parts from the bottom up, its counts c, in colours, named
+    // in the legend (legend, none for a bar of one part); says, the two
+    // lines over it; day(c), what the second says of a day pointed at, its
+    // date the first; under, the lines under it; and num, how the tallest
+    // day's value is written, as a count unless given
+    function dailyOf(key, d) {
+      const days = d.days, today = days[days.length - 1].counts, span = days.length + OPS.WINDOW;
+      const sum = (f) => days.reduce((s, x) => s + f(x.counts), 0);
+      if (key === 'visitors') return {
+        parts: (c) => [count(c, 'new'), Math.max(0, count(c, 'visitors') - count(c, 'new'))], colours: [HOVER_ITEM, 1], legend: ['new', 'returning'],
+        says: ['today ' + num(count(today, 'visitors')) + ' · 7 days ' + num(d.actives.week) + ' · 30 days ' + num(d.actives.month), num(count(today, 'new')) + ' new today'],
+        day: (c) => num(count(c, 'visitors')) + ' visitors · ' + num(count(c, 'new')) + ' new',
+        under: [],
+      };
+      if (key === 'visits') {
+        const visits = sum((c) => count(c, 'visits')), visitors = sum((c) => count(c, 'visitors'));
+        return {
+          parts: (c) => [count(c, 'visits')], colours: [1], legend: null,
+          says: ['today ' + num(count(today, 'visits')) + ' · ' + span + ' ' + num(visits), per(visits, visitors) + ' visits a visitor a day'],
+          day: (c) => num(count(c, 'visits')) + ' visits · ' + per(count(c, 'visits'), count(c, 'visitors')) + ' a visitor',
+          under: [],
+        };
+      }
+      // a visitor's time on the site a day: each day's median, and the window's
+      if (key === 'time') return {
+        parts: (c) => [count(c, 'median')], colours: [1], legend: null, num: clock,
+        says: ['today ' + clock(count(today, 'median')) + ' · ' + span + ' ' + clock(d.median), 'a visitor a day · the median'],
+        day: (c) => count(c, 'timed') ? clock(count(c, 'median')) + ' · ' + num(count(c, 'timed')) + (count(c, 'timed') === 1 ? ' visitor' : ' visitors') : 'no one timed',
+        under: [],
+      };
+      // the doodles: each one's openings a day, and under them, of each,
+      // how often it was opened and played with and how long it stayed open
+      const names = d.names.doodles, opened = (c) => names.map((n) => count(c, 'item:' + n)), total = (c) => opened(c).reduce((s, n) => s + n, 0);
+      return {
+        parts: opened, colours: names.map((n, i) => PART_COLOURS[i % PART_COLOURS.length]), legend: names.length > 1 ? names.map(wordOf) : null,
+        says: ['today ' + num(total(today)) + ' · ' + span + ' ' + num(sum(total)), 'played with ' + num(sum((c) => names.reduce((s, n) => s + count(c, 'play:' + n), 0)))],
+        day: (c) => {
+          const o = opened(c);
+          return ['opened ' + num(total(c))].concat(names.map((n, i) => o[i] ? wordOf(n) + ' ' + num(o[i]) : '').filter(Boolean)).join(' · ');
+        },
+        under: names.map((n) => {
+          const o = sum((c) => count(c, 'item:' + n));
+          return wordOf(n) + ' · opened ' + num(o) + ' · played ' + num(sum((c) => count(c, 'play:' + n))) + ' · ' + clock(o ? sum((c) => count(c, 'spent:' + n)) / o : 0) + ' each';
+        }),
+      };
+    }
+
+    // what the rows keyed key show of the numbers d, summed over the
+    // window: rows, each { name, n, tells }, its word, its count and what
+    // the second line says of it pointed at, its word the first; whole, the
+    // count a bar right across stands for; says, the two lines over them;
+    // split, for where, the bar split in two over them, { words, n, tells
+    // }, its two parts' words, their counts and what the two lines say of
+    // each pointed at, else null; and nothing, whether there is nothing to
+    // show. sections: each section's openings, the most first, a bar right
+    // across the most of any's. work: the same of each of work's things,
+    // with how long it stayed open an opening and its links pressed. where:
+    // the phones and the desktops among the visitors, and the TOP
+    // countries most of them came from, a bar as long as its share of all
+    // of them; its counts are daily visitors, so a visitor seen on two
+    // days is two
+    function rowsOf(key, d) {
+      const days = d.days, sumOf = {};
+      for (let i = 0; i < days.length; i++) {
+        const c = days[i].counts;
+        for (const k in c) sumOf[k] = (sumOf[k] || 0) + c[k];
+      }
+      const of = (k) => sumOf[k] || 0, today = days[days.length - 1].counts, span = days.length + OPS.WINDOW;
+      if (key === 'where') {
+        const phone = of('device:phone'), desktop = of('device:desktop'), both = phone + desktop;
+        const countries = Object.keys(sumOf).filter((k) => k.startsWith('country:')).map((k) => ({ cc: k.slice(8), n: sumOf[k] })).sort((a, b) => b.n - a.n || (a.cc < b.cc ? -1 : 1));
+        const all = countries.reduce((s, c) => s + c.n, 0), nameOf = (cc) => cc === '-' ? METRICS.UNKNOWN : cc.toLowerCase();
+        return {
+          nothing: !all && !both, whole: all,
+          says: [num(all) + ' daily visitors · ' + countries.length + (countries.length === 1 ? ' country' : ' countries'), 'phone ' + pct(phone, both) + ' · desktop ' + pct(desktop, both)],
+          split: { words: ['phone', 'desktop'], n: [phone, desktop], tells: [num(phone) + ' · ' + pct(phone, both), num(desktop) + ' · ' + pct(desktop, both)] },
+          rows: countries.slice(0, METRICS.TOP).map((c) => ({ name: nameOf(c.cc), n: c.n, tells: num(c.n) + ' · ' + pct(c.n, all) })),
+        };
+      }
+      const kind = key === 'sections' ? 'section:' : 'item:', names = key === 'sections' ? d.names.sections : d.names.work;
+      const all = names.reduce((s, n) => s + of(kind + n), 0), now = names.reduce((s, n) => s + count(today, kind + n), 0);
+      const rows = names.map((n) => {
+        const o = of(kind + n);
+        return { name: wordOf(n), n: o, tells: key === 'sections' ? 'opened ' + num(o) + ' · ' + pct(o, all)
+          : 'opened ' + num(o) + ' · ' + clock(o ? of('spent:' + n) / o : 0) + ' each · links ' + num(of('link:' + n)) };
+      }).sort((a, b) => b.n - a.n);
+      const first = rows[0] && rows[0].n ? rows[0].name + ' the most' : 'none opened';
+      return {
+        nothing: false, whole: rows.reduce((m, r) => Math.max(m, r.n), 0), split: null, rows,
+        says: ['today ' + num(now) + ' · ' + span + ' ' + num(all), key === 'sections' ? first : first + ' · links pressed ' + num(names.reduce((s, n) => s + of('link:' + n), 0))],
+      };
+    }
+
+    // the room inside submenu S, and the measures every graph's layout
+    // shares: { x0, x1, w, y0, size, small, srow, sd, M }: its ink's left
+    // and right, a pad in from S's inside, and how far apart; the top of
+    // its first row, under its header; the text's size and the small
+    // type's; a row of small type; its seeds; and the menu kit
+    function roomOf(S) {
+      const M = at.kit, size = at.size, small = at.small, x0 = Math.round(S.x0 + M.pad), x1 = Math.round(S.x1 - M.pad);
+      return { x0, x1, w: x1 - x0, y0: S.shut.y1, size, small, srow: Math.round(small * (UI.PAD_Y + UI.CAP + UI.DESC)), sd: S.seed, M };
+    }
+
+    // submenu S saying text, in its words, as lines no wider than its
+    // room: { kind, lines, bottom }
+    function placeSaid(S, text) {
+      const R = roomOf(S), lines = wrap(text, ' ', R.w, R.size);
+      return { kind: 'said', lines: lines.map((l, j) => said(l, R.x0, R.y0 + j * R.M.lead, R.size, R.sd + 100 * j)), bottom: R.y0 + (lines.length - 1) * R.M.lead + R.M.th + R.M.margin, count: 0 };
+    }
+
+    // submenu S's daily graph of the numbers d, shown as spec has it
+    // (dailyOf): { kind, R, says, day, tallest, first, last, legend, under,
+    // graph, count, bottom }. says the two lines over it, day(i) them
+    // pointing at day i; tallest the tallest day's value, first and last
+    // the first and last days, as letters; legend, each part's word and its
+    // colour, { letters, v }; under, the lines under it; graph, { x0, top,
+    // floor, n, bw, gap, pitch, aw, r, totals, parts, colours, max,
+    // letters, right }: the left of the first bar, where the tallest is as
+    // tall as it goes and where they stand, the days, a bar's width, the
+    // gap between two and the two together, a bar's art's width and its
+    // corners' radius, each day's total and its parts, their colours, the
+    // most of any day, a letter for each bar and where the last ends
+    function placeDaily(S, d, spec) {
+      const R = roomOf(S), M = R.M, n = d.days.length;
+      const gap = (R.w + 2) / n - 2 < 2 ? 1 : 2, bw = Math.max(1, Math.floor((R.w + gap) / n) - gap), aw = Math.max(1, Math.round(bw / UI.GROW));
+      const parts = d.days.map((x) => spec.parts(x.counts)), totals = parts.map((p) => p.reduce((s, v) => s + v, 0));
+      const max = totals.reduce((m, v) => Math.max(m, v), 0), right = R.x0 + n * (bw + gap) - gap;
+      const ys = R.y0 + M.lead + M.th, top = ys + R.srow, floor = top + Math.round(METRICS.GRAPH * R.size), yd = floor + 2;
+      const graph = {
+        x0: R.x0, top, floor, n, bw, gap, pitch: bw + gap, aw, r: Math.min(UI.RADIUS * R.size / UI.GROW, aw / 2), totals, parts, colours: spec.colours, max, right,
+        letters: d.days.map((x, i) => makeLetter(BLANK, 0, 0, R.sd + 3000 + i, UI.GROW)),
+      };
+      const last = dayName(d.days[n - 1].day);
+      let y = yd + R.srow;
+      const legend = [];
+      if (spec.legend) {
+        let x = R.x0;
+        for (let k = 0; k < spec.legend.length; k++) {
+          const word = spec.legend[k], w = wideOf(word, R.small);
+          if (x > R.x0 && x + w > R.x1) {
+            x = R.x0;
+            y += R.srow;
+          }
+          legend.push({ letters: said(word, x, y, R.small, R.sd + 600 + 50 * k), v: spec.colours[k] });
+          x += w + M.apart * 2;
+        }
+        y += R.srow;
+      }
+      const under = [];
+      for (let k = 0; k < spec.under.length; k++) {
+        const lines = wrap(spec.under[k], ' · ', R.w, R.size);
+        for (let j = 0; j < lines.length; j++) {
+          under.push(said(lines[j], R.x0, y, R.size, R.sd + 800 + 100 * under.length));
+          y += M.lead;
+        }
+      }
+      if (under.length) y += M.th - M.lead;
+      return {
+        kind: 'daily', R, graph, count: n, bottom: y + M.margin,
+        says: spec.says, day: (i) => [dayName(d.days[i].day), spec.day(d.days[i].counts)],
+        tallest: said((spec.num || num)(max), R.x0, ys, R.small, R.sd + 200),
+        first: said(dayName(d.days[0].day), R.x0, yd, R.small, R.sd + 300),
+        last: said(last, Math.round(right - wideOf(last, R.small)), yd, R.small, R.sd + 400),
+        legend, under,
+      };
+    }
+
+    // submenu S's rows, shown as spec has them (rowsOf), or NOTHING said
+    // with nothing to show: { kind, R, says, day, split, ends, rows, hits,
+    // lead, count, bottom }. says the two lines over them, day(i) them
+    // pointing at part i; split, the bar split in two, if spec has one ({
+    // x0, cy, w, h, share, first, letter }: its left, its middle down, its
+    // length and thickness, its share of that, whole, its first part's
+    // share of it, in HOVER_ITEM at its left, the other in ink, and its
+    // letter), and ends, the two parts' words under its ends; rows, each
+    // row's ({ n, name, number, x0, cy, w, h, share, letter, top }): its
+    // word at the left, a bar as long as its count's share of spec's
+    // whole, and its count at the right; hits, where a pointer is over
+    // each part, { i, rect }, the split's two first; lead, how many parts
+    // come before the rows
+    function placeRows(S, spec) {
+      if (spec.nothing) return placeSaid(S, METRICS.NOTHING);
+      const R = roomOf(S), M = R.M, sp = spec.split, list = spec.rows, hits = [];
+      const bh = Math.max(4, Math.round(METRICS.BAR * R.size));
+      let y = R.y0 + M.lead + M.th + M.row, split = null, ends = null;
+      if (sp) {
+        const both = sp.n[0] + sp.n[1], y1 = y, yl = y1 + bh + 2;
+        split = { x0: R.x0, cy: y1 + bh / 2, w: R.w, h: bh, share: both ? 1 : 0, first: both ? sp.n[0] / both : 0, letter: makeLetter(BLANK, 0, 0, R.sd + 3000, UI.GROW, LYING) };
+        ends = [said(sp.words[0], R.x0, yl, R.small, R.sd + 500), said(sp.words[1], Math.round(R.x1 - wideOf(sp.words[1], R.small)), yl, R.small, R.sd + 520)];
+        const mid = Math.round(R.x0 + split.first * R.w);
+        hits.push({ i: 0, rect: { x0: R.x0, y0: y1 - 2, x1: mid, y1: yl + R.srow } }, { i: 1, rect: { x0: mid, y0: y1 - 2, x1: R.x1, y1: yl + R.srow } });
+        y = yl + R.srow + M.row;
+      }
+      const lead = hits.length;
+      const nw = Math.max(0, ...list.map((r) => wideOf(r.name, R.size))), cw = Math.max(0, ...list.map((r) => wideOf(num(r.n), R.size)));
+      const bx = Math.round(R.x0 + nw + 2 * M.pad), bw = Math.max(1, Math.round(R.x1 - cw - 2 * M.pad - bx)), rows = [];
+      for (let k = 0; k < list.length; k++) {
+        const r = list[k], text = num(r.n);
+        rows.push({
+          n: r.n, name: said(r.name, R.x0, y, R.size, R.sd + 1000 + 50 * k), number: said(text, Math.round(R.x1 - wideOf(text, R.size)), y, R.size, R.sd + 1020 + 50 * k),
+          x0: bx, cy: y + R.size * (UI.PAD_Y + UI.CAP - METRICS.MID), w: bw, h: bh, share: spec.whole ? r.n / spec.whole : 0, letter: makeLetter(BLANK, 0, 0, R.sd + 3100 + k, UI.GROW, LYING), top: y,
+        });
+        hits.push({ i: lead + k, rect: { x0: R.x0, y0: y, x1: R.x1, y1: y + M.lead } });
+        y += M.lead;
+      }
+      if (rows.length) y += M.th - M.lead;
+      return {
+        kind: 'rows', R, says: spec.says, split, ends, rows, hits, lead, count: (split ? 1 : 0) + rows.length, bottom: y + M.margin,
+        day: (i) => i < lead ? [sp.words[i], sp.tells[i]] : [list[i - lead].name, list[i - lead].tells],
+      };
+    }
+
+    // the numbers of the site and window picked, as kept: { state, data, error }, or none yet
+    function statsNow() {
+      return stats.get(pickedSite() + '|' + pickedDays()) || null;
+    }
+
+    // what submenu S holds for the numbers picked, laid out again only
+    // when those, or how far they have come, change: key, what it shows
+    function contentOf(S) {
+      const e = statsNow(), state = e ? e.state : 'loading', key = S.key + '|' + pickedSite() + '|' + pickedDays() + '|' + state;
+      if (S.laid && S.laid.key === key) return S.laid;
+      S.laid = state === 'ok' ? (METRICS.ROWS.includes(S.key) ? placeRows(S, rowsOf(S.key, e.data)) : placeDaily(S, e.data, dailyOf(S.key, e.data)))
+        : placeSaid(S, state === 'failed' ? e.error : OPS.LOADING);
+      S.laid.key = key;
+      return S.laid;
+    }
+
+    // submenu S's bars, laid out as L, dt on: from nothing once it is open
+    // with them in it and they are new to it, each kicked RISE s * i / n
+    // after the first, then on the spring toward their height; forgotten
+    // once it is shut, so they rise again when it next opens
+    function stepRise(S, sm, L, dt, t) {
+      const R = rises[S.key] || (rises[S.key] = { key: null, t0: 0, p: null, v: null, on: null });
+      if (!sm.open) {
+        R.key = null;
+        return;
+      }
+      if (!L.count) return;
+      const n = L.count;
+      if (R.key !== L.key) Object.assign(R, { key: L.key, t0: t, p: new Float64Array(n), v: new Float64Array(n), on: new Uint8Array(n) });
+      const w = 2 * Math.PI / UI.RESPONSE, z = 1 - UI.BOUNCE, sg = z * w, wd = w * Math.sqrt(1 - z * z);
+      const e = Math.exp(-sg * dt), c = Math.cos(wd * dt), sn = Math.sin(wd * dt);
+      for (let i = 0; i < n; i++) {
+        if (!R.on[i]) {
+          if (t - R.t0 < METRICS.RISE * i / Math.max(1, n - 1)) continue;
+          R.on[i] = 1;
+          R.v[i] += UI.KICK;
+        }
+        const x0 = R.p[i] - 1, v0 = R.v[i];
+        R.p[i] = 1 + e * (x0 * c + (v0 + sg * x0) / wd * sn);
+        R.v[i] = e * (v0 * c - (w * w * x0 + sg * v0) / wd * sn);
+        if (R.p[i] < 0) { R.p[i] = 0; R.v[i] = Math.max(0, R.v[i]); }
+      }
+    }
+
+    // how far bar i of submenu S's has risen, laid out as L: 1 with none rising
+    function risen(S, L, i) {
+      const R = rises[S.key];
+      return R && R.p && R.p.length === L.count ? R.p[i] : 1;
+    }
+
+    // bar i of graph G, risen p of the way, dy world px down, into pfb: in
+    // lit if given, else each part in its colour, the top part's over the
+    // whole bar and each under it over the bar from its own top down, all
+    // drawn where the whole is (barArt), so the bar is one rounded box in
+    // bands. its art is aw across and as tall as its share of the tallest
+    // day's, GROW times smaller than drawn, two art px at the least,
+    // standing on the graph's floor
+    function drawDayBar(G, i, p, dy, t, lit) {
+      const total = G.totals[i], hpx = G.max > 0 ? (G.floor - G.top) * total / G.max * p : 0;
+      if (!total || hpx < 0.5) return;
+      const aw = G.aw, ah = Math.max(2, Math.round(hpx / UI.GROW)), r = Math.min(G.r, ah / 2), L = G.letters[i];
+      L.cx = G.x0 + i * G.pitch + G.bw / 2;
+      L.cy = G.floor - ah * UI.GROW / 2;
+      if (lit) {
+        L.g = barArt(aw, ah, r);
+        L.draw(t, dy, pfb, 0, lit);
+        return;
+      }
+      const parts = G.parts[i];
+      let above = 0; // the parts over this one, summed
+      for (let k = parts.length - 1; k >= 0; k--) {
+        if (!parts[k]) continue;
+        const from = Math.round(ah * above / total);
+        above += parts[k];
+        if (from >= ah) continue;
+        L.g = barArt(aw, ah, r, from);
+        L.draw(t, dy, pfb, 0, G.colours[k]);
+      }
+    }
+
+    // bar B lying across, risen p of the way, dy world px down, into pfb,
+    // as long as its share of its whole length, in v; given split, its
+    // first share of that in split's colour, { share, v }
+    function drawRowBar(B, p, dy, t, v, split) {
+      const len = B.w * B.share * p;
+      if (len < 0.5) return;
+      const ah = Math.max(1, Math.round(B.h / UI.GROW)), aw = Math.max(2, Math.round(len / UI.GROW)), r = Math.min(UI.RADIUS * at.size / UI.GROW, ah / 2), L = B.letter;
+      L.g = barArt(aw, ah, r);
+      L.cx = B.x0 + aw * UI.GROW / 2;
+      L.cy = B.cy;
+      L.draw(t, dy, pfb, 0, v);
+      if (!split) return;
+      const to = Math.round(aw * split.share);
+      if (to <= 0) return;
+      L.g = barArt(aw, ah, r, 0, to);
+      L.draw(t, dy, pfb, 0, split.v);
+    }
+
+    // what submenu S holds, dy world px down, into pfb, on what the pointer
+    // is on (on): its words, and its graph's bars as far as they have
+    // risen, the day pointed at, by the pointer or a finger's press
+    // (pinned), lit in level(2) and its date and numbers in the two lines
+    function drawContent(S, dy, t, on) {
+      const L = contentOf(S), lit = on && on.graph === S.key ? on : pinned && pinned.graph === S.key ? pinned : null;
+      if (L.kind === 'said') {
+        for (let j = 0; j < L.lines.length; j++) drawSaid(L.lines[j], t, dy, pfb);
+        return;
+      }
+      const R = L.R, i = lit ? lit.i : -1, lines = i >= 0 ? L.day(i) : L.says, lv = level(2);
+      for (let j = 0; j < 2; j++) drawSaid(said(lines[j], R.x0, R.y0 + j * R.M.lead, R.size, R.sd + 100 * j, R.w), t, dy, pfb);
+      if (L.kind === 'rows') {
+        if (L.split) {
+          drawRowBar(L.split, risen(S, L, 0), dy, t, i === 1 ? lv : 1, { share: L.split.first, v: i === 0 ? lv : HOVER_ITEM });
+          drawSaid(L.ends[0], t, dy, pfb, HOVER_ITEM);
+          drawSaid(L.ends[1], t, dy, pfb);
+        }
+        const bars = L.split ? 1 : 0;
+        for (let k = 0; k < L.rows.length; k++) {
+          const r = L.rows[k], v = i === L.lead + k ? lv : 1;
+          drawSaid(r.name, t, dy, pfb, v);
+          drawSaid(r.number, t, dy, pfb, v);
+          drawRowBar(r, risen(S, L, bars + k), dy, t, v, null);
+        }
+        return;
+      }
+      drawSaid(L.tallest, t, dy, pfb);
+      drawSaid(L.first, t, dy, pfb);
+      drawSaid(L.last, t, dy, pfb);
+      for (let k = 0; k < L.legend.length; k++) drawSaid(L.legend[k].letters, t, dy, pfb, L.legend[k].v);
+      for (let k = 0; k < L.under.length; k++) drawSaid(L.under[k], t, dy, pfb);
+      const G = L.graph;
+      for (let k = 0; k < G.n; k++) drawDayBar(G, k, risen(S, L, k), dy, t, k === i ? lv : 0);
+    }
+
+    // which day of what submenu S holds world (x, y) on the page is over,
+    // y less how far S has been pushed down: anywhere in a daily graph's
+    // column for it, from the tallest's top to the floor, or a part of
+    // where's, { graph, i }, graph S's key and i the day or the part; or null
+    function hitContent(S, x, y) {
+      const L = contentOf(S);
+      if (L.kind === 'daily') {
+        const G = L.graph;
+        if (y < G.top - 2 || y > G.floor + 2 || x < G.x0 - G.gap / 2 || x >= G.right + G.gap / 2) return null;
+        return { graph: S.key, i: Math.max(0, Math.min(G.n - 1, Math.floor((x - G.x0 + G.gap / 2) / G.pitch))) };
+      }
+      if (L.kind === 'rows') {
+        for (let k = 0; k < L.hits.length; k++) {
+          const r = L.hits[k].rect;
+          if (x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1) return { graph: S.key, i: L.hits[k].i };
+        }
+      }
+      return null;
+    }
+
+    // --- metrics -----------------------------------------------------------------
+    // the first menu, under the page's name, EDGE in from the window's
+    // left: shut, a button with a caret and METRICS at its left; open, down
+    // and to the right round one column, MARGIN round it, as wide as
+    // COLUMN or as the window leaves, EDGE in from its right. the column
+    // holds, side by side across its top, two buttons that pick: the site,
+    // of SITES, dangelo.engineering first, and the window, of DAYS, 30 first; and
+    // under them, ROW apart, its submenus (METRICS.SUBS), each as wide as
+    // the column, holding what the graphs lay out (the graphs, above). a
+    // button that picks opened shuts the other, and either pushes the
+    // submenus down as far as it has opened; a submenu, those under it and
+    // the menu's bottom. a pick of another site or window asks /stats for
+    // it, unless it is kept, and what the submenus hold shows it. under the
+    // pointer the header is in level(0), a submenu's header and a button
+    // that picks in level(1), and another of those it picks from in
+    // level(2)
+    const metricsMenu = shutMenu();
+    const metricsPicks = { site: shutMenu(), days: shutMenu() }; // its buttons that pick, menus too
+    const metricsOrders = { site: [0, 1], days: [1, 0, 2] };    // what those pick from, as they list them, each its place in SITE_KEYS or DAYS: the first is the one picked
+    const metricsSubs = Object.fromEntries(METRICS.SUBS.map(([key]) => [key, shutMenu()])); // its submenus, by key
+    const metricsPush = Object.fromEntries(METRICS.SUBS.map(([key]) => [key, 0]));          // world px each is pushed down by what opens over it
+    let controlsPush = 0; // world px metrics has opened past its button, which the controls are pushed down by
+
+    const pickedSite = () => SITE_KEYS[metricsOrders.site[0]];
+    const pickedDays = () => OPS.DAYS[metricsOrders.days[0]];
+
+    // metrics laid out with its button's top left at (left, top) and its
+    // column col across, its parts as M (menuKit) makes them: { room,
+    // size, shut, full, bottom, header, picks, subs }. picks, its two
+    // buttons that pick, site and days, each as wide as the widest it
+    // picks from with two pads; subs, each submenu, a menu of its own ({
+    // key, room, size, seed, shut, full, header, x0, x1, laid }): shut, a
+    // button as wide as the column, its caret and words from its left;
+    // open, down round what it holds (contentOf), x0 and x1 its inside,
+    // MARGIN in from its sides
+    function placeMetrics(M, left, top, col) {
+      const { room, size, th, ph, pad, margin, row, wide, headed, head } = M, sd = METRICS.SEED, sx0 = left + margin, sx1 = sx0 + col;
+      const tt = typeOf(OPS.METRICS), shut = { x0: left, y0: top, x1: left + headed(tt), y1: top + th };
+      const sites = SITE_KEYS.map((k) => typeOf(OPS.SITES[k])), windows = OPS.DAYS.map((n) => typeOf(n + OPS.WINDOW));
+      const sw = Math.round(Math.max(...sites.map(wide)) + 2 * pad), ww = Math.round(Math.max(...windows.map(wide)) + 2 * pad);
+      const picks = { site: M.pick(sites, sx0, sx0 + sw, shut.y1, sd + 100), days: M.pick(windows, sx0 + sw + row, sx0 + sw + row + ww, shut.y1, sd + 400) };
+      let y = shut.y1 + ph + row;
+      const subs = METRICS.SUBS.map(([key, title], c) => {
+        const seed = sd + 10000 * (c + 1);
+        const S = { key, room, size, seed, shut: { x0: sx0, y0: y, x1: sx1, y1: y + th }, header: head(typeOf(title), sx0, y, seed), x0: sx0 + margin, x1: sx1 - margin, laid: null };
+        S.full = { x0: sx0, y0: y, x1: sx1, y1: y + th };
+        y = S.shut.y1 + row;
+        return S;
+      });
+      const full = { x0: left, y0: top, x1: sx1 + margin, y1: y - row + margin };
+      return { room, size, shut, full, bottom: full.y1, header: head(tt, left, top, sd), picks, subs };
+    }
+
+    // metrics dt on: its buttons that pick toward open or shut, shut once
+    // the menu is; each submenu, shut once the menu is, pushed down as far
+    // as the buttons that pick and the submenus over it have opened, as
+    // tall open as what it holds (contentOf), and its bars rising
+    // (stepRise); the menu as much taller as they have opened; and how far
+    // it has opened past its button, which pushes the controls down
+    function stepMetrics(dt, t) {
+      const ui = at.metrics, m = metricsMenu;
+      let push = 0;
+      for (const key in metricsPicks) {
+        const pm = metricsPicks[key], P = ui.picks[key];
+        if (!m.open) pm.open = false;
+        stepMenu(pm, P, dt, t);
+        push = Math.max(push, grownOf(pm, P));
+      }
+      for (let c = 0; c < ui.subs.length; c++) {
+        const S = ui.subs[c], sm = metricsSubs[S.key], L = contentOf(S);
+        metricsPush[S.key] = push;
+        if (!m.open) sm.open = false;
+        S.full.y1 = L.bottom;
+        stepMenu(sm, S, dt, t);
+        stepRise(S, sm, L, dt, t);
+        push += Math.max(0, menuAt(sm, S, sm.p).y1 - S.shut.y1);
+      }
+      ui.full.y1 = ui.bottom + push;
+      stepMenu(m, ui, dt, t);
+      controlsPush = Math.max(0, menuAt(m, ui, m.p).y1 - ui.shut.y1);
+    }
+
+    // metrics' insides, laid out as ui, dy world px down, into qfb, on what
+    // the pointer is on (on): its two buttons that pick (drawPick), and each
+    // submenu as far down as what opens over it has pushed it, drawn as a
+    // submenu is (drawSub), what it holds by drawContent
+    function drawMetricsInside(ui, dy, t, on) {
+      for (const key in metricsPicks) drawPick(ui.picks[key], metricsPicks[key], metricsOrders[key], dy, grownOf(metricsPicks[key], ui.picks[key]), t, on, qfb, 1);
+      for (let c = 0; c < ui.subs.length; c++) {
+        const S = ui.subs[c];
+        drawSub(S, metricsSubs[S.key], dy + metricsPush[S.key], t, on, drawContent);
+      }
+    }
+
+    // what a press at world (x, y) on the page would press in metrics: its
+    // header, a little round it, or once the menu is over half open
+    // anywhere across its top row, { menu }; once it is over half open, a
+    // button that picks, a little round it, or, once that is over half
+    // open, one of the rows under it, { option, pick }, pick which; a
+    // submenu's header, a little round it, where it has been pushed down
+    // to, { menu }, and once that is over half open a day of what it holds
+    // (hitContent), { graph, i }; or anywhere else in the open menu, {
+    // inside }. or null
+    function hitMetrics(x, y) {
+      const ui = at.metrics, m = metricsMenu, inside = (r, g, dy = 0) => x >= r.x0 - g && x <= r.x1 + g && y - dy >= r.y0 - g && y - dy <= r.y1 + g;
+      if (inside(ui.shut, 2)) return { menu: m };
+      if (!m.open || m.p <= 0.5) return null;
+      if (x >= ui.full.x0 && x <= ui.full.x1 && y >= ui.full.y0 - 2 && y < ui.shut.y1 - 2) return { menu: m };
+      for (const key in metricsPicks) {
+        const rows = ui.picks[key].rows, pm = metricsPicks[key];
+        if (inside(rows[0].rect, 2)) return { option: rows[0], pick: key };
+        if (pm.open && pm.p > 0.5) for (let j = 1; j < rows.length; j++) if (inside(rows[j].rect, 0)) return { option: rows[j], pick: key };
+      }
+      for (let c = 0; c < ui.subs.length; c++) {
+        const S = ui.subs[c], sm = metricsSubs[S.key], dy = metricsPush[S.key];
+        if (inside(S.shut, 2, dy)) return { menu: sm };
+        if (!sm.open || sm.p <= 0.5) continue;
+        const h = hitContent(S, x, y - dy);
+        if (h) return h;
+      }
+      if (inside(menuAt(m, ui, m.p), 0)) return { inside: m };
+      return null;
+    }
+
+    // a press on one of metrics' buttons that pick: on the one picked, it
+    // opened, kicked, shutting the other, or shut; on another, that one put
+    // where the one picked was, that one where it was, the button shut,
+    // and the numbers for what is now picked asked for
+    function pressPick(h) {
+      const order = metricsOrders[h.pick], pm = metricsPicks[h.pick];
+      if (h.option.j) {
+        const j = h.option.j, was = order[0];
+        order[0] = order[j];
+        order[j] = was;
+        pm.open = false;
+        pinned = null;
+        fetchStats(pickedSite(), pickedDays());
+        return;
+      }
+      pm.open = !pm.open;
+      if (!pm.open) return;
+      pm.v += UI.KICK;
+      for (const key in metricsPicks) if (key !== h.pick) metricsPicks[key].open = false;
+    }
+
+    // --- the controls ------------------------------------------------------------
+    // the second menu, OPS.APART rows under metrics' button and pushed down
+    // as far as metrics has opened past it, built as metrics is: open, it
+    // holds a part for each site, OPS.APART rows apart, until /controls has
+    // answered only LOADING, or what went wrong. a site's part, top to
+    // bottom:
+    //   its name, and beside it a button that picks whether it is LOCKED or
+    //   open: picking locked for dangelo.engineering (main), which shuts
+    //   the live site to everyone without its password, takes a second
+    //   press, the first turning locked to SURE for SURE_S s; dev locks at
+    //   one press, and opening never asks;
+    //   its password: SECRET while it is still the worker's own, or SET_AT
+    //   and the day its gate row last changed once one was set from here;
+    //   a field to type a new one into (the field, below), and SET at its
+    //   right, which, as enter in the field does, sends what is typed;
+    //   and, once something was sent, SAVING until it is answered, DONE once
+    //   it is, or what went wrong.
+    // a change is sent as /controls takes it, { site, locked } or { site,
+    // password }, and its answer, both sites' locks, shown for both. while
+    // one is out for a site, its button that picks shows what was sent, and
+    // nothing more is sent for it. a button that picks opened shuts the
+    // other, and pushes everything under it down as far as it has opened.
+    // under the pointer the header is in level(0), and a button that picks
+    // and the one it shows, the field and SET in level(1), and the other in
+    // level(2)
+    const CONTROLS = {
+      LOCK: ['locked', 'open'], SURE: 'sure?', SURE_S: 3, // what the button that picks says, and locked's place for s after a press, dangelo.engineering's
+      PASSWORD: 'password · ', SECRET: 'cloudflare secret', SET_AT: 'set from ops ', // what the password's line says
+      SET: 'set',                          // what the button beside the field says
+      SAVING: 'saving',                    // what a part says while a change is out,
+      DONE: 'done · its gate takes it within 30 s', // and once it is answered
+      SEED: 80000,                         // its letters' seeds run from here
+    };
+    const controlsMenu = shutMenu();
+    const lockPicks = { main: shutMenu(), dev: shutMenu() }; // each site's button that picks
+    // each site's sending: whether a change is out, the lock sent while it
+    // is (null for none), the s its locked still says SURE, and what it says
+    // of the last change
+    const sends = { main: { out: false, want: null, sure: 0, says: '' }, dev: { out: false, want: null, sure: 0, says: '' } };
+    const controlsPushes = [0, 0, 0]; // world px a row of the controls is pushed down by the buttons that pick over it, by how many there are
+
+    // whether site is shown locked: as sent while a change is out, else as last answered
+    function shownLocked(site) {
+      const s = sends[site];
+      return s.want !== null ? s.want : controls.data[site].locked;
+    }
+
+    // what site's button that picks lists, each its place in LOCK, or 2 for
+    // SURE: the lock shown first, then the other, SURE in locked's place
+    // while it says it
+    function lockOrder(site) {
+      return shownLocked(site) ? [0, 1] : [1, sends[site].sure > 0 ? 2 : 0];
+    }
+
+    // what site's password line says
+    function passwordSays(site) {
+      const c = controls.data[site];
+      return CONTROLS.PASSWORD + (c.password === 'ops' ? CONTROLS.SET_AT + (c.at ? atName(c.at) : '') : CONTROLS.SECRET);
+    }
+
+    // what the controls show, as one line of text: they are laid out again
+    // whenever it changes
+    function controlsShows() {
+      let s = controls.state + '|' + controls.error;
+      if (controls.state === 'ok') for (const site of SITE_KEYS) s += '|' + passwordSays(site) + '|' + sends[site].says;
+      return s;
+    }
+
+    // the controls laid out with their button's top left at (left, top)
+    // and their column col across, as they show now (controlsShows): {
+    // key, room, size, shut, full, bottom, header, said, parts }: said, the
+    // lines saying LOADING or what went wrong while there are no locks;
+    // parts, with them, each site's ({ site, name, pick, password, field,
+    // set, says }): its name's letters; its button that picks, a menu of
+    // its own as metrics' are, beside the name; the password line's
+    // letters; field, { x0, y0, y1, most }, where the field stands and the
+    // most it may be across; set, SET's { rect, letters }, at the column's
+    // right; and says, the lines of what it says of the last change. the
+    // name and the button that picks are pushed down by the buttons that
+    // pick over them (controlsPushes) and the rest by those and its own
+    function placeControls(M, left, top, col) {
+      const { room, size, th, pad, margin, row, lead, wide, headed, head } = M, C = CONTROLS, sx0 = left + margin, sx1 = sx0 + col;
+      const tt = typeOf(OPS.CONTROLS), shut = { x0: left, y0: top, x1: left + headed(tt), y1: top + th }, key = controlsShows();
+      const ui = { key, room, size, shut, header: head(tt, left, top, C.SEED), said: null, parts: null };
+      let y = shut.y1;
+      if (controls.state !== 'ok') {
+        const lines = wrap(controls.state === 'failed' ? controls.error : OPS.LOADING, ' ', col - 2 * pad, size);
+        ui.said = lines.map((l, j) => said(l, sx0 + pad, y + j * lead, size, C.SEED + 100 + 100 * j));
+        y += (lines.length - 1) * lead + th;
+      } else {
+        const nameW = Math.round(Math.max(...SITE_KEYS.map((k) => wide(typeOf(OPS.SITES[k])))) + 2 * pad);
+        const lw = Math.round(Math.max(...C.LOCK.concat(C.SURE).map((s) => wide(typeOf(s)))) + 2 * pad), setW = Math.round(wide(typeOf(C.SET)) + 2 * pad);
+        ui.parts = SITE_KEYS.map((site, n) => {
+          const sd = C.SEED + 1000 * (n + 1), part = { site, n };
+          if (n) y += OPS.APART * row;
+          part.name = said(OPS.SITES[site], sx0 + pad, y, size, sd);
+          part.pick = M.pick(C.LOCK.concat(C.SURE).map(typeOf), sx0 + nameW, sx0 + nameW + lw, y, sd + 100);
+          y += th + row;
+          part.password = said(passwordSays(site), sx0 + pad, y, size, sd + 400);
+          y += th + row;
+          part.field = { x0: sx0, y0: y, y1: y + th, most: sx1 - setW - row - sx0 };
+          part.set = { rect: { x0: sx1 - setW, y0: y, x1: sx1, y1: y + th }, letters: said(C.SET, sx1 - setW + pad, y, size, sd + 500) };
+          y += th;
+          const lines = sends[site].says ? wrap(sends[site].says, ' ', col - 2 * pad, size) : [];
+          part.says = lines.map((l, j) => said(l, sx0 + pad, y + row + j * lead, size, sd + 600 + 100 * j));
+          if (lines.length) y += row + (lines.length - 1) * lead + th;
+          return part;
+        });
+      }
+      ui.full = { x0: left, y0: top, x1: sx1 + margin, y1: y + margin };
+      ui.bottom = ui.full.y1;
+      return ui;
+    }
+
+    // the controls dt on, laid out again first if what they show has
+    // changed; each site's SURE counted down, and forgotten once its button
+    // that picks is shut; its button that picks toward open or shut, shut
+    // once the menu is, pushing the rows under it down as far as it has
+    // opened (controlsPushes), and its field (stepField); the menu as much
+    // taller as they have opened; and the field let go once the menu is
+    // shut or there is no field
+    function stepControls(dt, t) {
+      if (controlsShows() !== at.controls.key) {
+        at.controls = placeControls(at.kit, at.controls.shut.x0, at.controls.shut.y0, at.col);
+        for (const site of SITE_KEYS) fitField(site);
+      }
+      const ui = at.controls, m = controlsMenu;
+      let push = 0;
+      for (let n = 0; n < SITE_KEYS.length; n++) {
+        const site = SITE_KEYS[n], pm = lockPicks[site], s = sends[site], P = ui.parts && ui.parts[n];
+        controlsPushes[n] = push;
+        if (!m.open) pm.open = false;
+        s.sure = pm.open ? Math.max(0, s.sure - dt) : 0;
+        if (!P) {
+          if (pm.skin) Object.assign(pm, shutMenu());
+          fields[site].skin = null;
+          continue;
+        }
+        P.pick.full.y1 = P.pick.rows[1].rect.y1;
+        stepMenu(pm, P.pick, dt, t);
+        push += grownOf(pm, P.pick);
+        stepField(site, P, dt, t);
+      }
+      controlsPushes[SITE_KEYS.length] = push;
+      ui.full.y1 = ui.bottom + push;
+      stepMenu(m, ui, dt, t);
+      if (fieldHeld && (!m.open || !ui.parts)) input.blur();
+    }
+
+    // the controls' insides, laid out as ui, dy world px down, into qfb, on
+    // what the pointer is on (on): LOADING or what went wrong; or each
+    // site's part, each row as far down again as the buttons that pick over
+    // it have pushed it: its name, its button that picks (drawPick), its
+    // password line, its field (drawField), SET outlined round its word,
+    // in level(1) under the pointer, and what it says of the last change
+    function drawControlsInside(ui, dy, t, on) {
+      if (!ui.parts) {
+        for (let j = 0; j < ui.said.length; j++) drawSaid(ui.said[j], t, dy, qfb);
+        return;
+      }
+      for (let n = 0; n < ui.parts.length; n++) {
+        const P = ui.parts[n], site = P.site, pm = lockPicks[site], d0 = dy + controlsPushes[n], d1 = dy + controlsPushes[n + 1];
+        drawSaid(P.name, t, d0, qfb);
+        drawPick(P.pick, pm, lockOrder(site), d0, grownOf(pm, P.pick), t, on, qfb, 1);
+        drawSaid(P.password, t, d1, qfb);
+        drawField(site, P, d1, t, on);
+        const r = P.set.rect, v = on && on.set === site ? level(1) : 1;
+        qfb.roundRect(r.x0, r.y0 + d1, r.x1, r.y1 + d1, UI.RADIUS * ui.size, null, v, UI.LINE);
+        drawSaid(P.set.letters, t, d1, qfb, v);
+        for (let j = 0; j < P.says.length; j++) drawSaid(P.says[j], t, d1, qfb);
+      }
+    }
+
+    // what a press at world (x, y) on the page would press in the
+    // controls, where they have been pushed down to: their header, a little
+    // round it, or once the menu is over half open anywhere across its top
+    // row, { menu }; once it is over half open, a site's button that
+    // picks, a little round it, or, once that is over half open, the row
+    // under it, { option, lock }, lock the site; its field, from its left
+    // to the most it may be across, a little round it, { field }; SET, a
+    // little round it, { set }; or anywhere else in the open menu, {
+    // inside }. or null
+    function hitControls(x, y) {
+      const ui = at.controls, m = controlsMenu, inside = (r, g, dy) => x >= r.x0 - g && x <= r.x1 + g && y - dy >= r.y0 - g && y - dy <= r.y1 + g;
+      const dy = controlsPush;
+      if (inside(ui.shut, 2, dy)) return { menu: m };
+      if (!m.open || m.p <= 0.5) return null;
+      if (x >= ui.full.x0 && x <= ui.full.x1 && y - dy >= ui.full.y0 - 2 && y - dy < ui.shut.y1 - 2) return { menu: m };
+      for (let n = 0; ui.parts && n < ui.parts.length; n++) {
+        const P = ui.parts[n], rows = P.pick.rows, pm = lockPicks[P.site], d0 = dy + controlsPushes[n], d1 = dy + controlsPushes[n + 1], f = P.field;
+        if (inside(rows[0].rect, 2, d0)) return { option: rows[0], lock: P.site };
+        if (pm.open && pm.p > 0.5 && inside(rows[1].rect, 0, d0)) return { option: rows[1], lock: P.site };
+        if (inside({ x0: f.x0, y0: f.y0, x1: f.x0 + f.most, y1: f.y1 }, 2, d1)) return { field: P.site };
+        if (inside(P.set.rect, 2, d1)) return { set: P.site };
+      }
+      if (inside(menuAt(m, ui, m.p), 0, dy)) return { inside: m };
+      return null;
+    }
+
+    // a press on a site's button that picks: on the lock shown, it opened,
+    // kicked, shutting the other, or shut; on the other, unless a change is
+    // out for the site: locked for dangelo.engineering made to say SURE for
+    // SURE_S s unless it says it, else the button shut and the lock sent
+    function pressLock(h) {
+      const site = h.lock, pm = lockPicks[site], s = sends[site];
+      if (!h.option.j) {
+        pm.open = !pm.open;
+        if (!pm.open) return;
+        pm.v += UI.KICK;
+        for (const k in lockPicks) if (k !== site) lockPicks[k].open = false;
+        return;
+      }
+      if (s.out) return;
+      const locked = !shownLocked(site);
+      if (locked && site === 'main' && s.sure <= 0) {
+        s.sure = CONTROLS.SURE_S;
+        return;
+      }
+      s.sure = 0;
+      pm.open = false;
+      send(site, { locked });
+    }
+
+    // a change sent for site, body { locked } or { password }: SAVING until
+    // it is answered, the lock sent shown meanwhile; then both sites' locks
+    // as answered and DONE, a password sent cleared from its field, or
+    // what went wrong
+    async function send(site, body) {
+      const s = sends[site];
+      s.out = true;
+      s.says = CONTROLS.SAVING;
+      if (body.locked !== undefined) s.want = body.locked;
+      const got = await ask('/controls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ site }, body)) });
+      s.out = false;
+      s.want = null;
+      if (!lockShaped(got.data)) {
+        s.says = got.error || 'an answer not understood';
+        return;
+      }
+      controls = { state: 'ok', data: got.data, error: '' };
+      s.says = CONTROLS.DONE;
+      if (body.password !== undefined && fields[site].typed === body.password) {
+        fields[site].typed = '';
+        if (fieldHeld === site) input.value = '';
+        fitField(site);
+      }
+    }
+
+    // --- the field ---------------------------------------------------------------
+    // a site's new password is typed into a field made as the gate's is
+    // (tools/server/gate.html): a rounded rect, RADIUS of its text's size
+    // round its corners, PAD_Y over and under its line and PAD_X either
+    // side of it, and a skin that chases it, outlined LINE px, its insides
+    // drawn apart (pfb) and copied through the skin. it stands at the left
+    // of its row and is as wide as what it holds and its bar, its width on
+    // the menus' spring toward that and the skin after it, each edge
+    // warbling WARBLE px either way: empty, HINT, the bar before it; typed
+    // in, what is typed as it is, in plain letters, since its owner needs
+    // to see what they set, the bar after it. it is never wider than its
+    // row leaves beside SET: past that it shows the end of what is typed,
+    // CUT before it. under the pointer or with the keys, its outline and
+    // HINT are in level(1); what is typed is always ink. while it has the
+    // keys the bar is on and off each BLINK s
+    const FIELD = {
+      HINT: 'new password', // what it says empty
+      BLINK: 0.5,           // s the bar is on, and then off
+      GAP: 3,               // world px between the bar and what the field holds
+      TAIL: 120,            // the most of what is typed it shows, its end
+    };
+    // each site's field: what is typed, its width on its spring, the width
+    // it goes to, what it shows, its skin and the room it was made in, and
+    // each edge's warble
+    const newField = () => ({
+      typed: '', wide: { p: 0, v: 0 }, to: 0, shown: '', skin: null, room: null,
+      warble: [0, 1, 2, 3].map(() => ({ hz: 0.15 + 0.2 * Math.random(), ph: 2 * Math.PI * Math.random() })),
+    });
+    const fields = { main: newField(), dev: newField() };
+
+    // the part of the controls laid out for site, or null
+    function partOf(site) {
+      const ps = at.controls.parts;
+      return ps ? ps[SITE_KEYS.indexOf(site)] : null;
+    }
+
+    // what site's field shows of what is typed, and how wide it goes: what
+    // it holds (HINT empty), the bar and its gap and PAD_X either side, no
+    // wider than its row leaves. what is typed past TAIL is never shown
+    // whole, so only its last TAIL are measured
+    function fitField(site) {
+      const f = fields[site], P = partOf(site);
+      if (!P) return;
+      const size = at.size, room = 2 * UI.PAD_X * size + FIELD.GAP + 1, most = P.field.most - room;
+      let shown = f.typed;
+      if (shown.length > FIELD.TAIL || (shown && wideOf(shown, size) > most)) {
+        const tail = shown.slice(-FIELD.TAIL);
+        let lo = 0, hi = tail.length;
+        while (lo < hi) {
+          const n = (lo + hi + 1) >> 1;
+          if (wideOf(OPS.CUT + tail.slice(-n), size) <= most) lo = n;
+          else hi = n - 1;
+        }
+        shown = OPS.CUT + tail.slice(tail.length - lo);
+      }
+      f.shown = shown;
+      f.to = Math.min(P.field.most, wideOf(shown || FIELD.HINT, size) + room);
+    }
+
+    // site's field's rect as it has got to, laid out in part P, { x0, y0,
+    // x1, y1, r }: as wide as its spring has it, and, given a time t, each
+    // edge warbled WARBLE px either way on its own sine
+    function fieldAt(site, P, t) {
+      const f = fields[site], a = P.field, c = { x0: a.x0, y0: a.y0, x1: a.x0 + Math.max(0, f.wide.p), y1: a.y1, r: UI.RADIUS * at.size };
+      if (t !== undefined) {
+        const w = (e) => UI.WARBLE * Math.sin(2 * Math.PI * t * f.warble[e].hz + f.warble[e].ph);
+        c.x0 += w(0);
+        c.y0 += w(1);
+        c.x1 += w(2);
+        c.y1 += w(3);
+      }
+      return c;
+    }
+
+    // site's field dt on, laid out in part P: its width toward what it
+    // holds on the spring, and its skin after it; in a new room, settled at
+    // that width where it now stands
+    function stepField(site, P, dt, t) {
+      const f = fields[site];
+      if (!f.skin || f.room !== at.room) {
+        fitField(site);
+        f.wide.p = f.to;
+        f.wide.v = 0;
+        f.skin = new Skin(fieldAt(site, P), UI.SPREAD);
+        f.room = at.room;
+        return;
+      }
+      spring(f.wide, f.to, dt);
+      f.skin.step(dt, fieldAt(site, P, t));
+    }
+
+    // site's field, laid out in part P, dy world px down, into qfb, on what
+    // the pointer is on (on): what it holds, HINT or what is typed, and the
+    // bar while it has the keys, into pfb over its skin's box; then pfb
+    // copied into qfb through the skin and the skin outlined over it
+    function drawField(site, P, dy, t, on) {
+      const f = fields[site];
+      if (!f.skin) return;
+      const held = fieldHeld === site, v = held || (on && on.field === site) ? level(1) : 1, box = f.skin.bounds(), size = at.size;
+      const x = P.field.x0 + UI.PAD_X * size, sd = CONTROLS.SEED + 1000 * (P.n + 1) + 700;
+      pfb.clearRows(Math.floor(box.y0 + dy) - UI.LINE, Math.ceil(box.y1 + dy) + UI.LINE + 1);
+      if (f.typed) drawSaid(said(f.shown, x, P.field.y0, size, sd), t, dy, pfb);
+      else drawSaid(said(FIELD.HINT, held ? x + FIELD.GAP + 1 : x, P.field.y0, size, sd + 100), t, dy, pfb, v);
+      if (held && (t - blink) % (2 * FIELD.BLINK) < FIELD.BLINK) {
+        const bx = Math.round(f.typed ? x + wideOf(f.shown, size) + FIELD.GAP : x), y0 = P.field.y0 + dy + UI.PAD_Y * size;
+        pfb.line(bx, y0, bx, y0 + (UI.CAP + UI.DESC) * size, 1, 1);
+      }
+      const pts = f.skin.screen(dy), n = pts.length;
+      qfb.fillPolygon(pts, pfb);
+      for (let i = 0; i < n; i++) {
+        const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
+        qfb.line(p.x, p.y, q.x, q.y, v, UI.LINE);
+      }
+    }
+
+    // what is typed in site's field sent as its new password, unless
+    // nothing is or a change is out for it
+    function sendPassword(site) {
+      const f = fields[site];
+      if (!f.typed || sends[site].out) return;
+      send(site, { password: f.typed });
+    }
+
+    // --- the keys ----------------------------------------------------------------
+    // the fields take the keys through the one element in the document
+    // besides the canvas, an input never seen, put under the field that
+    // has them: a press on a field gives it the keys, inside the press, so
+    // a phone brings up its keyboard there. it has them while the input
+    // has the focus, its bar on from then and from each key. enter sends
+    // what is typed, and escape, a press anywhere but the field, or the
+    // controls shutting lets go
+    const input = document.getElementById('key');
+    let fieldHeld = null; // the site whose field has the keys, or null
+    let blink = 0;        // s, when the bar last came on
+
+    // the input put under site's field, where the page has it on the screen
+    function underField(site) {
+      const P = partOf(site);
+      if (!P) return;
+      input.style.left = Math.round(P.field.x0) * SCALE + 'px';
+      input.style.top = Math.round(P.field.y0 + controlsPush + controlsPushes[P.n + 1] - scrolled()) * SCALE + 'px';
+    }
+
+    // site's field given the keys: the input holding what it has typed,
+    // put under it, and focused
+    function holdField(site) {
+      fieldHeld = site;
+      input.value = fields[site].typed;
+      blink = performance.now() / 1000;
+      underField(site);
+      input.focus();
+    }
+
+    input.addEventListener('focus', () => { blink = performance.now() / 1000; });
+    input.addEventListener('blur', () => { fieldHeld = null; });
+    input.addEventListener('input', () => {
+      if (!fieldHeld) return;
+      fields[fieldHeld].typed = input.value;
+      blink = performance.now() / 1000;
+      fitField(fieldHeld);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') input.blur();
+      if (e.key !== 'Enter' || !fieldHeld) return;
+      e.preventDefault();
+      sendPassword(fieldHeld);
+    });
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!fieldHeld) return;
+      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!h || h.field !== fieldHeld) input.blur();
+    });
+    // a mouse's press on a field keeps the keys there: its own default
+    // would take the focus from the input before the click gives it back
+    canvas.addEventListener('mousedown', (e) => {
+      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (h && h.field) e.preventDefault();
+    });
+
+    // --- the scroll --------------------------------------------------------------
+    // the page is as tall as what is open, from its top to the controls'
+    // bottom and EDGE under it, and the window shows it scrolled down
+    // scroll world px, from none to as far as leaves its bottom at the
+    // window's: the wheel moves it as far as it turns, and a finger drawn
+    // SLOP px down or up from where it went down on bare paper (anywhere a
+    // press presses nothing, in a menu or out, or on a graph) carries it
+    // with it, its click pressing nothing. a page that shrinks under where
+    // it is scrolled to eases back up to its bottom by the house approach,
+    // dt-correct. the wheel's listener is passive, the only one: webkit
+    // stops scrolling with a listener that is not, over a document kept
+    // from overscrolling
+    const SCROLL = {
+      LINE: 16, // css px a line, for a wheel that counts in lines
+      SLOP: 5,  // world px a finger goes before it carries the page
+      RATE: 0.3, // of the way left to its bottom, each 60 hz frame, a page scrolled past it eases back
+    };
+    let scroll = 0;     // world px the page is scrolled down
+    let carry = null;   // the finger carrying the page, { id, y, from, on }: where it went down, the scroll then, and whether it has gone SLOP; or null
+
+    // world px the page is scrolled down, whole
+    function scrolled() {
+      return Math.round(scroll);
+    }
+
+    // the furthest the page scrolls: its bottom, the controls' as they have
+    // got to and EDGE under them, at the window's
+    function furthest() {
+      const ui = at.controls;
+      return Math.max(0, Math.ceil(menuAt(controlsMenu, ui, controlsMenu.p).y1 + controlsPush + UI.EDGE - H));
+    }
+
+    // the page scrolled to y, no further than it goes either way
+    function scrollTo(y) {
+      scroll = Math.max(0, Math.min(furthest(), y));
+    }
+
+    // a page scrolled past its bottom eased back to it
+    function stepScroll(dt) {
+      const most = furthest();
+      if (scroll <= most) return;
+      scroll += (most - scroll) * (1 - Math.pow(1 - SCROLL.RATE, 60 * dt));
+      if (scroll - most < 0.5) scroll = most;
+    }
+
+    canvas.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) return;
+      const px = e.deltaMode === 1 ? SCROLL.LINE : e.deltaMode === 2 ? window.innerHeight : 1;
+      scrollTo(scroll + e.deltaY * px / SCALE);
+    }, { passive: true });
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' || !e.isPrimary || carry) return;
+      const p = worldPointer(e), h = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!switchAt(p.x, p.y) && (!h || h.inside || h.graph)) carry = { id: e.pointerId, y: p.y, from: scroll, on: false };
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!carry || e.pointerId !== carry.id) return;
+      const by = worldPointer(e).y - carry.y;
+      if (!carry.on && Math.abs(by) < SCROLL.SLOP) return;
+      carry.on = true;
+      scrollTo(carry.from - by);
+    });
+    // the finger lifted: if it carried the page, the click it ends in
+    // presses nothing
+    const carryGo = (e) => {
+      if (!carry || e.pointerId !== carry.id) return;
+      if (carry.on && e.type === 'pointerup') grabbed = true;
+      carry = null;
+    };
+    canvas.addEventListener('pointerup', carryGo);
+    canvas.addEventListener('pointercancel', carryGo);
+
+    // --- layout ------------------------------------------------------------------
+    // the page laid out for the window: its text MOST world px to the em,
+    // or PHONE where the window is narrower than STACK_BELOW, the menus'
+    // words CAPTION of that and no less than CAP_LEAST; the name and the
+    // switch; metrics EDGE under the name's ink, and the controls under
+    // it; the menus' column COLUMN across, or as the window leaves; and
+    // the scroll kept in the page. laid out again at each resize, in a new
+    // room, so the skins settle where things then are
+    let at = null; // the page as laid out: { room, size, small, kit, col, metrics, controls }
+    function layout() {
+      const bs = W < UI.STACK_BELOW ? UI.PHONE : UI.MOST, size = Math.max(UI.CAP_LEAST, UI.CAPTION * bs), room = {};
+      const M = menuKit(room, size);
+      kept.clear();
+      placeName();
+      placeSwitch(nameAt.middle);
+      const left = UI.EDGE, top = Math.round(nameAt.bottom + UI.EDGE), col = Math.floor(Math.min(OPS.COLUMN, W - 2 * UI.EDGE - 2 * M.margin));
+      at = { room, size, small: Math.max(UI.CAP_LEAST, METRICS.SMALL * size), kit: M, col };
+      at.metrics = placeMetrics(M, left, top, col);
+      at.controls = placeControls(M, left, at.metrics.shut.y1 + OPS.APART * M.row, col);
+      for (const site of SITE_KEYS) fitField(site);
+      scrollTo(scroll);
+    }
+
+    // --- what a press presses ----------------------------------------------------
+    // what a press at world (x, y) on the screen would press, where the
+    // page is scrolled to: metrics' (hitMetrics) or the controls'
+    // (hitControls), or null. the switch is apart from these (switchAt),
+    // and asked first
+    function hitAt(x, y) {
+      const py = y + scrolled();
+      return hitMetrics(x, py) || hitControls(x, py);
+    }
+
+    // whether hits a and b are one control: each key of one the same in the
+    // other, a menu, a row or a button the same object, as laid out
+    function same(a, b) {
+      if (!a || !b) return false;
+      const ka = Object.keys(a);
+      return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+    }
+
+    // --- the click ---------------------------------------------------------------
+    // a click: the switch sends the page to its other end, dark or light;
+    // a menu's header opens it, kicked toward open, or shuts it; a button
+    // that picks is metrics' (pressPick) or a site's lock (pressLock); a
+    // field takes the keys (holdField) and SET sends its password
+    // (sendPassword); a finger's press on a day of a graph pins it, its
+    // date and numbers said until the next press, and a press anywhere else
+    // lets it go. a click presses only the control its press went down on
+    // (pressed, same), and the click a press ends in that took hold of
+    // something (grabbed) presses nothing
+    let pressed = null; // what the last press went down on (hitAt), the switch none
+    let touched = false; // whether the last press was a finger's
+    let pinned = null;  // the day of a graph a finger's press pinned, { graph, i }, or null
+    canvas.addEventListener('pointerdown', (e) => {
+      const p = worldPointer(e);
+      if (!e.isPrimary) return;
+      pressed = !switchAt(p.x, p.y) && hitAt(p.x, p.y);
+      touched = e.pointerType !== 'mouse';
+    });
+    canvas.addEventListener('click', (e) => {
+      if (grabbed) { grabbed = false; return; }
+      const p = worldPointer(e);
+      if (switchAt(p.x, p.y)) { sendDark(darkTo < 0.5 ? 1 : 0); return; }
+      const h = hitAt(p.x, p.y), was = pinned;
+      pinned = null;
+      if (!same(h, pressed)) return;
+      if (h.menu) {
+        h.menu.open = !h.menu.open;
+        if (h.menu.open) h.menu.v += UI.KICK;
+      }
+      else if (h.pick) pressPick(h);
+      else if (h.lock) pressLock(h);
+      else if (h.field) { if (fieldHeld !== h.field) holdField(h.field); }
+      else if (h.set) sendPassword(h.set);
+      else if (h.graph && touched) pinned = same(h, was) ? null : h;
+    });
+
+    // --- the cursor --------------------------------------------------------------
+    // the native pointer is hidden over the canvas and drawn into the frame
+    // instead, as cicada's hand (js/cursor.js), open, its palm on the
+    // pointer. while the button is held it closes through the frames to a
+    // fist, and it opens again when the button lifts. a touch gets no hand.
+    // it goes down last, over everything. a press is captured, so a drag
+    // carries on outside the window, and a pointer that leaves is forgotten
+    const cursor = new Cursor();
+
+    // where pointer event e is, world px on the screen
+    function worldPointer(e) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / SCALE, y: (e.clientY - rect.top) / SCALE };
+    }
+    let grabbed = false; // whether the last press took hold of something, so the click it ends in presses nothing
+    canvas.addEventListener('pointerdown', (e) => {
+      canvas.setPointerCapture(e.pointerId);
+      const p = worldPointer(e);
+      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
+      cursor.press();
+      grabbed = false;
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const p = worldPointer(e);
+      cursor.moveTo(p.x, p.y, e.pointerType !== 'touch');
+    });
+    // a lifted press opens the hand again. it goes when there is nothing
+    // left to hover: a finger lifted, or a captured drag let go outside the
+    // viewport
+    function liftCursor(e) {
+      cursor.release();
+      const p = worldPointer(e);
+      if (e.pointerType === 'touch' || p.x < 0 || p.y < 0 || p.x >= W || p.y >= H) cursor.hide();
+    }
+    canvas.addEventListener('pointerup', liftCursor);
+    canvas.addEventListener('pointercancel', liftCursor);
+    canvas.addEventListener('pointerleave', () => { cursor.hide(); });
+
+    // --- the frame ---------------------------------------------------------------
+    // the page is drawn fresh every browser frame, all of it into the
+    // framebuffer. first the hand, metrics and the controls, each on its
+    // spring with its skin, the scroll and the switch catch up with the
+    // clock; then the bits are cleared and drawn, each layer simply writing
+    // over the bits of the last, as far up as the page is scrolled: the
+    // name, metrics, the controls, the switch, and last the hand. then the
+    // whole of it goes to the canvas in one copy
+    let lastNow = null; // the last frame's time, for dt
+    function frame(now) {
+      const t = now / 1000;
+      const dt = lastNow === null ? 0 : Math.min((now - lastNow) / 1000, 0.1);
+      lastNow = now;
+      cursor.update(dt);
+      stepMetrics(dt, t);
+      stepControls(dt, t);
+      stepScroll(dt);
+      stepSwitch(dt);
+      fb.clear();
+      const up = -scrolled(), overSwitch = !!hoverAt && switchAt(hoverAt.x, hoverAt.y);
+      const hit = hoverAt && !overSwitch && hitAt(hoverAt.x, hoverAt.y);
+      drawSaid(nameAt.letters, t, up, fb);
+      drawMenu(at.metrics, metricsMenu, up, t, hit, drawMetricsInside);
+      drawMenu(at.controls, controlsMenu, controlsPush + up, t, hit, drawControlsInside);
+      drawSwitch(t, overSwitch, up);
+      cursor.draw(fb);
+      fb.present(ctx, dark);
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+    fetchStats(pickedSite(), pickedDays());
+    fetchControls();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>

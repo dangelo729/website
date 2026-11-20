@@ -1,0 +1,5 @@
+#!/bin/sh
+# the vault's password (tools/vault.yml), read from the macOS keychain, where
+# it is kept as the generic password "website-vault" of the user's account.
+# ansible runs this and reads the password from what it prints
+exec security find-generic-password -a "$USER" -s website-vault -w

@@ -14,3 +14,4 @@ tools/wall-server/.wrangler/
 tools/wall-server/.dev.vars
 tools/wall-server/.admin-token
 .wrangler/
+.dev.vars
