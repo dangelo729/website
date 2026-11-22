@@ -7,6 +7,7 @@
 .DS_Store
 wrangler.toml
 ansible.cfg
+Makefile
 CLAUDE.md
 README.md
 *PLAN*.md
