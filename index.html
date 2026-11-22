@@ -1905,7 +1905,16 @@
             }
             const ca = it.chessAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.chessAt : null;
             if (ca) {
-              const cu = ca.menu, cb = ca.box, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              const cu = ca.menu, cb = ca.box, su = ca.synth, inside = (r, m) => x >= r.x0 - m && x <= r.x1 + m && iy >= r.y0 - m && iy <= r.y1 + m;
+              if (su && inside(su.shut, 2)) return { s, it, chess: true, menu: synthMenu };
+              if (su && synthMenu.open && synthMenu.p > 0.5) {
+                const rows = su.pick.rows, n = synthOrder().length, ky = iy - synthGrown(su);
+                if (inside({ x0: su.full.x0, y0: su.shut.y0, x1: su.full.x1, y1: su.shut.y1 }, 2)) return { s, it, chess: true, menu: synthMenu };
+                if (inside(rows[0].rect, 2)) return { s, it, chess: true, synth: true, option: rows[0] };
+                if (synthPick.open && synthPick.p > 0.5) for (let j = 1; j < n; j++) if (inside(rows[j].rect, 0)) return { s, it, chess: true, synth: true, option: rows[j] };
+                for (const r of su.knobs) if (x >= r.hit.x0 - 2 && x <= r.hit.x1 + 2 && ky >= r.hit.y0 - 2 && ky <= r.hit.y1 + 2) return { s, it, chess: true, knob: r };
+                if (inside(su.full, 0)) return { s, it, chess: true };
+              }
               if (inside(cu.shut, 2)) return { s, it, chess: true, menu: chessMenu };
               if (chessMenu.open && chessMenu.p > 0.5) {
                 const rows = cu.pick.rows, b = cu.button, br = b.rect, gy = iy - chessGrown(cu);
@@ -1961,10 +1970,14 @@
     // chess set's board, turned or its pieces carried while it is held
     // (chess, below), though RESET in its corner ends a famous game
     // played back and leads every piece back to where it starts, anyone's
-    // to take, its menu's header opens and shuts it as the others' do, its
-    // button that picks opens, kicked, and shuts, one of the others under
-    // it changes places with the one picked and shuts it, GO plays the
-    // famous game picked back and shuts the menu, and the buttons of a
+    // to take, its menus' headers open and shut them as the others' do,
+    // either opening shutting the other, the famous games' button that
+    // picks opens, kicked, and shuts, one of the others under it changes
+    // places with the one picked and shuts it, GO plays the famous game
+    // picked back and shuts the menu, the synthesis menu's button that
+    // picks opens, kicked, and shuts, and one of the named sets under it
+    // turns the knobs to it and shuts it, its knobs' rows pressing
+    // nothing, turned while they are held (chess, below), and the buttons of a
     // famous game's controls show it a move back or on, stop and start it
     // and pick its speed (js/replay.js); and the film's button, or its
     // picture, plays it, or stops it while it plays (js/film.js), though
@@ -1986,12 +1999,21 @@
       else if (h.menu) {
         h.menu.open = !h.menu.open;
         if (h.menu.open) h.menu.v += SHOP_UI.KICK;
+        if (h.menu.open && h.chess) (h.menu === chessMenu ? synthMenu : chessMenu).open = false;
       }
       else if (h.zoom) wallScaleTo = Math.min(WALL_UI.ZOOM_MOST, wallScaleTo * Math.pow(WALL_UI.ZOOM_STEP, h.zoom));
       else if (h.reset) {
         Replay.stop();
         Chess.reset();
         Chess.mover(-1);
+      }
+      else if (h.synth && h.option.j) {
+        Clack.pick(synthOrder()[h.option.j] - 1);
+        synthPick.open = false;
+      }
+      else if (h.synth) {
+        synthPick.open = !synthPick.open;
+        if (synthPick.open) synthPick.v += SHOP_UI.KICK;
       }
       else if (h.option && h.option.j) {
         const j = h.option.j, was = chessOrder[0];
@@ -2349,13 +2371,16 @@
 
     // the face's wasm fetched, and handed its eye and its nose; and the
     // ship's (the ship, below), daedalus's (daedalus's body, below), the
-    // keys' (the piano, below) and the chess set's (chess, below)
+    // keys' (the piano, below) and the chess set's (chess, below), and its
+    // sound's knobs read from its sound's (js/clack.js), the page laid out
+    // again once they are, for the synthesis menu (chess, below)
     Moon.load(window);
     Moon.art(iconRows.eye || [], iconRows.nose || []);
     Ship.load(window);
     Daedalus.load(window);
     Keys.load(window);
     Chess.load(window);
+    Clack.load(window, () => { if (fb) layout(); });
 
     // the menu's text size at the item's text size bs, by bubble bob's
     // menu's rule (shopNow), and the height of its button and of each of
@@ -4585,6 +4610,32 @@
     // went from and to bordered in the items' hover colour. RESET ends it,
     // and the pieces are anyone's again.
     //
+    // in its top left corner is its synthesis menu, what the set's sound
+    // is made of, once its knobs are read (Clack.load): until then, and if
+    // they never are, there is none. it is built on the same sizes and
+    // moved, drawn and pressed as the famous games' menu is: shut, a
+    // button with a caret and SYNTH at its left; open, down and right
+    // round its column, as wide and as tall as that needs, MARGIN round
+    // it. at the column's top is a button that picks, moved the same way:
+    // shut, round the named set the knobs are (Clack.preset), or CUSTOM
+    // when they are none's; pressed, it opens down round every other named
+    // set, in their order, pushing the rows under it and the menu's bottom
+    // down as far as it has opened, and a press on one turns the knobs to
+    // it (Clack.pick) and shuts the button. under it is a row a knob, in
+    // the wasm's order, drawn as upright's are (the piano, above): its
+    // bar, a line at its middle and its dot where the knob is, gliding
+    // there (Bar.dotTo), and beside it its words (Clack.shows), the bars
+    // one width and the words' column as wide as the widest any knob
+    // says. a primary press on a row takes hold of its knob and turns it
+    // to as far as the pointer is across its bar, KNOB in from either end
+    // (DEMO.KNOB), and on with the pointer while it is held; the click it
+    // ends in presses nothing. its colours under the pointer are the
+    // famous games' menu's: its header the links', its button that picks,
+    // what that shows and a knob's row the words', and another of what it
+    // lists the items'. opening either menu shuts the other, and the
+    // other's button that picks. a press on either menu open is the
+    // menu's, never the board's.
+    //
     // in the opening's bottom left corner, as far in as RESET is from its
     // corner, is its pane, a skin moved as the menus are: with no famous
     // game played back, a porthole, PORT of a button's height across,
@@ -4622,6 +4673,9 @@
       RESET: 'reset', // what the button in the opening's bottom right corner says
       TITLE: 'historical games', // what the menu's header says,
       GO: 'go',                  // and the button under its button that picks
+      SYNTH: 'synthesis',        // what the synthesis menu's header says,
+      CUSTOM: 'custom',          // what its button that picks says when the knobs are no named set's,
+      BAR: 7,                    // and of its text's size, how far across its knobs' bars are at the least
       BACK: '<', NEXT: '>', PLAY: 'play', PAUSE: 'pause', // a famous game's controls: a move back, a move on, and what the button between them says, stopped and while it plays;
       TIMES: 'x',                           // what follows its speed;
       ENDS: ' · ',                          // what stands between its last move and its result;
@@ -4648,6 +4702,10 @@
     const chessMenu = Menu.shut(); // the menu,
     const chessPick = Menu.shut(); // its button that picks, a menu too,
     const chessPane = Menu.shut(); // and the pane
+    const synthMenu = Menu.shut(); // the synthesis menu,
+    const synthPick = Menu.shut(); // its button that picks,
+    const synthDots = Clack.knobs.map(() => null); // and how far across its bar each knob's dot has got to, 0 .. 1, or null before the first frame
+    let synthHold = null;  // the press holding a knob, { id, k }: its pointer and the knob's place; or null
     let chessScrub = null; // the pointer holding the scrubber, or null
     let chessDot = null;   // how far along the scrubber's bar its dot has got to, 0 .. 1, or null with no famous game played back
     const chessFingers = new Map(); // each finger down on the board, by its pointer, where it was last, world px on the screen
@@ -4692,8 +4750,23 @@
     // stands a little less tall than the button under it; open, down
     // round a row for each of the famous games, rows[j] its place and,
     // for each of them, the letters that say it there, { j, rect, says }.
-    // button, ROW under it, is { rect, letters }: GO's. and its pane in
-    // its bottom left corner (panel, { room, size, shut, full, pawn,
+    // button, ROW under it, is { rect, letters }: GO's. its synthesis
+    // menu (synth), once the knobs are read (Clack.load) and null till
+    // then, built by Menu.kit on the same sizes, { room, size, shut, full,
+    // bottom, header, pick, knobs }: its button in the opening's top left
+    // corner, round its caret and SYNTH, and, open, down and right from
+    // there round its column, MARGIN round it, as wide as the widest of
+    // CUSTOM and the named sets, or as BAR of the text's size, APART and
+    // the widest any knob says, if that is wider, or as its header if
+    // that is wider still, bottom where it ends with its button that picks
+    // shut. pick is its button that picks, a row for CUSTOM and for each
+    // named set (Menu.kit's pick); knobs, from ROW under it and ROW apart,
+    // a row for each knob, as tall as a button, { k, hit, bar, words }:
+    // the knob's place, where a press takes it (its bar across, its row
+    // down), its bar, as tall as a slider's, centred down the row and as
+    // wide as the column leaves it beside the widest any knob says, and
+    // words(text) the letters saying text APART right of the bar. and its
+    // pane in its bottom left corner (panel, { room, size, shut, full, pawn,
     // replay, said }), a menu too: shut, its porthole, PORT of a button's
     // height across and round, the pawn in its middle (chessPawn); open,
     // full, round a famous game's controls, MARGIN round them and ROW
@@ -4751,6 +4824,31 @@
       const gr = { x0: cx, y0: py + ph + row, x1: cx + col, y1: py + ph + row + th };
       const go = { rect: gr, letters: letters(gt, cx + pad, gr.y0, seed + 3090) };
       const full = { x0: shut.x0, y0: top, x1: right, y1: gr.y1 + margin };
+      // the synthesis menu, once the knobs are read: its header, its button that picks and under it a row a knob
+      let synth = null;
+      if (Clack.names) {
+        const K = Menu.kit(room, size), st = chessType(C.SYNTH), heads = K.headed(st), names = [C.CUSTOM, ...Clack.presets.map((p) => p.name)].map(chessType);
+        const ww = Math.max(...Clack.names.flatMap((n, k) => [-1, 0, 1, -0.88, 0.88].map((v) => K.wide(chessType(Clack.shows(k, v))))));
+        const scol = Math.max(Math.round(Math.max(...names.map(K.wide)) + 2 * K.pad), Math.ceil(C.BAR * size + K.apart + ww));
+        const sx = left + K.margin, bw = Math.floor(scol - K.apart - ww), sp = K.pick(names, sx, sx + scol, top + K.th, seed + 5100);
+        let ry = sp.shut.y1 + K.row;
+        const knobs = Clack.names.map((n, k) => {
+          const y0 = ry, by = y0 + Math.round((K.th - DEMO.SLIDER.H) / 2), said = new Map();
+          ry += K.th + K.row;
+          return {
+            k,
+            hit: { x0: sx, y0, x1: sx + bw, y1: y0 + K.th },
+            bar: { x0: sx, y0: by, x1: sx + bw, y1: by + DEMO.SLIDER.H },
+            words(text) {
+              let line = said.get(text);
+              if (!line) said.set(text, line = K.letters(chessType(text), sx + bw + K.apart, y0, seed + 6000 + 100 * k));
+              return line;
+            },
+          };
+        });
+        const sf = { x0: left, y0: top, x1: left + Math.max(heads, scol + 2 * K.margin), y1: ry - K.row + K.margin };
+        synth = { room, size, shut: { x0: left, y0: top, x1: left + heads, y1: top + K.th }, full: sf, bottom: sf.y1, header: K.head(st, left, top, seed + 5000), pick: sp, knobs };
+      }
       // the pane: its porthole, and open round a famous game's controls: its line, its buttons and the scrubber
       const port = Math.round(C.PORT * th), hole = { x0: left, y0: bottom - port, x1: left + port, y1: bottom, r: port / 2 };
       const bt = chessType(C.BACK), nt = chessType(C.NEXT), ut = chessType(C.PAUSE), speeds = Replay.SPEEDS.map((v) => chessType(v + C.TIMES));
@@ -4779,7 +4877,7 @@
       return {
         box: room,
         w: Math.floor(w / U.GROW), h: Math.floor(h / U.GROW), labels: rows[0].concat(rows[1]),
-        reset, menu: { room, size, shut, full, bottom: full.y1, header, pick, button: go }, panel,
+        reset, menu: { room, size, shut, full, bottom: full.y1, header, pick, button: go }, synth, panel,
       };
     }
 
@@ -4797,9 +4895,28 @@
       return Math.max(0, Menu.at(chessPick, ui.pick, chessPick.p).y1 - ui.pick.shut.y1);
     }
 
+    // how far down the synthesis menu's button that picks has opened past
+    // its bottom shut, world px, in a menu laid out as ui
+    function synthGrown(ui) {
+      return Math.max(0, Menu.at(synthPick, ui.pick, synthPick.p).y1 - ui.pick.shut.y1);
+    }
+
+    // what the synthesis menu's button that picks lists, each its place in
+    // what its rows say: 0 CUSTOM and p + 1 named set p. first the named
+    // set the knobs are (Clack.preset), or CUSTOM for none, then every
+    // named set but that one, in their order
+    function synthOrder() {
+      const at = Clack.preset() + 1, order = [at];
+      for (let j = 1; j <= Clack.presets.length; j++) if (j !== at) order.push(j);
+      return order;
+    }
+
     // chess's menu dt on: its button that picks toward open or shut
     // (Menu.step), shut once the menu is, and the menu itself, as much
-    // taller as that has opened; its pane, toward open, kicked as it
+    // taller as that has opened; the synthesis menu, once laid out, the
+    // same way, its button that picks open down round as many rows as it
+    // lists, and each knob's dot toward where the knob is (Bar.dotTo),
+    // KNOB in from each end of its bar; its pane, toward open, kicked as it
     // starts, round a famous game's controls while one is played back,
     // and toward its porthole with none; and the scrubber's dot toward
     // as far along its bar as the famous game is through its moves
@@ -4811,6 +4928,16 @@
       Menu.step(chessPick, ui.pick, dt, t);
       ui.full.y1 = ui.bottom + chessGrown(ui);
       Menu.step(chessMenu, ui, dt, t);
+      const su = a.synth;
+      if (su) {
+        if (!synthMenu.open) synthPick.open = false;
+        su.pick.full.y1 = su.pick.rows[synthOrder().length - 1].rect.y1;
+        Menu.step(synthPick, su.pick, dt, t);
+        su.full.y1 = su.bottom + synthGrown(su);
+        Menu.step(synthMenu, su, dt, t);
+        const e = DEMO.KNOB;
+        for (let k = 0; k < synthDots.length; k++) synthDots[k] = Bar.dotTo(synthDots[k], e + (1 - 2 * e) * (Clack.knobs[k] + 1) / 2, dt);
+      }
       if (Replay.on && !chessPane.open) chessPane.v += SHOP_UI.KICK;
       chessPane.open = Replay.on;
       Menu.step(chessPane, a.panel, dt, t);
@@ -4910,7 +5037,8 @@
     // the skin and the skin outlined over it, in the links' hover colour
     // while the header is hovered. under the pointer the button that picks,
     // its outline and the one picked, and GO are in the
-    // words' hover colour, and another of those it picks from in the items'
+    // words' hover colour, and another of those it picks from in the items'.
+    // last, over all of it, its synthesis menu (drawSynth)
     function drawChess(it, t, d, hover) {
       const a = it.chessAt, dy = Math.round(d), on = hover && hover.it === it && hover.chess ? hover : null;
       if (Chess.ready) {
@@ -4925,7 +5053,7 @@
       for (let i = 0; i < k.letters.length; i++) k.letters[i].draw(t, dy, pfb, 0, kv);
       const ui = a.menu, m = chessMenu;
       if (!m.skin) return;
-      const v = on && on.menu ? tint(it.home, 2) : 1, box = m.skin.bounds();
+      const v = on && on.menu === m ? tint(it.home, 2) : 1, box = m.skin.bounds();
       qfb.clearRows(Math.floor(box.y0 + dy) - BOX.LINE, Math.ceil(box.y1 + dy) + BOX.LINE + 1);
       if (ui.header.caret) ui.header.caret.draw(t, dy, qfb, m.turn * Math.PI / 2, v);
       for (let i = 0; i < ui.header.title.length; i++) ui.header.title[i].draw(t, dy, qfb, 0, v);
@@ -4953,6 +5081,33 @@
         const p = pts[i], q = pts[i + 1 < n ? i + 1 : 0];
         pfb.line(p.x, p.y, q.x, q.y, v, BOX.LINE);
       }
+      drawSynth(it, a, t, dy, on);
+    }
+
+    // item it's synthesis menu, of its chess set laid out as a, dy world
+    // px down, on what the pointer is on of the set (on), into pfb by
+    // Menu.draw, its insides apart in qfb, as drawChess draws its other
+    // menu: its header and, while it is open at all, its button that
+    // picks (Menu.drawPick), its skin outlined
+    // round what it shows and, as far down as it has opened, what it
+    // lists under it, and, as far down as that has pushed them, a row a
+    // knob, as upright's knobs are: its bar (Bar.draw), a line at its
+    // middle and its dot where it has got to, and its words for where the
+    // knob is (Clack.shows). under the pointer its header is in the links'
+    // hover colour, its button that picks, what that shows and a knob's
+    // row in the words', and another of what it lists in the items'
+    function drawSynth(it, a, t, dy, on) {
+      const ui = a.synth;
+      if (!ui) return;
+      Menu.draw(ui, synthMenu, dy, t, on, () => {
+        const grown = synthGrown(ui), ky = dy + grown;
+        Menu.drawPick(ui.pick, synthPick, synthOrder(), dy, grown, t, on, qfb, tint(it.home, 0), tint(it.home, 1));
+        for (const r of ui.knobs) {
+          const kv = on && on.knob === r ? tint(it.home, 0) : 1, line = r.words(Clack.shows(r.k));
+          Bar.draw(qfb, r.bar, ky, 1, synthDots[r.k], kv, DEMO.SLIDER);
+          for (let i = 0; i < line.length; i++) line[i].draw(t, ky, qfb, 0, kv);
+        }
+      }, pfb, qfb, tint(it.home, 2));
     }
 
     // how far down the page as laid out the opening is on the screen now, world px
@@ -4993,6 +5148,14 @@
       Replay.seek(Math.max(0, Math.min(1, (x - b.x0 - r) / (b.x1 - b.x0 - 2 * r))) * Replay.line.length);
     }
 
+    // the synthesis menu's knob held at world x: turned to as far as x is
+    // across its bar, -1 KNOB in from its left end to 1 as far in from its
+    // right (Clack.turn), as upright's are (knobSlider)
+    function knobTo(x) {
+      const b = chessItem.chessAt.synth.knobs[synthHold.k].bar, e = DEMO.KNOB, u = Math.min(1, Math.max(0, (x - b.x0) / (b.x1 - b.x0)));
+      Clack.turn(synthHold.k, 2 * (u - e) / (1 - 2 * e) - 1);
+    }
+
     // the set on, and the famous game played back on it (Replay.step),
     // its canvas the opening's size, while chebble is at least partly open
     // in a box out of its o and its opening is on the screen, the piece
@@ -5023,10 +5186,17 @@
     // a primary press on the board takes the piece under it, or the view.
     // a second finger down on it with the first lets go of what the first
     // held, and from there the two zoom the camera as they move. one on
-    // the scrubber takes hold of it, there
+    // the scrubber takes hold of it, there, and one on a knob's row of the
+    // synthesis menu takes hold of the knob and turns it there (knobTo),
+    // the set in or not
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || !Chess.ready) return;
+      if (e.button !== 0) return;
       const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (h && h.knob && e.isPrimary) {
+        synthHold = { id: e.pointerId, k: h.knob.k };
+        knobTo(p.x);
+      }
+      if (!Chess.ready) return;
       if (h && h.scrub && e.isPrimary) {
         chessScrub = e.pointerId;
         scrubTo(p.x);
@@ -5048,9 +5218,10 @@
     // come apart since either last moved, and out as they come together. a
     // piece held is carried to the pointer, and let go as the pointer
     // leaves the opening; the view held is turned by the way the pointer
-    // went; and the scrubber held goes where the pointer is
+    // went; and the scrubber held, or a knob, goes where the pointer is
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerId === chessScrub) scrubTo(View.pointer(e).x);
+      if (synthHold && e.pointerId === synthHold.id) knobTo(View.pointer(e).x);
       const f = chessFingers.get(e.pointerId);
       if (f) {
         const at = View.pointer(e);
@@ -5076,12 +5247,16 @@
     });
     // a press on the opening lifted or called off lets go of the piece it
     // held; the click it ends in presses nothing, wherever the pointer has
-    // got to, as the bottle's does. the scrubber is let go, its click
-    // pressing nothing either
+    // got to, as the bottle's does. the scrubber and a knob are let go,
+    // their click pressing nothing either
     const chessGo = (e) => {
       chessFingers.delete(e.pointerId);
       if (e.pointerId === chessScrub) {
         chessScrub = null;
+        if (e.type === 'pointerup') grabbed = true;
+      }
+      if (synthHold && e.pointerId === synthHold.id) {
+        synthHold = null;
         if (e.type === 'pointerup') grabbed = true;
       }
       if (!chessHold || e.pointerId !== chessHold.id) return;

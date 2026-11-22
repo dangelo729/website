@@ -12,7 +12,9 @@
 // records are written into the engine's own, a run of no more than it
 // holds at a time, and said, each to sound its delay after at, which is
 // at less this block's time on from this block's top. then the block is
-// rendered.
+// rendered. or it is the three knobs as they stand, { knobs }, the last
+// of which to come is handed to the engine (chessboard_knobs) at the top
+// of the next process() call, before its words are said.
 
 const RECORD = 16; // floats a record
 
@@ -25,7 +27,12 @@ class ClackProcessor extends AudioWorkletProcessor {
     this.words = null;  // its records, a view on its memory
     this.out = null;    // its block, a view on its memory
     this.waiting = [];  // the batches come and not yet said, oldest first
-    this.port.onmessage = (e) => { if (this.cb) this.waiting.push(e.data); };
+    this.knobs = null;  // the knobs come and not yet handed to the engine, or null
+    this.port.onmessage = (e) => {
+      if (!this.cb) return;
+      if (e.data.knobs) this.knobs = e.data.knobs;
+      else this.waiting.push(e.data);
+    };
     WebAssembly.instantiate(wasm, {}).then(({ instance }) => {
       const cb = instance.exports;
       cb._initialize();
@@ -39,6 +46,10 @@ class ClackProcessor extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const cb = this.cb;
     if (!cb) return true;
+    if (this.knobs) {
+      cb.chessboard_knobs(this.knobs[0], this.knobs[1], this.knobs[2]);
+      this.knobs = null;
+    }
     for (let i = 0; i < this.waiting.length; i++) {
       const { words, at } = this.waiting[i], n = Math.floor(words.length / RECORD);
       for (let from = 0; from < n; from += this.most) {
