@@ -24,27 +24,27 @@ const TEXT = {
   },
   "Personal": {
     "Cicada": [
-      "A portable art-synth, all of it designed, coded and engineered by me. It runs on a battery, with a keyboard, a small screen, a glowing dome of light and a speaker of its own.",
-      "Each of its engines is a little world, with its own character on the screen and its own sound: a choir, a singing monk, a plucked string, a storm, and a drum machine that keeps playing underneath whichever one you're in. Press play to hear it."
+      "A portable art-synth, all of it designed, coded and engineered by me. It runs on a battery, with a keyboard, a small screen, and an LED cloud display, all driven by a Teensy 4.1 mounted on a custom designed PCB.",
+      "At its core, cicada is a collection of synthesizer vignettes, each with simple controls and vibrant sounds. Take a look at the video above to see it in action."
     ],
     "Monk Mouth": [
-      "A singing voice for the Teensy audio library. It makes sound by simulating air moving through a tube shaped like a vocal tract. You move a tongue, lips and lungs, and the voice is whatever comes out.",
-      "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here: drag the slider to hear it sing."
+      "A singing voice for the Teensy audio library. It makes sound by simulating air moving through a simulated vocal tract.",
+      "It can hold a note, sing words, talk and whistle. Bubble Bob speaks with it, and so does the face here. Drag the slider above to hear it sing."
     ],
     "Third Dimension": [
-      "A small 3D renderer for microcontrollers and the tiny screens they drive. Hand it a model and it frames it, lights it and draws it: shaded, in flat bands like a cartoon, as a wireframe, or as an outline with the hidden lines removed, like a pen drawing.",
-      "It's highly configurable, and super fun to mess around with. I built it for various embedded projects I'm working on, in the hopes that I'll be able to continue to iterate and improve it for whatever 3D rendering needs I have."
+      "A small 3D renderer for microcontrollers and the tiny screens they drive. I built this because I wanted an easy, adaptable, and readily reusable solution for 3D graphics on the embedded projects I work on.",
+      "It's highly configurable, and super fun to mess around with, and I'm continuing to iterate and improve it for whatever 3D rendering needs I have. Give the boat above a little drag to see it in action."
     ],
     "Second Dimension": [
-      "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens.",
-      "Daedalus here is posed and drawn with it: his head and his four arms, a mallet in each hand. Don't get too close or he may whack you."
+      "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens. Similar to third dimension, I wanted a easy, reusable library with a little more flexibility and extendability than simply using graphical primitives.",
+      "Daedalus here is posed and drawn with it. Don't get too close or he may whack you."
     ],
     "Upright": [
-      "A piano for the Teensy audio library. It makes sound by simulating a hammer striking a string, and the soundboard or pickup the string is heard through: you set the strings, the hammers and the body, and the piano is whatever comes out."
+      "A piano for the Teensy audio library. It uses modal synthesis to model a felt hammer striking a string, heard through a soundboard. The library allows for easily swapping the string for a metal tine or reed and the soundboard for a pickup, making the same model a Rhodes or a Wurlitzer."
     ],
     "Chebble": [
-      "A chess site built around a physical board. The pieces are rigid bodies: you pick them up, carry them and knock them over, and every sound is synthesized from what actually touched. You log in with Lichess and play real games on it, solve puzzles, and look back through a game with Stockfish.",
-      "This is the same set. Grab a piece, or open historical games and step through one of the classics."
+      "Chebble is a satisfying and relaxing chess interface. All sounds are generated in real time using physically based modal synthesis.",
+      "This is the same set. Grab a piece, mess around with the sound engine using the knobs in the \"synthesis\" menu, or open historical games and step through one of the classics."
     ],
     "This website!": [
       "You're here! There's no framework and no build step, just a canvas: every pixel on the page, from these words to the box around them, is drawn into a single bitmap.",
