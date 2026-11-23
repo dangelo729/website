@@ -84,6 +84,8 @@
   <script src="js/scrub.js"></script>
   <script src="js/films.js"></script>
   <script src="js/film.js"></script>
+  <script src="js/giant-art.js"></script>
+  <script src="js/giant.js"></script>
   <script src="js/subtitle.js"></script>
   <script src="js/tally.js"></script>
   <script>
@@ -549,6 +551,7 @@
           { title: 'Second Dimension',  daedalus: true, links: [['github.com/dangelo729/second_dimension', 'https://github.com/dangelo729/second_dimension']] },
           { title: 'Monk Mouth',        demo: true, links: [['github.com/dangelo729/monk_mouth', 'https://github.com/dangelo729/monk_mouth']] },
           { title: 'Upright',           piano: true, links: [['github.com/dangelo729/upright', 'https://github.com/dangelo729/upright']] },
+          { title: 'Scrubby',           giant: true, links: [['github.com/dangelo729/teensy_audio_library_scrubber', 'https://github.com/dangelo729/teensy_audio_library_scrubber']] },
           { title: 'Chebble',           chess: true, links: [['chebble.com', 'https://chebble.com']] },
           { title: 'Cicada',            film: true },
           { title: 'This website!',     links: [['github.com/dangelo729/website', 'https://github.com/dangelo729/website']] },
@@ -616,14 +619,15 @@
       // laid out as wallAt (the wall, below). chess: it holds chebble's
       // chess set over its text, laid out as chessAt (chess, below). film:
       // it holds cicada's film over its text, laid out as filmAt (the
-      // film, below). menu
+      // film, below). giant: it holds cicada's giant and the hand under
+      // his bar over its text, laid out as giantAt (the giant, below). menu
       // is its
       // demo's settings menu as laid out and that menu's state,
       // { ui, m }, monk mouth's or upright's, and push how far its menu
       // has what is under it pushed down now (pushItem)
       items: (s.items || []).map((x, i) => ({
         title: x.title, game: !!x.game, demo: !!x.demo, demoAt: null, ship: !!x.ship, shipAt: null, daedalus: !!x.daedalus, daedalusAt: null,
-        piano: !!x.piano, pianoAt: null, wall: !!x.wall, wallAt: null, chess: !!x.chess, chessAt: null, film: !!x.film, filmAt: null, menu: null, push: 0, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
+        piano: !!x.piano, pianoAt: null, wall: !!x.wall, wallAt: null, chess: !!x.chess, chessAt: null, film: !!x.film, filmAt: null, giant: !!x.giant, giantAt: null, menu: null, push: 0, type: new Type(x.title, () => document.createElement('canvas'), TAG.FACE),
         body: [], // its text, as its section's
         links: (x.links || []).map(([label, url]) => ({ label, url, letters: [], hit: null })),
         // its logos, each { key, scale, dx, photo, warble }: a key of
@@ -1213,7 +1217,10 @@
         // that down, no less than CHESS.LEAST nor more than CHESS.DOWN,
         // and cicada's film (FILM, below), its picture as far across as
         // the text's measure, no more than FILM.ACROSS, and as tall as
-        // filmH has it with its row under it
+        // filmH has it with its row under it, and cicada's giant (GIANT,
+        // below), his scene at the first of GIANT.K world px a cicada px
+        // that fits across the text's measure, or the room the text has
+        // where that is narrower
         const arts = it.logos.filter((l) => logoArt[l.key]).map((l) => ({ l, art: logoArt[l.key] }));
         let colW = 0;
         for (const a of arts) {
@@ -1249,7 +1256,12 @@
           arts.unshift({ l: {}, demo: true, film: true, w: across, h: filmH(across, bs) });
           colW = Math.max(colW, across);
         }
-        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && !it.chess && !it.film && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
+        if (it.giant) {
+          const across = Math.min(rx - nx, stacked ? Infinity : BOX.MEASURE * bs), k = GIANT.K.find((k) => giantW * k <= across) || GIANT.K[GIANT.K.length - 1];
+          arts.unshift({ l: {}, demo: true, giant: true, w: giantW * k, h: giantH * k, k });
+          colW = Math.max(colW, giantW * k);
+        }
+        const beside = arts.length > 0 && !stacked && !it.daedalus && !it.piano && !it.chess && !it.film && !it.giant && rx - nx - BOX.GUTTER * bs - colW >= BOX.LOGO_LEAST * bs;
         const gaps = (arts.length - 1) * BOX.LOGO_GAP * bs, across = arts.reduce((n, a) => n + a.w, 0);
         const fit = beside || across + gaps <= rx - nx ? 1 : Math.max(0, rx - nx - gaps) / across;
         let rowH = 0;
@@ -1271,13 +1283,15 @@
         it.pianoAt = null;
         it.chessAt = null;
         it.filmAt = null;
+        it.giantAt = null;
         it.menu = null;
         for (const a of arts) {
-          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano || a.chess || a.film) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
+          const x = Math.round(beside ? nx + tw + (BOX.GUTTER + (a.l.dx || 0)) * bs + (colW - a.w) / 2 : (a.daedalus || a.piano || a.chess || a.film || a.giant) && tw >= a.w ? nx + (tw - a.w) / 2 : a.demo ? nx + (rx - nx - a.w) / 2 : lx);
           const y = Math.round(beside ? ly : top + (rowH - a.h) / 2);
           if (a.daedalus) it.daedalusAt = placeDaedalus(x, y, seed + 9000 + 10 * i + 5);
           else if (a.chess) it.chessAt = placeChess(x, y, a.w, a.h, bs, seed + 9000 + 10 * i + 5);
           else if (a.film) it.filmAt = placeFilm(x, y, a.w, bs, seed + 9000 + 10 * i + 5);
+          else if (a.giant) it.giantAt = placeGiant(x, y, a.k, seed + 9000 + 10 * i + 5);
           else if (a.piano) {
             it.pianoAt = placePiano(x, y, bs, seed + 9000 + 10 * i + 5, nx + tw);
             it.menu = { ui: it.pianoAt.menu, m: pianoMenu };
@@ -1585,8 +1599,8 @@
       // turned from > to v (FLIP times as fast as its text opens), and its text drawn down to
       // where it has opened to and cut off there, its logos, its demo
       // (drawDemo), its ship (drawShip), its daedalus (drawDaedalus), its
-      // piano (drawPiano), its chess set (drawChess) and its film
-      // (drawFilm) with it, its text
+      // piano (drawPiano), its chess set (drawChess), its film
+      // (drawFilm) and its giant (drawGiant) with it, its text
       // and its links as far down
       // as its menu pushes them (push), all into pfb over its
       // skin's box; then pfb copied into the insides through its skin and the skin
@@ -1603,7 +1617,7 @@
         const b = it.skin.bounds(), m = BOX.LINE + 1;
         if (b.y1 + m - sy < y0 || b.y0 - m - sy > y1) continue;
         const d = it.shift - sy;
-        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess && !hover.film ? tint(s, 1) : undefined;
+        const v = hover && hover.it === it && !hover.link && !hover.ribbon && !hover.settings && !hover.ship && !hover.piano && !hover.wall && !hover.chess && !hover.film && !hover.giant ? tint(s, 1) : undefined;
         pfb.clearRows(Math.floor(b.y0 - sy) - BOX.LINE, Math.ceil(b.y1 - sy) + BOX.LINE + 1);
         if (it.game) {
           if (home && bubble) drawGame(pfb, t, sy, x0, y0, x1, y1, hover);
@@ -1635,6 +1649,7 @@
           if (it.pianoAt) drawPiano(it, t, d, hover);
           if (it.chessAt) drawChess(it, t, d, hover);
           if (it.filmAt) drawFilm(it, t, d, hover);
+          if (it.giantAt) drawGiant(it, t, d, hover);
           pfb.clearRows(Math.ceil(end), Math.ceil(it.clip + it.span + d) + BOX.MOST);
         }
         const pts = it.skin.screen(-sy), n = pts.length;
@@ -1823,7 +1838,10 @@
     // else in its opening, { s, it, chess, board }; an item's film, as
     // far as its text has opened to show it: its button, a little round
     // it, or its picture, { s, it, film, play }, and the row its bar lies
-    // in, { s, it, film, reel }; in a box that holds sections, whatever
+    // in, { s, it, film, reel }; an item's giant, as far as its text has
+    // opened to show him: his part of the scene, { s, it, giant, face },
+    // and the hand's, from the scene's left to where his starts, { s, it,
+    // giant, hand }; in a box that holds sections, whatever
     // of theirs a press would press, as the ones down the page's, each of
     // them the s of its own; a word whose box is not open, a little
     // round it, { s }; or null. list: the sections asked, the ones down
@@ -1939,6 +1957,12 @@
               if (inside(fa.hit, 0)) return { s, it, film: true, reel: true };
               if (x >= fa.box.x0 && x < fa.box.x1 && iy >= fa.box.y0 && iy < fa.box.y1) return { s, it, film: true, play: true };
             }
+            const ga = it.giantAt && it.p > 0 && iy <= it.clip + it.p * it.span ? it.giantAt : null;
+            if (ga) {
+              const inside = (r) => x >= r.x0 && x < r.x1 && iy >= r.y0 && iy < r.y1;
+              if (inside(ga.face)) return { s, it, giant: true, face: true };
+              if (inside(ga.hand)) return { s, it, giant: true, hand: true };
+            }
           }
           continue;
         }
@@ -1982,7 +2006,9 @@
     // and pick its speed (js/replay.js); and the film's button, or its
     // picture, plays it, or stops it while it plays (js/film.js), though
     // its bar presses nothing, the film sought while it is held (the
-    // film, below)
+    // film, below); and the giant starts listening, or stops
+    // (js/giant.js), though the hand presses nothing, his sound sought
+    // while it is held (the giant, below)
     canvas.addEventListener('click', (e) => {
       if (grabbed) { grabbed = false; return; }
       const p = View.pointer(e);
@@ -2031,7 +2057,8 @@
       }
       else if (h.pane) Replay[h.pane]();
       else if (h.play) Film.toggle();
-      else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall || h.chess || h.film) return;
+      else if (h.face) Giant.toggle();
+      else if (h.shop || h.ribbon || h.settings || h.ship || h.piano || h.wall || h.chess || h.film || h.giant) return;
       else if (h.slide) stepSlide(h.s, h.slide);
       else if (h.it) toggleItem(h.s, h.it);
       else toggleBox(h.s);
@@ -2113,8 +2140,8 @@
     // the first tag colour while a mouse is over it. a press on it, or a
     // little round it, eases the piano, the voice, the demo's voice and
     // the chess set's sound (js/piano.js, js/voice.js, js/monk.js,
-    // js/clack.js) and the film's (js/film.js, js/scrub.js) to silence or
-    // brings them back, and presses nothing
+    // js/clack.js), the film's (js/film.js, js/scrub.js) and the giant's
+    // (js/giant.js) to silence or brings them back, and presses nothing
     // under it. the browser keeps it, so a visitor who
     // muted the page finds it muted the next time
     let iconRows = ICONS; // each icon's rows by name, and the scroll hand's frames (below)
@@ -2150,14 +2177,15 @@
     }
 
     // what muting the page does, and giving it its sound back: the piano,
-    // the voice, the demo's voice, the chess set's sound and the film's
-    // told; muted at once if the browser keeps that it was
+    // the voice, the demo's voice, the chess set's sound, the film's and
+    // the giant's told; muted at once if the browser keeps that it was
     Mute.load(window, (on) => {
       Piano.mute(on);
       Voice.mute(on);
       Monk.mute(on);
       Clack.mute(on);
       Film.mute(on);
+      Giant.mute(on);
     });
 
     // --- the switch --------------------------------------------------------------
@@ -5475,6 +5503,118 @@
     canvas.addEventListener('pointerup', filmGo);
     canvas.addEventListener('pointercancel', filmGo);
 
+    // --- the giant ---------------------------------------------------------------
+    // scrubby's item, in personal work, holds cicada's giant (js/giant.js,
+    // js/giant-art.js) over its text (layoutItems): the hand under its bar
+    // and his face, as cicada draws them on its screen, the hand's bitmap
+    // GIANT.HAND_X cicada px across and his GIANT.FACE_X, at the first of
+    // GIANT.K world px a cicada px that fits across the text's measure, or
+    // the room the text has where that is narrower, else the last, and
+    // centred across it. each is drawn as the ship is, its ink alone,
+    // wobbling on a seed of its own. a click on him starts him listening
+    // to the microphone,
+    // and another stops him, what he heard his sound; a primary press on
+    // the hand's part, held and moved, wants his sound where the pointer is
+    // along the bar, between where the finger's tip is in the hand's first
+    // frame and where it is in its last, and the sound goes there as fast
+    // as it is far, slowing as it arrives, the hand after it. while he
+    // listens a press there takes no hold. the click a press on the hand
+    // ends in presses nothing, and a press there is never a swipe (the
+    // swipe, below). under the pointer he is in the words' hover colour,
+    // and so is the hand, under it or held. his sound is eased to silence
+    // while the page is muted (the mute button, above). the hand is let go,
+    // his listening stopped and his sound stilled once scrubby or its box
+    // is shut, and he is stepped each frame (the frame, below)
+    const GIANT = {
+      HAND_X: 0, FACE_X: 70, // cicada px across its screen: where cicada draws the hand's bitmap and his
+      K: [3, 2],             // world px a cicada px, the first the room fits, else the last
+    };
+    Giant.load(GIANT_ART, window);
+    const giantW = GIANT.FACE_X + Giant.faces[0].w, giantH = Math.max(Giant.faces[0].h, Giant.hands[0].h); // cicada px, the scene
+    const giantHome = sections.find((s) => s.items.some((it) => it.giant)) || null; // the section whose box holds the giant
+    const giantItem = giantHome ? giantHome.items.find((it) => it.giant) : null;      // scrubby, the item he is in
+    let giantHold = null; // the pointer holding the hand, or null
+
+    // the giant's scene with its top left at (x, y), world px on the page
+    // as laid out, k world px a cicada px, its wobbles seeded from seed:
+    // its box, the hand's part, from the scene's left to where his starts,
+    // and his (hand, face), where the finger's tip is in the hand's first
+    // frame and in its last, world px across (tip), and a letter with
+    // nothing to draw at the middle of the hand's bitmap and one at the
+    // middle of his, each at scale 1 so its pose's scale is its breathe
+    // alone, { k, box, hand, face, tip, handLetter, faceLetter }
+    function placeGiant(x, y, k, seed) {
+      const hw = Giant.hands[0].w, hh = Giant.hands[0].h, fw = Giant.faces[0].w, fh = Giant.faces[0].h;
+      const hx = x + GIANT.HAND_X * k, fx = x + GIANT.FACE_X * k, y1 = y + giantH * k;
+      return {
+        k, box: { x0: x, y0: y, x1: x + giantW * k, y1 },
+        hand: { x0: x, y0: y, x1: fx, y1 }, face: { x0: fx, y0: y, x1: x + giantW * k, y1 },
+        tip: [hx + (Giant.TIP[0] + 0.5) * k, hx + (Giant.TIP[1] + 0.5) * k],
+        handLetter: Letter.make(null, hx + hw * k / 2, y + hh * k / 2, seed, 1),
+        faceLetter: Letter.make(null, fx + fw * k / 2, y + fh * k / 2, seed + 1, 1),
+      };
+    }
+
+    // item it's giant, d world px down from where it was laid out, into
+    // pfb: the hand's frame and his, each its ink with its middle on its
+    // bitmap's, moved by its wobble's sway and bob, at k by its breathe
+    // and turned by its tilt; he under the pointer, and the hand under it
+    // or held, in the words' hover colour
+    function drawGiant(it, t, d, hover) {
+      const a = it.giantAt, dy = Math.round(d), on = hover && hover.it === it && hover.giant ? hover : null, lit = tint(it.home, 0);
+      const hp = a.handLetter.pose(t), fp = a.faceLetter.pose(t);
+      pfb.sprite(Giant.hands[Giant.handFrame()], hp.x, hp.y + dy, a.k * hp.s, hp.a, giantHold !== null || (on && on.hand) ? lit : 1);
+      pfb.sprite(Giant.faces[Giant.face], fp.x, fp.y + dy, a.k * fp.s, fp.a, on && on.face ? lit : 1);
+    }
+
+    // whether a press is on the hand's part
+    function onGiant(e) {
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      return !!(h && h.hand);
+    }
+
+    // the hand held at world x: the sound wanted as far through as that is
+    // of the way from where the finger's tip is in the hand's first frame
+    // to where it is in its last
+    function handTo(x) {
+      const tip = giantItem.giantAt.tip;
+      Giant.seek((x - tip[0]) / (tip[1] - tip[0]));
+    }
+
+    // the hand let go, his listening stopped and his sound stilled once
+    // scrubby or its box is shut; and he dt s on (Giant.step)
+    function stepGiant(dt) {
+      if (!giantItem) return;
+      if (!(openBox(giantHome) && giantItem.open)) {
+        giantHold = null;
+        Giant.shut();
+      }
+      Giant.step(dt);
+    }
+
+    // a primary press on the hand's part, while he is not listening, takes
+    // hold of the hand, his sound wanted where it is along the bar, and
+    // each move while it is held wants it on
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || e.button !== 0 || !giantItem || Giant.listening) return;
+      const p = View.pointer(e), h = !cornerAt(p.x, p.y) && hitAt(p.x, p.y);
+      if (!h || !h.hand) return;
+      giantHold = e.pointerId;
+      Giant.hold(true);
+      handTo(p.x);
+    });
+    canvas.addEventListener('pointermove', (e) => { if (e.pointerId === giantHold) handTo(View.pointer(e).x); });
+    // the hand let go; the click a lifted press on it ends in presses
+    // nothing, wherever the pointer has got to, as the film's bar's does
+    const giantGo = (e) => {
+      if (e.pointerId !== giantHold) return;
+      giantHold = null;
+      Giant.hold(false);
+      if (e.type === 'pointerup') grabbed = true;
+    };
+    canvas.addEventListener('pointerup', giantGo);
+    canvas.addEventListener('pointercancel', giantGo);
+
     // --- the swipe ---------------------------------------------------------------
     // the browser scrolls on its own and tells the page where it got to late
     // and unevenly, so a finger scrolls the page itself. a press (not a
@@ -5495,7 +5635,7 @@
     // or tray, that stops no glide is the wall's to the end (the wall,
     // above), and never a swipe, and so is one on the chess set's board
     // or its scrubber (chess, above), or on the film's bar (the film,
-    // above)
+    // above), or on the giant's hand (the giant, above)
     const SWIPE = {
       SLOP: 10,                              // css px a press goes before it is a swipe or not
       FLICK: 100,                            // ms of the finger's last moves its speed is read from
@@ -5537,7 +5677,7 @@
       eatClick = false;
       if (e.pointerType === 'mouse' || !e.isPrimary) return;
       const stop = Math.abs(swipeTo - swipeY) > SWIPE.SLOP;
-      if (!stop && (onWall(e) || onChess(e) || onFilm(e))) return;
+      if (!stop && (onWall(e) || onChess(e) || onFilm(e) || onGiant(e))) return;
       swipe = { id: e.pointerId, x: e.clientX, y: e.clientY, on: false, done: false, stop, y0: 0, from: 0, samples: [] };
       swipeTo = swipeY;
       // a press while it glides stops it, and nothing else hears it
@@ -5824,6 +5964,9 @@
       // at least partly open in a box out of its o, the picture while it
       // is on the screen (the film, above)
       stepFilm(dt, t);
+      // the giant let go and stilled once scrubby is shut, and on (the
+      // giant, above)
+      stepGiant(dt);
       // daedalus on, after the pointer, and his strikes rung, while second
       // dimension is at least partly open in a box out of its o and his
       // box is on the screen

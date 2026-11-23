@@ -3,7 +3,7 @@
 // it told where it is heard. it knows nothing of the page: it is given a
 // sound and told where the sound is wanted, and whether that moves on,
 // and it says where the sound is heard. the sound is in memory whole, and
-// a playhead goes over it after a target (tools/scrub-web/scrub_core.h):
+// a playhead goes over it after a target (scrubby's sb::Playhead):
 // each sample the playhead makes up a little of how far it is behind, so
 // its speed, and the pitch with it, is how far it has to go. sought far,
 // the sound races there and slows as it arrives; played, the target moves
@@ -234,5 +234,16 @@ const Scrub = {
   mute(on) {
     this.muted = on;
     if (this.out) this.out.gain.setTargetAtTime(on ? 0 : this.MASTER * this.level, this.ctx.currentTime, this.MUTE_S);
+  },
+
+  // another scrubber, for another sound beside this one's: the same ways
+  // and none of this one's state, each field as it starts, nothing made
+  // yet, and its playhead's catch seconds
+  another(seconds) {
+    return Object.assign(Object.create(this), {
+      CATCH: seconds,
+      win: null, ctx: null, node: null, out: null, ready: false, loaded: false, sound: null, seconds: 0, level: 1,
+      muted: false, going: false, held: false, aim: 0, at: 0, by: 0, when: 0, locked: false, n: 0,
+    });
   },
 };

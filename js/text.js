@@ -42,6 +42,10 @@ const TEXT = {
     "Upright": [
       "A piano for the Teensy audio library. It uses modal synthesis to model a felt hammer striking a string, heard through a soundboard. The library allows for easily swapping the string for a metal tine or reed and the soundboard for a pickup, making the same model a Rhodes or a Wurlitzer."
     ],
+    "Scrubby": [
+      "A scrubber for the Teensy audio library. It plays a sound like a record under your hand: drag it somewhere and the sound races there, slowing down as it arrives.",
+      "The giant above comes from Cicada, where it first lived. Click him to record something, click him again when you're done, then drag the hand to scrub through it. Nothing you record leaves your browser."
+    ],
     "Chebble": [
       "Chebble is a satisfying and relaxing chess interface. All sounds are generated in real time using physically based modal synthesis.",
       "This is the same set. Grab a piece, mess around with the sound engine using the knobs in the \"synthesis\" menu, or open historical games and step through one of the classics."

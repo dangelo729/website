@@ -19,7 +19,10 @@
 // was in is done once it is, each thing asked goes to the worklet, a
 // target the page has since moved is not taken back from it, where the
 // sound is heard is reckoned on no further than AHEAD, and mute eases
-// the master gain. last, the page's half and the worklet's are joined
+// the master gain; and another scrubber had of one has its ways, a catch
+// of its own and none of its state, and is made and told apart from it,
+// with a context, a worklet and a gain of its own. last, the page's half
+// and the worklet's are joined
 // and a sound is played through both. exits 1 on failure.
 
 const fs = require('fs');
@@ -308,6 +311,42 @@ const ramp = (i) => (i % PERIOD) * 10 - 10000;
     const none = load();
     none.make({ fetch: win.fetch });
     check('with no worklet there is no sound, and nothing breaks', none.ctx === null && (none.load(new ArrayBuffer(1)), none.play(), none.seek(3), none.heard() === 3));
+  }
+
+  // --- another scrubber ------------------------------------------------------------
+  {
+    const S = load(), contexts = made.contexts.length, nodes = made.nodes.length, gains = made.gains.length;
+    S.seek(9);
+    S.mute(true);
+    const B = S.another(0.15);
+    check('another scrubber has the first\'s ways, its own catch, and none of its state',
+      B.CATCH === 0.15 && S.CATCH !== 0.15 && B.MASTER === S.MASTER && B.WORKLET === S.WORKLET && B.seek === S.seek
+      && B.aim === 0 && !B.muted && B.n === 0 && B.ctx === null && B.seconds === 0 && B.level === 1 && S.aim === 9 && S.muted);
+    S.make(win);
+    B.make(win);
+    await settle();
+    const a = made.nodes[nodes], b = made.nodes[nodes + 1];
+    check('made, each has its own context and its own worklet, made with its own catch',
+      made.contexts.length === contexts + 2 && S.ctx !== B.ctx && S.node === a && B.node === b
+      && a.options.processorOptions.seconds === S.CATCH && b.options.processorOptions.seconds === 0.15);
+    check('and its own master gain, the first\'s silent as it was muted, the other\'s not', made.gains.length === gains + 2 && S.out.gain.value === 0 && B.out.gain.value === B.MASTER);
+    const toA = [], toB = [];
+    a.port.postMessage = (m) => toA.push(m);
+    b.port.postMessage = (m) => toB.push(m);
+    S.load(new ArrayBuffer(2));
+    B.load(new ArrayBuffer(3));
+    await settle();
+    a.port.onmessage({ data: { ready: true } });
+    b.port.onmessage({ data: { ready: true } });
+    a.port.onmessage({ data: { loaded: true } });
+    b.port.onmessage({ data: { loaded: true } });
+    check('each sound goes to its own worklet, put where its own scrubber last sought it', toA[0].sound && toB[0].sound && toA[1].cut === 9 && toB[1].cut === 0);
+    const na = toA.length;
+    B.seek(120);
+    check('sought, only its own worklet is told, and the first stays where it was', toA.length === na && toB[toB.length - 1].target === 120 && B.aim === 120 && S.aim === 9);
+    B.mute(true);
+    check('muted, only its own gain eases', B.out.gain.eased.length === 1 && S.out.gain.eased.length === 0);
+    check('and one had of a scrubber in use starts as fresh', (() => { const C = Scrub.another(1); return C.CATCH === 1 && C.aim === 0 && !C.loaded && !C.muted && C.out === null; })());
   }
 
   // --- the two halves joined --------------------------------------------------------

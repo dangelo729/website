@@ -35,7 +35,7 @@ export const TALLY = {
 
 // the page's sections, and the things in them: work's and the doodles
 export const SECTIONS = ['work', 'professional', 'personal', 'doodles', 'about', 'contact'];
-export const WORK = ['sennheiser', 'brandnewnoise', 'critter-guitari', 'third-dimension', 'second-dimension', 'monk-mouth', 'upright', 'chebble', 'cicada', 'this-website'];
+export const WORK = ['sennheiser', 'brandnewnoise', 'critter-guitari', 'third-dimension', 'second-dimension', 'monk-mouth', 'upright', 'scrubby', 'chebble', 'cicada', 'this-website'];
 export const DOODLES = ['bubble-bob', 'graffiti-wall'];
 const ITEMS = [...WORK, ...DOODLES];
 
