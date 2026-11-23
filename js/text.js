@@ -36,7 +36,7 @@ const TEXT = {
       "It's highly configurable, and super fun to mess around with, and I'm continuing to iterate and improve it for whatever 3D rendering needs I have. Give the boat above a little drag to see it in action."
     ],
     "Second Dimension": [
-      "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens. Similar to third dimension, I wanted a easy, reusable library with a little more flexibility and extendability than simply using graphical primitives.",
+      "The 2D sibling of Third Dimension: a small library for posing pixel art on small embedded screens. Similar to third dimension, I wanted an easy, reusable library with a little more flexibility and extendability than simply using graphical primitives.",
       "Daedalus here is posed and drawn with it. Don't get too close or he may whack you."
     ],
     "Upright": [
