@@ -16,8 +16,8 @@ then open http://localhost:8000.
 
 ## Map
 
-- `index.html`: the page.
-- `js/`: the scripts, one job each.
+- `index.html`: the page, and the script that lays it out and runs what is in it.
+- `js/`: the scripts it calls, one job each.
 - `tools/`: the Cloudflare workers, the tests, and the glue that builds the
   WebAssembly.
 - the other top-level folders: the compiled demos (and cicada's film).
