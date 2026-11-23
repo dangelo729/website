@@ -1,4 +1,4 @@
-// the scrubber on the web: the scrubber's core (scrub_core.h) and room for
+// the scrubber on the web: scrubby's playhead (sb::Playhead) and room for
 // the sound it plays, compiled with nothing else into
 // ../../scrub/scrub.wasm, which js/scrub-worklet.js plays a block at a
 // time. the page speaks in seconds, of the sound and of time: where the
@@ -8,13 +8,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "scrub_core.h"
+#include "core/sb_playhead.h"
 
 namespace {
 
 constexpr int kFrames = 128; // a block: a worklet's render quantum
 
-ScrubCore core_;
+sb::Playhead core_;
 int16_t*  sound_ = nullptr; // the sound, the wasm's own to keep
 double    hz_ = 44100.0;    // samples a second, the audio context's
 float     out_[kFrames];

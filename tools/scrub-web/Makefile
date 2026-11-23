@@ -1,20 +1,24 @@
-# the scrubber on the web: the scrubber's core (scrub_core.h) and its glue
-# (web_main.cpp) through emscripten into one standalone wasm,
-# ../../scrub/scrub.wasm, with no javascript glue: js/scrub-worklet.js
-# instantiates it in an audio worklet. its memory grows to hold the sound
-# the page gives it. the core is this repo's for now, in a header of its
-# own that knows nothing of the web.
+# the scrubber on the web: scrubby's playhead (its src/core, a header that
+# knows nothing of the web) and its glue (web_main.cpp) through emscripten
+# into one standalone wasm, ../../scrub/scrub.wasm, with no javascript
+# glue: js/scrub-worklet.js instantiates it in an audio worklet. its memory
+# grows to hold the sound the page gives it. scrubby is read in place and
+# never written.
 #
 #   make          build ../../scrub/scrub.wasm
 #   make clean
 #
 # requires gnu make 3.81 (macos).
 
+WS := $(abspath ../../..)
+SB := $(WS)/scrubby
+
 EMCC  ?= em++
 BUILD := build
 OUT   := ../../scrub/scrub.wasm
 
-FLAGS := -std=c++17 -O2 -w -ffp-contract=off
+FLAGS    := -std=c++17 -O2 -w -ffp-contract=off
+CPPFLAGS := -I$(SB)/src
 
 # no entry, no runtime: the glue's functions and the memory are the exports.
 # the memory starts small and grows as the sound is made room for, up to
@@ -34,9 +38,9 @@ $(OUT): $(BUILD)/web_main.o
 	$(EMCC) $(LDFLAGS) $^ -o $@
 	@chmod 644 $@
 
-$(BUILD)/web_main.o: web_main.cpp scrub_core.h
+$(BUILD)/web_main.o: web_main.cpp $(SB)/src/core/sb_playhead.h
 	@mkdir -p $(dir $@)
-	$(EMCC) $(FLAGS) -c $< -o $@
+	$(EMCC) $(FLAGS) $(CPPFLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(BUILD) $(OUT)
