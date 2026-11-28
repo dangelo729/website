@@ -6,12 +6,13 @@
 // them (of). visitors, visits and where are the page's own. this site's:
 // time, a visitor's time on the site a day; sections, how often each
 // section was opened; work, how often each of work's things was opened,
-// how long it stayed open and its links pressed; and doodles, each one
-// opened and played with. the page hands load what of it they use before
-// any is shown
+// how long it stayed open and its links pressed; doodles, each one
+// opened and played with; and about, how often each of about's things
+// was opened and each of the page's own links pressed. the page hands
+// load what of it they use before any is shown
 
 const Metrics = {
-  SUBS: [['visitors', 'visitors'], ['visits', 'visits'], ['time', 'time'], ['sections', 'sections'], ['work', 'work'], ['doodles', 'doodles'], ['where', 'where']], // each submenu, and what its header says
+  SUBS: [['visitors', 'visitors'], ['visits', 'visits'], ['time', 'time'], ['sections', 'sections'], ['work', 'work'], ['doodles', 'doodles'], ['about', 'about'], ['where', 'where']], // each submenu, and what its header says
   page: null,    // what of the page they use, as load was handed it
   colours: null, // the doodles' colours, in turn, from the bottom of a bar up
 
@@ -40,8 +41,8 @@ const Metrics = {
   wordOf: (name) => name.replace(/-/g, ' '),
 
   // what submenu key holds of the numbers d, a daily graph's or rows', as
-  // the page's specOf has them: time and doodles a daily graph, sections
-  // and work rows
+  // the page's specOf has them: time and doodles a daily graph, sections,
+  // work and about rows
   of(key, d) {
     const { num, pct, count, WINDOW } = Metrics.page, clock = Metrics.clock, wordOf = Metrics.wordOf;
     const days = d.days, today = days[days.length - 1].counts, span = days.length + WINDOW;
@@ -79,6 +80,21 @@ const Metrics = {
       for (const k in c) sumOf[k] = (sumOf[k] || 0) + c[k];
     }
     const of = (k) => sumOf[k] || 0;
+    // about: each of about's things' openings, with how long it stayed
+    // open an opening, and each of the page's own links' presses, the
+    // most first
+    if (key === 'about') {
+      const things = d.names.about || [], links = d.names.links || [];
+      const rows = things.map((n) => {
+        const o = of('item:' + n);
+        return { name: wordOf(n), n: o, tells: 'opened ' + num(o) + ' · ' + clock(o ? of('spent:' + n) / o : 0) + ' each' };
+      }).concat(links.map((n) => ({ name: wordOf(n), n: of('link:' + n), tells: 'pressed ' + num(of('link:' + n)) }))).sort((a, b) => b.n - a.n);
+      const pressed = (c) => links.reduce((s, n) => s + count(c, 'link:' + n), 0);
+      return {
+        nothing: false, whole: rows.reduce((m, r) => Math.max(m, r.n), 0), split: null, rows,
+        says: ['today ' + num(pressed(today)) + ' · ' + span + ' ' + num(sum(pressed)), 'links pressed · things opened ' + num(things.reduce((s, n) => s + of('item:' + n), 0))],
+      };
+    }
     const kind = key === 'sections' ? 'section:' : 'item:', names = key === 'sections' ? d.names.sections : d.names.work;
     const all = names.reduce((s, n) => s + of(kind + n), 0), now = names.reduce((s, n) => s + count(today, kind + n), 0);
     const rows = names.map((n) => {

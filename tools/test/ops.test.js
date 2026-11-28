@@ -11,7 +11,7 @@
 // only to a visitor the gate lets in, anyone else getting the gate page,
 // and every other path as the gate answers it; that bad bodies, too big,
 // not json, not an event, a field missing, unknown or not one it may be, a
-// name not one of SECTIONS, WORK or DOODLES where it must be, a time's s
+// name not one of SECTIONS, WORK, DOODLES, ABOUT or LINKS where it must be, a time's s
 // or a thing's not a whole 1 to SECONDS, are refused and nothing written;
 // that the visitor's cookie is set when there is none or it is not an id,
 // kept, and set again with each opening; that the counts are cut by new
@@ -205,7 +205,7 @@ function toml(text) {
 
 (async () => {
   const worker = (await import(pathToFileURL(path.join(ROOT, 'tools/server/worker.js')).href)).default;
-  const { TALLY, ZONE, SECTIONS, WORK, DOODLES, dayOf } = await import(pathToFileURL(path.join(ROOT, 'tools/server/tally.js')).href);
+  const { TALLY, ZONE, SECTIONS, WORK, DOODLES, ABOUT, LINKS, dayOf } = await import(pathToFileURL(path.join(ROOT, 'tools/server/tally.js')).href);
   const gates = await import(pathToFileURL(path.join(ROOT, 'tools/server/gate.js')).href);
   const PAGE = fs.readFileSync(path.join(ROOT, 'tools/server/gate.html'), 'utf8');
   let GATE = ''; // the gate's cookie, as name=value
@@ -296,7 +296,7 @@ function toml(text) {
     ['a section named as a thing', and(SEC, { name: 'sennheiser' })], ['a section\'s name a list', and(SEC, { name: ['work'] })], ['a section, a field more', and(SEC, { seconds: 5 })],
     ['a thing with no name', { event: 'item' }], ['a thing unknown', and(ITEM, { name: 'nothing' })], ['a thing by its word', and(ITEM, { name: 'Critter & Guitari' })],
     ['a thing named as a section', and(ITEM, { name: 'work' })], ['a thing from the prototype', and(ITEM, { name: 'constructor' })], ['a thing, a field more', and(ITEM, { device: 'phone' })],
-    ['a link with no name', { event: 'link' }], ['a link unknown', and(LINK, { name: 'github' })], ['a link named as a section', and(LINK, { name: 'contact' })],
+    ['a link with no name', { event: 'link' }], ['a link unknown', and(LINK, { name: 'gitlab' })], ['a link named as a section', and(LINK, { name: 'contact' })],
     ['play with no name', { event: 'play' }], ['play, a thing of work', and(PLAY, { name: 'chebble' })], ['play, unknown', and(PLAY, { name: 'pong' })],
     ['a time with no s', { event: 'time', items: {} }], ['a time with no items', { event: 'time', seconds: 30 }], ['a time, a field more', and(TIME, { name: 'work' })],
     ['a time of 0 s', and(TIME, { seconds: 0 })], ['a time below 0', and(TIME, { seconds: -5 })], ['a time not whole', and(TIME, { seconds: 1.5 })],
@@ -400,15 +400,16 @@ function toml(text) {
   env = site();
   at('2026-11-16T15:00:00Z');
   const G = await visitor(env);
-  const ITEMS = [...WORK, ...DOODLES];
-  check('there are sections, things of work and doodles to count', SECTIONS.length > 0 && WORK.length > 0 && DOODLES.length > 0);
+  const ITEMS = [...WORK, ...DOODLES, ...ABOUT];
+  check('there are sections, things of work, doodles, things of about\'s and links of the page\'s own to count', SECTIONS.length > 0 && WORK.length > 0 && DOODLES.length > 0 && ABOUT.length > 0 && LINKS.length > 0);
   const takes = [];
   for (const n of SECTIONS) takes.push({ event: 'section', name: n });
   for (const n of ITEMS) takes.push({ event: 'item', name: n }, { event: 'link', name: n });
   for (const n of DOODLES) takes.push({ event: 'play', name: n });
+  for (const n of LINKS) takes.push({ event: 'link', name: n });
   const refused = [];
   for (const body of takes) if ((await post(env, body, { v: G })).status !== 204) refused.push(body.event + ' ' + body.name);
-  check('every section, every thing and its link, and every doodle played with: taken', refused.length === 0, refused.join(', ') || takes.length + ' events');
+  check('every section, every thing and its link, every doodle played with, and every link of the page\'s own: taken', refused.length === 0, refused.join(', ') || takes.length + ' events');
   const want = Object.assign({}, OPENED);
   for (const b of takes) want[b.event + ':' + b.name] = 1;
   check('each counted as its event and its name, once each', countsAre(env.DB, '2026-11-16', want), JSON.stringify(counts(env.DB, '2026-11-16')));
@@ -416,7 +417,8 @@ function toml(text) {
   for (const n of SECTIONS) for (const event of ['item', 'link', 'play']) if ((await post(env, { event, name: n }, { v: G })).status !== 400) crossed.push(event + ' ' + n);
   for (const n of ITEMS) if ((await post(env, { event: 'section', name: n }, { v: G })).status !== 400) crossed.push('section ' + n);
   for (const n of WORK) if ((await post(env, { event: 'play', name: n }, { v: G })).status !== 400) crossed.push('play ' + n);
-  check('none in another\'s place: a section as a thing, a link or played with, a thing as a section, work as played with: refused', crossed.length === 0, crossed.join(', '));
+  for (const n of LINKS) for (const event of ['section', 'item', 'play']) if ((await post(env, { event, name: n }, { v: G })).status !== 400) crossed.push(event + ' ' + n);
+  check('none in another\'s place: a section as a thing, a link or played with, a thing as a section, work as played with, a link of the page\'s own as anything else: refused', crossed.length === 0, crossed.join(', '));
   check('and nothing more counted', countsAre(env.DB, '2026-11-16', want));
   await post(env, SEC, { v: G });
   await post(env, SEC, { v: G });
@@ -765,7 +767,7 @@ function toml(text) {
   ])), JSON.stringify(b7.days));
   check('timed and median of an odd count the middle one, of an even the two middles\' mean, 25.5 rounded to 26', b7.days[6].counts.median === 60 && b7.days[5].counts.median === 26);
   check('the window\'s median: of its every stay, six, the 3rd and 4th\'s mean, 50.5 to 51', b7.median === 51, b7.median);
-  check('the names: SECTIONS, WORK and DOODLES', same(b7.names, { sections: SECTIONS, work: WORK, doodles: DOODLES }), JSON.stringify(b7.names));
+  check('the names: SECTIONS, WORK, DOODLES, ABOUT and LINKS', same(b7.names, { sections: SECTIONS, work: WORK, doodles: DOODLES, about: ABOUT, links: LINKS }), JSON.stringify(b7.names));
   check('the actives: 2 since the start of the 10th (05:00 utc, to the ms), 4 since the start of oct 18th (04:00 utc, before the clocks went back)',
     same(b7.actives, { week: 2, month: 4 }), JSON.stringify(b7.actives));
   st = await statsOf('?site=dev&days=30');
@@ -790,7 +792,7 @@ function toml(text) {
   st = await statsOf('?site=main&days=7');
   check('main: dangelo.engineering\'s own database, no stays: no timed nor median on any day, its median 0', st.body.site === 'main' && same(st.body.days[6].counts, { visits: 100 }) &&
     st.body.days.slice(0, 6).every((d) => same(d.counts, {})) && same(st.body.actives, { week: 1, month: 1 }) && st.body.median === 0 &&
-    same(st.body.names, { sections: SECTIONS, work: WORK, doodles: DOODLES }), JSON.stringify(st.body));
+    same(st.body.names, { sections: SECTIONS, work: WORK, doodles: DOODLES, about: ABOUT, links: LINKS }), JSON.stringify(st.body));
   const sqls = OP.DEV.batches[OP.DEV.batches.length - 1] || [];
   check('it reads only daily, visitors and stays', sqls.length > 0 && sqls.every((q) => /FROM (daily|visitors|stays)\b/.test(q) && !/\b(events|excluded|gate)\b/.test(q)), sqls.join(' | '));
   const plan = (q) => OP.DEV.db.prepare('EXPLAIN QUERY PLAN ' + q).all(...(q.match(/\?/g) || []).map(() => '')).map((x) => x.detail).join('; ');

@@ -23,7 +23,8 @@
 // reaches any other host. then reads index.html's SECTIONS and checks the
 // names the server takes (tools/server/tally.js) are exactly those the
 // page can send: its sections' and their boxes' sections', the doodles'
-// things, and work's, each name once, and every word the page tells the
+// things, about's, and work's, each name once, the page's own links',
+// a section's and its corner's, by their titles, and every word the page tells the
 // tally a title. last, that index.html's meta description is the first
 // sentence of its About text (js/text.js). exits 1 on failure.
 
@@ -328,15 +329,15 @@ function literal(text, i) {
   }
   check('it is a list made of nothing but values', Array.isArray(list) && list.length > 0, Array.isArray(list) ? list.length + ' sections' : why);
   // every section's title, its boxes' sections' in turn, and the titles of
-  // the things in each, the doodles' apart from the rest
+  // the things in each, the doodles' and about's apart from the rest
   const T2 = page(window());
-  const sections = [], doodles = [], work = [], untitled = [];
+  const sections = [], doodles = [], about = [], work = [], untitled = [];
   const walk = (s) => {
     if (!s || typeof s.title !== 'string') return untitled.push(JSON.stringify(s).slice(0, 40));
     sections.push(s.title);
     for (const it of s.items || []) {
       if (!it || typeof it.title !== 'string') untitled.push(JSON.stringify(it).slice(0, 40));
-      else (s.title === 'Doodles' ? doodles : work).push(it.title);
+      else (s.title === 'Doodles' ? doodles : s.title === 'About' ? about : work).push(it.title);
     }
     for (const sub of s.subs || []) walk(sub);
   };
@@ -345,14 +346,32 @@ function literal(text, i) {
     untitled.join(', ') || sections.length + ' sections, ' + doodles.length + ' doodles, ' + work.length + ' of work');
   const asNames = (words) => words.map((x) => T2.name(x));
   const asSet = (xs) => [...new Set(xs)].sort();
-  const all = asNames([...sections, ...doodles, ...work]);
+  const all = asNames([...sections, ...doodles, ...about, ...work]);
   check('each name once among them all', new Set(all).size === all.length, all.join(' '));
   check('the sections\' names: the server\'s SECTIONS', same(asSet(asNames(sections)), asSet(server.SECTIONS)) && new Set(server.SECTIONS).size === server.SECTIONS.length,
     asNames(sections).join(' ') + ' / ' + server.SECTIONS.join(' '));
   check('the doodles\' names: its DOODLES', same(asSet(asNames(doodles)), asSet(server.DOODLES)) && new Set(server.DOODLES).size === server.DOODLES.length,
     asNames(doodles).join(' ') + ' / ' + server.DOODLES.join(' '));
+  check('about\'s things\' names: its ABOUT', same(asSet(asNames(about)), asSet(server.ABOUT)) && new Set(server.ABOUT).size === server.ABOUT.length,
+    asNames(about).join(' ') + ' / ' + server.ABOUT.join(' '));
   check('every other thing\'s name: its WORK', same(asSet(asNames(work)), asSet(server.WORK)) && new Set(server.WORK).size === server.WORK.length,
     asNames(work).join(' ') + ' / ' + server.WORK.join(' '));
+  // the page's own links: each of a section's own in SECTIONS, by its
+  // title, and each of its corner's (CORNER_LINKS)
+  const own = [], untitledLinks = [];
+  const ownOf = (s) => {
+    for (const l of (s && s.links) || []) (typeof l[2] === 'string' ? own : untitledLinks).push(typeof l[2] === 'string' ? l[2] : String(l[0]));
+    for (const sub of (s && s.subs) || []) ownOf(sub);
+  };
+  for (const s of Array.isArray(list) ? list : []) ownOf(s);
+  const cornerAt = html.indexOf('const CORNER_LINKS = [');
+  let corner = null;
+  try { corner = cornerAt < 0 ? null : vm.runInNewContext('(' + literal(html, cornerAt + 'const CORNER_LINKS = '.length) + ')', {}); } catch (e) {}
+  for (const k of Array.isArray(corner) ? corner : []) (k && typeof k.title === 'string' ? own : untitledLinks).push(k && typeof k.title === 'string' ? k.title : JSON.stringify(k).slice(0, 40));
+  check('every link of the page\'s own, a section\'s or its corner\'s, has a title', Array.isArray(corner) && corner.length > 0 && untitledLinks.length === 0, untitledLinks.join(', ') || own.join(' '));
+  check('their names: the server\'s LINKS', same(asSet(asNames(own)), asSet(server.LINKS)) && new Set(server.LINKS).size === server.LINKS.length,
+    asNames(own).join(' ') + ' / ' + server.LINKS.join(' '));
+  check('none of them a section\'s name or a thing\'s', server.LINKS.every((n) => !all.includes(n)), server.LINKS.join(' '));
   const calls = [...html.matchAll(/Tally\.(section|item|link|play)\(([^)]*)\)/g)];
   const notTitles = calls.filter((m) => !/^[\w.]+\.title$/.test(m[2].trim())).map((m) => m[0]);
   check('every word the page tells the tally of is a title', calls.length > 0 && notTitles.length === 0, notTitles.join(', ') || calls.length + ' calls');

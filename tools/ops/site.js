@@ -3,8 +3,8 @@
 // dangelo.engineering: the domain its me cookie is for, how each of its
 // sites starts, its tally's me cookie and zone, and what its /stats reads
 // and answers past every site's numbers (stats.js): each day's time on the
-// site, from stays, and what the page's sections and things are counted
-// as. the answer's own, json, after actives:
+// site, from stays, and what the page's sections, things and own links
+// are counted as. the answer's own, json, after actives:
 //
 //   {
 //     ...
@@ -13,11 +13,12 @@
 //       ...                         // timed, the visitors whose time on the site that day is
 //     ],                            // known, and median, the middle one's s; neither with none
 //     median: n,                    // the middle s of every visitor's every day in the window, 0 with none
-//     names: { sections: [...], work: [...], doodles: [...] }, // what the page's sections and
-//                                   // the things in them are counted as
+//     names: { sections: [...], work: [...], doodles: [...], about: [...], links: [...] },
+//                                   // what the page's sections, the things in them and
+//                                   // its own links are counted as
 //   }
 
-import { TALLY, ZONE, SECTIONS, WORK, DOODLES, dayOf } from '../server/tally.js';
+import { TALLY, ZONE, SECTIONS, WORK, DOODLES, ABOUT, LINKS, dayOf } from '../server/tally.js';
 
 export const SITE = {
   DOMAIN: 'dangelo.engineering',      // the me cookie's: every site under it
@@ -43,7 +44,7 @@ function adds(got, counts, span) {
     all.push(r.seconds);
   }
   for (const d of span) if (stays[d].length) Object.assign(counts[d], { timed: stays[d].length, median: median(stays[d]) });
-  return { median: median(all), names: { sections: SECTIONS, work: WORK, doodles: DOODLES } };
+  return { median: median(all), names: { sections: SECTIONS, work: WORK, doodles: DOODLES, about: ABOUT, links: LINKS } };
 }
 
 // the middle of ns, a list of numbers: of an even count, the two in the

@@ -92,7 +92,8 @@
   <script src="../../js/icons.js"></script>
   <script>
     // the page's words (js/text.js): a section's text under its title, a
-    // paragraph each, or its items' texts under theirs. the editor shows a
+    // paragraph each, or its items' texts under theirs, and the text of an
+    // item of a section with text of its own under its own. the editor shows a
     // field for every text, a paragraph a line, with the page beside them;
     // ⌘S writes js/text.js back through serve.py and the page beside takes
     // the words as they now are.
@@ -100,6 +101,9 @@
 // tools/text/serve.py): edit there, not here. a section's text is under
 // its title, a paragraph each; a section of items has each item's under
 // the item's title, and an item with none shows lorem ipsum (index.html).
+// an item of a section that has text of its own has its text under its
+// own title, beside the sections'; a paragraph of an item's that starts
+// with a bullet is an entry of a list.
 `;
 
     // the mute button's icons, the light and dark switch and its ball, monk

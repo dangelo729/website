@@ -2,11 +2,21 @@
 // tools/text/serve.py): edit there, not here. a section's text is under
 // its title, a paragraph each; a section of items has each item's under
 // the item's title, and an item with none shows lorem ipsum (index.html).
+// an item of a section that has text of its own has its text under its
+// own title, beside the sections'; a paragraph of an item's that starts
+// with a bullet is an entry of a list.
 const TEXT = {
   "About": [
     "Hi! I'm Peter, an inventor, software engineer, and musician based in NYC. I graduated from New York University in December 2024 with a double major in Computer Science and Music Technology.",
     "I have since worked on a variety of projects, including consumer electronics with BrandNewNoise and Critter & Guitari, ambitious musical instruments like Cicada, embedded machine learning models, open source tools for others to make use of, design-forward software engineering projects developed both independently and in a team setting, and many more.",
     "Today I'm a software engineer at Sennheiser, building SoundBase, a live-audio app for touring crews and audio engineers. I'm fascinated by the intersection between music and technology, and continue to explore their combination."
+  ],
+  "Hobbies": [
+    "• climbing",
+    "• chess",
+    "• designing musical devices",
+    "• making music",
+    "• creative coding"
   ],
   "Professional": {
     "Sennheiser": [

@@ -473,7 +473,7 @@
       GUTTER: 1.5,   // ems between the text and the photo
       MEASURE: 40,   // ems the text may run across, wide, with no photo beside it
       SLACK: 1,      // ems from the insides' furthest ink right to the edge's padding, in a box with no photo
-      ITEM: 1.3,     // of the text's size: the items' (a caret and a name each), in a box that has them
+      ITEM: 1.3,     // of the text's size: the items' (a caret and a name each), in a box that has them and no text of its own; under text of the box's own they are the text's size
       ROW: 1.9,      // the items' ems, baseline to baseline, every one shut
       CARET: 0.45,   // the items' ems from the caret's ink to the name's
       DROP: 0.6,     // the items' ems from under a name to its text's top
@@ -530,6 +530,7 @@
     const onType = new Type('>', () => document.createElement('canvas'), TAG.FACE);
     Menu.load(() => document.createElement('canvas')); // the menus' caret, Menu.caret: a > in UI.FACE (js/ui.js), the face TAG.FACE is
     const LINK_SEP = ' | '; // between an item's links
+    const BULLET = '\u2022'; // what a paragraph of an item's text starts with to be an entry of a list: no PARA between it and the entry after
 
     // each section: its word, what goes in its box (paragraphs of type,
     // and the photo or not, or items) and, laid out, its
@@ -540,7 +541,10 @@
     // drawn as the box, not as a letter. a section's text and each item's
     // are js/text.js's (readText, below). subs: the sections its box holds
     // in place of text or items, each written as a section is. links: a
-    // section's own, a label and its site each, on a line under its text
+    // section's own, a label, its site and its title each, what a press on
+    // it is counted as (js/tally.js), on a line under its text.
+    // a section with text of its own and items has the items under its
+    // text and its links, each one's text under its own title in js/text.js
     const SECTIONS = [
       { title: 'Work',              photo: false, o: 0, subs: [
         { title: 'Professional',      photo: false, o: 0, items: [
@@ -563,7 +567,9 @@
         { title: 'Bubble Bob', game: true },
         { title: 'Graffiti Wall', wall: true },
       ] },
-      { title: 'About',             photo: true,  o: 0, links: [['github.com/dangelo729', 'https://github.com/dangelo729'], ['linkedin.com/in/peter-dangelo', 'https://www.linkedin.com/in/peter-dangelo/']] },
+      { title: 'About',             photo: true,  o: 0, links: [['github.com/dangelo729', 'https://github.com/dangelo729', 'GitHub'], ['linkedin.com/in/peter-dangelo', 'https://www.linkedin.com/in/peter-dangelo/', 'LinkedIn']], items: [
+        { title: 'Hobbies' },
+      ] },
       { title: 'Contact',           photo: false, o: 0 },
     ];
     // every section as it is written, one in another's box straight after
@@ -581,9 +587,9 @@
       body: [],         // its text, a paragraph each, as type (readText)
       // its own links, on a line of their own under its text, LINK_SEP
       // between, as an item's are: linkType is the line, and each link
-      // { label, url } is laid out with its letters, the baseline they
-      // stand on (base) and the box round them (hit)
-      links: (s.links || []).map(([label, url]) => ({ label, url, letters: [], base: 0, hit: null })),
+      // { label, url, title } is laid out with its letters, the baseline
+      // they stand on (base) and the box round them (hit)
+      links: (s.links || []).map(([label, url, title]) => ({ label, url, title, letters: [], base: 0, hit: null })),
       linkType: new Type((s.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
       box: {
         open: false,  // where it is going: open, or back into the o
@@ -656,6 +662,7 @@
       })),
       rest: 0,
       restX1: 0,
+      low: 0,           // the least its box's bottom is, its own text's and photo's, with items under them; 0 in a box of items alone (layoutItems)
       // with sections in its box, rest and restX1 are its bottom and right
       // with every one of theirs shut (layoutSubs)
       pad: 0,           // its word's ink to its box's edge, world px (layoutBox)
@@ -695,13 +702,17 @@
     const tops = sections.filter((s) => !s.up);
     // whether a section's box is open, and the box it is in, or out of
     // its o, as they are
+    // whether a section's box holds text or a photo of its own, its items
+    // under them
+    const ownText = (s) => s.body.length > 0 || s.photo;
     const openBox = (s) => s.box.open && (!s.up || openBox(s.up));
     const shownBox = (s) => s.box.shown && (!s.up || shownBox(s.up));
 
     // every section's text and every item's as type, a paragraph each, from
     // text (TEXT, js/text.js): a section's is under its title there, an
-    // item's under its own title under its section's, and an item with
-    // none has lorem ipsum
+    // item's under its own title under its section's, or, where the
+    // section has text of its own, under its own title beside the
+    // sections', and an item with none has lorem ipsum
     function readText(text) {
       const types = (words) => words.map((p) => new Type(p, () => document.createElement('canvas'), TAG.FACE));
       for (const s of sections) {
@@ -709,7 +720,7 @@
         const whole = Array.isArray(words);
         s.body = whole ? types(words) : [];
         for (const it of s.items) {
-          const own = whole ? null : words[it.title];
+          const own = whole ? text[it.title] : words[it.title];
           it.body = own && own.length ? types(own) : loremTypes;
         }
       }
@@ -1023,7 +1034,7 @@
         box.close = { x: ix0, y: cy, w: xw, h: xh, strip: [y0, cy + xh + 0.45 * bs], letter: Letter.make(xg, ix0 + xw / 2, cy + xh / 2, seed - 1, xs, LETTER.WOBBLE) };
       }
       const top = box.close ? box.close.y + box.close.h + 0.9 * bs : under;
-      if (s.items.length) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
+      if (s.items.length && !ownText(s)) return layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
       if (s.subs.some((o) => o.type.glyphs.length)) return layoutSubs(s, name, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1);
       // the caption under the photo's frame, and how tall it stands with
       // its gap (capTall): as tall as the slide with the most lines has it,
@@ -1139,6 +1150,9 @@
       // if that is wider, so it covers the word
       box.full = s.photo ? { x0, y0, x1, y1: Math.max(rest, inside + pad), r: BOX.RADIUS * size }
         : { x0, y0, x1: Math.min(x1, Math.max(right, s.ink.x1) + BOX.SLACK * bs + pad), y1: inside + pad, r: BOX.RADIUS * size };
+      // its items under its text and its links, in the text's column, the
+      // first as far under the text's bottom as a box of items' is under its x
+      if (s.items.length) layoutItems(s, last + 1.2 * bs, ix0, ix0 + tw, bs, stacked, pad, size, x0, y0, x1);
     }
 
     // a box's items down it from top, under the x: each its caret, its ink
@@ -1151,6 +1165,10 @@
     // box is only as big as its rows, SLACK past the widest, or its word if
     // that is wider, so it covers the word; it grows down by each item's
     // bubble as it opens, and across to the widest text opening (grow).
+    // under text of the box's own (layoutBox), top is under that text, ix1
+    // its column's right, the items are the text's size, and the
+    // box is never smaller than the text and the photo have it already. a paragraph of an item's text that starts
+    // with BULLET is an entry of a list, the entry after it a line on.
     // bubble bob's o is the bubble itself: its place (ring) is round, BOB
     // of the box's word's o's longer way across, its left and bottom where
     // his o's ink's are, the glyphs after it pushed right to make room and
@@ -1160,7 +1178,7 @@
     // insides and BUBBLE of About's box's height, the bubble's world (room)
     // inside it
     function layoutItems(s, top, ix0, ix1, bs, stacked, pad, size, x0, y0, x1) {
-      const seed = BOX.FIRST + 10000 * s.n, is = BOX.ITEM * bs, ik = is / TYPE.EM, bk = bs / TYPE.EM;
+      const seed = BOX.FIRST + 10000 * s.n, is = (ownText(s) ? 1 : BOX.ITEM) * bs, ik = is / TYPE.EM, bk = bs / TYPE.EM;
       // a bubble's padding across, and how far right its ink may reach
       const bx = BOX.ITEM_PAD_X * is, rx = ix1 - bx;
       // the first name's baseline, its bubble's top at top
@@ -1355,7 +1373,8 @@
             tl = tb;
             tb += BOX.LEAD * bs;
           }
-          tb += BOX.PARA * bs;
+          const next = it.body[p + 1];
+          if (!(pt.text.startsWith(BULLET) && next && next.text.startsWith(BULLET))) tb += BOX.PARA * bs;
         });
         // its links, a paragraph on under the text: each link's own
         // letters, the separators with the text's
@@ -1393,12 +1412,14 @@
         base += BOX.ROW * is;
       });
       // the box's right with every item shut, and how much further each
-      // item's text takes it
-      const edge = (r) => Math.min(x1, r + BOX.SLACK * bs + pad);
+      // item's text takes it; neither it nor the box's bottom (low) less
+      // than the box's own text and photo have them, laid out already
+      const own = s.box.full, edge = (r) => Math.min(x1, r + BOX.SLACK * bs + pad);
+      s.low = own ? own.y1 : 0;
       s.rest = s.items[s.items.length - 1].shut.y1 + pad;
-      s.restX1 = edge(Math.max(s.ink.x1, ...s.items.map((it) => it.hit.x1)));
+      s.restX1 = Math.max(own ? own.x1 : -Infinity, edge(Math.max(s.ink.x1, ...s.items.map((it) => it.hit.x1))));
       for (const it of s.items) it.wide = Math.max(0, edge(it.right) - s.restX1);
-      s.box.full = { x0, y0, x1: s.restX1, y1: s.rest, r: BOX.RADIUS * size };
+      s.box.full = { x0, y0, x1: s.restX1, y1: Math.max(s.low, s.rest), r: BOX.RADIUS * size };
       grow(s);
       // each item's skin settled where its bubble is now: laid out again,
       // it is put straight there, as a box's is. bubble bob's and graffiti
@@ -1460,8 +1481,9 @@
     }
 
     // a box's accordions where they have got to: each item pushed down by
-    // the texts opened above it, the box's bottom by all of them and its
-    // right out by the furthest any has got across
+    // the texts opened above it, the box's bottom by all of them, no
+    // higher than its own text and photo have it (low), and its right out
+    // by the furthest any has got across
     function grow(s) {
       if (!s.items.length || !s.box.full) return;
       let shift = 0, wide = 0;
@@ -1470,7 +1492,7 @@
         shift += it.p * it.ext;
         wide = Math.max(wide, it.p * it.wide);
       }
-      s.box.full.y1 = s.rest + shift;
+      s.box.full.y1 = Math.max(s.low, s.rest + shift);
       s.box.full.x1 = s.restX1 + wide;
     }
 
@@ -1491,7 +1513,7 @@
     function willPush(s) {
       const b = s.box;
       if (!s.ink || !b.shown || !b.full) return 0;
-      const y1 = s.items.length ? s.rest + s.items.reduce((a, it) => a + Math.max(it.p, it.open ? 1 : 0) * it.ext, 0)
+      const y1 = s.items.length ? Math.max(s.low, s.rest + s.items.reduce((a, it) => a + Math.max(it.p, it.open ? 1 : 0) * it.ext, 0))
         : s.subs.length ? s.rest + subsPush(s, willPush) : b.full.y1;
       return Math.max(0, (b.open ? y1 : b.shut.y1 + (y1 - b.shut.y1) * b.p) - s.ink.y1);
     }
@@ -1844,7 +1866,9 @@
     // box's items, its caret, its name
     // or right of them to the box's edge (bubble bob's and graffiti
     // wall's only as far as the bubble's right shut, so the game or the
-    // wall beside it is free), a little above
+    // wall beside it is free, and one's under text of the box's own as
+    // far as its bubble's right where it has opened to, the photo beside
+    // it), a little above
     // and below,
     // { s, it }; one of an item's links, as far as its text has opened to
     // show it, a little round it, { s, it, link }; an item's demo's
@@ -1937,7 +1961,8 @@
                 if (inside(sm.full, 0)) return { s, it, settings: true };
               }
             }
-            if (x >= h.x0 - 4 && x <= (it.game || it.wall ? it.shut.x1 : b.x1) && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
+            const reach = it.game || it.wall ? it.shut.x1 : ownText(s) ? it.shut.x1 + (it.full.x1 - it.shut.x1) * it.p : b.x1;
+            if (x >= h.x0 - 4 && x <= reach && iy >= h.y0 - hy && iy <= h.y1 + hy) return { s, it };
             if (it.p > 0 && iy <= it.clip + it.p * it.span) for (const link of it.links) {
               const k = link.hit;
               if (!k) continue;
@@ -2023,8 +2048,9 @@
     // (muteAt, below), the switch sends the page to its other end, dark or
     // light (Switch.send, js/switch.js), one of the corner's links opens
     // its site in a new tab (the corner's links, below), the x shuts its
-    // box, a link opens its site in a new tab, an item's counted
-    // (js/tally.js), the slideshow's < shows the slide before and its > or its photo
+    // box, a link opens its site in a new tab, each press counted
+    // (js/tally.js), an item's link as its item and the page's own as
+    // itself, the slideshow's < shows the slide before and its > or its photo
     // the one after, an item opens or shuts its text, a word opens its box;
     // a button of the shop's buys a level of its upgrade, the demo's
     // menu's button gives its singer a new voice (Monk.randomize), and
@@ -2064,12 +2090,17 @@
       if (muteAt(p.x, p.y)) { setMuted(!Mute.on); return; }
       if (switchAt(p.x, p.y)) { Switch.send(Switch.to < 0.5 ? 1 : 0); return; }
       const out = cornerLinkAt(p.x, p.y);
-      if (out) { window.open(out.url, '_blank', 'noopener'); return; }
+      if (out) {
+        window.open(out.url, '_blank', 'noopener');
+        Tally.link(out.title);
+        return;
+      }
       const h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) {
         window.open(h.link.url, '_blank', 'noopener');
         if (h.it) Tally.link(h.it.title);
+        else Tally.link(h.link.title);
       }
       else if (h.buy) buy(h.buy);
       else if (h.randomize) Monk.randomize();
@@ -2301,17 +2332,18 @@
     // (js/icons.js), each an icon (js/icon.js) drawn as the mute button's
     // are, wobbling, its paper and then its ink, its ink in the first tag
     // colour while a mouse is over it. a click on one, or a little round
-    // it, opens its site in a new tab (the click, above), and a press on
-    // it presses nothing under it
+    // it, opens its site in a new tab (the click, above), counted by its
+    // title as about's link to the same site is (js/tally.js), and a
+    // press on it presses nothing under it
     const CORNER_LINKS = [
-      { icon: 'github', url: 'https://github.com/dangelo729' },
-      { icon: 'linkedin', url: 'https://www.linkedin.com/in/peter-dangelo/' },
+      { title: 'GitHub', icon: 'github', url: 'https://github.com/dangelo729' },
+      { title: 'LinkedIn', icon: 'linkedin', url: 'https://www.linkedin.com/in/peter-dangelo/' },
     ];
     const LINK_ICON = {
       SCALE: LETTER.SCALE, // of an icon's px, as the mute button's
       SEED: 99300,         // the first's wobble's, a hundred a link, clear of the switch's
     };
-    let cornerLinks = []; // each link that has an icon, { url, art }: its site and its icon where it stands (Icon.make)
+    let cornerLinks = []; // each link that has an icon, { title, url, art }: its title, its site and its icon where it stands (Icon.make)
 
     // each link's icon, left to right as CORNER_LINKS has them: the last
     // CORNER.GAP clear of the switch's left, or of the scroll hand's with
@@ -2324,7 +2356,7 @@
       for (let i = CORNER_LINKS.length - 1; i >= 0; i--) {
         const k = CORNER_LINKS[i], art = Icon.make(iconRows[k.icon], right, H - CORNER.EDGE, LINK_ICON.SEED + 100 * i, LINK_ICON.SCALE);
         if (!art) continue;
-        cornerLinks.push({ url: k.url, art });
+        cornerLinks.push({ title: k.title, url: k.url, art });
         right -= art.ink.g.w * art.ink.scale + CORNER.GAP;
       }
     }

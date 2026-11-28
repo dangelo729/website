@@ -12,7 +12,7 @@
 // opened (open), once a load, a phone where the pointer is coarse and else
 // a desktop; each section's box as it opens (section) and each thing as it
 // opens (item), by the word the page shows, sent as its name (name); each
-// press on a thing's link (link); and each doodle played with (play), sent
+// press on a thing's link, or on one of the page's own (link); and each doodle played with (play), sent
 // once a load for each. every frame it is told the frame's ms and the
 // things open then (frame): the s since the frame before, unless they are
 // GAP or more, are spent on the page and on each of those; and when the
@@ -64,7 +64,8 @@ const Tally = {
     this.send({ event: 'item', name: this.name(word) });
   },
 
-  // a link of a thing's pressed, by the thing's word
+  // a link of a thing's pressed, by the thing's word, or one of the
+  // page's own, by its own
   link(word) {
     this.send({ event: 'link', name: this.name(word) });
   },

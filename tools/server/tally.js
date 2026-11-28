@@ -5,8 +5,9 @@
 // SHAPES with every field one it allows: anything else is refused, 400,
 // and nothing is written. a section and a thing in one are named as the
 // page names them, its word in small letters with a - for whatever is
-// between them (SECTIONS, WORK and DOODLES, each what index.html's
-// SECTIONS holds). the visitor is a random id in a cookie of the site's
+// between them (SECTIONS, WORK, DOODLES and ABOUT, each what index.html's
+// SECTIONS holds), and one of the page's own links by its title, named the
+// same way (LINKS: its corner's, and about's to the same sites). the visitor is a random id in a cookie of the site's
 // own (TALLY.COOKIE), set when there is none or it is not an id, and set
 // again with every opening, so it lasts TALLY.DAYS from the last. the
 // country is cloudflare's, kept only as its two letters; no address and no
@@ -18,7 +19,7 @@
 // opening of the day, with device:<device> and country:<cc> ('-' for none
 // known); new, a visitor's first opening ever; section:<name>, a section's
 // box opened; item:<name>, a thing in one opened; link:<name>, a link of
-// a thing's pressed; play:<name>, a doodle played with; and of a time,
+// a thing's pressed, or one of the page's own; play:<name>, a doodle played with; and of a time,
 // spent:<name>, the s a thing was open, while the s on the site are added
 // to the visitor's for the day in stays. every answer asks not to be
 // cached nor indexed.
@@ -33,11 +34,14 @@ export const TALLY = {
   SECONDS: 86400, // the most s a time may say, of the site or of one thing
 };
 
-// the page's sections, and the things in them: work's and the doodles
+// the page's sections, and the things in them: work's, the doodles and
+// about's
 export const SECTIONS = ['work', 'professional', 'personal', 'doodles', 'about', 'contact'];
 export const WORK = ['sennheiser', 'brandnewnoise', 'critter-guitari', 'third-dimension', 'second-dimension', 'monk-mouth', 'upright', 'scrubby', 'chebble', 'cicada', 'this-website'];
 export const DOODLES = ['bubble-bob', 'graffiti-wall'];
-const ITEMS = [...WORK, ...DOODLES];
+export const ABOUT = ['hobbies'];
+export const LINKS = ['github', 'linkedin']; // the page's own links out
+const ITEMS = [...WORK, ...DOODLES, ...ABOUT];
 
 const DAY_S = 86400;
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/; // a visitor's id, as crypto.randomUUID makes them
@@ -54,7 +58,7 @@ const SHAPES = [
   { event: is('open'), device: oneOf('phone', 'desktop') },
   { event: is('section'), name: oneOf(...SECTIONS) },
   { event: is('item'), name: oneOf(...ITEMS) },
-  { event: is('link'), name: oneOf(...ITEMS) },
+  { event: is('link'), name: oneOf(...ITEMS, ...LINKS) },
   { event: is('play'), name: oneOf(...DOODLES) },
   { event: is('time'), seconds: span, items: spans },
 ];

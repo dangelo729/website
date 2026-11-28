@@ -7,7 +7,9 @@
 // after them, the sections in its box a level down, and each of its items
 // a heading a level down with its text and its links, as the page shows
 // them, sep between. a link opens in a new tab, as one pressed on the
-// page does. an item with no text has none here.
+// page does. an item's text is under its title under its section's in
+// text, or, where the section has text of its own, under its own title
+// beside the sections'. an item with no text has none here.
 
 const Words = {
   // the words appended to into (the canvas), made with doc: name the
@@ -42,7 +44,7 @@ const Words = {
       for (const o of s.subs || []) section(o, level + 1);
       for (const it of s.items || []) {
         add(into, 'h' + (level + 1), it.title);
-        for (const p of (!whole && words[it.title]) || []) add(into, 'p', p);
+        for (const p of (whole ? text[it.title] : words[it.title]) || []) add(into, 'p', p);
         links(it.links || []);
       }
     };

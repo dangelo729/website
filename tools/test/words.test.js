@@ -6,7 +6,8 @@
 // else: the name a heading first, each section a heading with its text a
 // paragraph each and its own links after them, the sections in its box
 // and its items a level down, an
-// item's text after its heading and its links after that, each a real
+// item's text after its heading and its links after that, the text of
+// an item of a section with text of its own from under its own title, each a real
 // link that opens in a new tab, the separator between them, and an item
 // with no text a heading alone. then builds them from index.html's
 // SECTIONS and js/text.js's TEXT and checks every paragraph and every
@@ -54,11 +55,12 @@ const SECTIONS = [
     ] },
   ] },
   { title: 'Doodles', photo: false, o: 0, items: [{ title: 'Bubble Bob', game: true }] },
-  { title: 'About', photo: true, o: 0, links: [['about.example', 'https://about.example']] },
+  { title: 'About', photo: true, o: 0, links: [['about.example', 'https://about.example']], items: [{ title: 'Likes' }] },
   { title: 'Contact', photo: false, o: 0 },
 ];
 const TEXT = {
   About: ['First.', 'Second.'],
+  Likes: ['Tea.', 'Rain.'],
   Personal: { One: ['One\'s first.', 'One\'s second.'], Three: [] },
   Contact: ['Write!', 'me@example.com', '+1 555-0100'],
 };
@@ -75,6 +77,7 @@ const want = [
   'h2 Doodles',
   'h3 Bubble Bob',
   'h2 About', 'p First.', 'p Second.', 'p a about.example',
+  'h3 Likes', 'p Tea.', 'p Rain.',
   'h2 Contact', 'p Write!', 'p me@example.com', 'p +1 555-0100',
 ];
 check('the name, the sections, their boxes\' sections and items, each its text and links, in order', got.join('\n') === want.join('\n'), got.join('\n') === want.join('\n') ? '' : '\n' + got.join('\n'));
@@ -85,7 +88,7 @@ check('nothing made that is not in the canvas', doc.made === canvas.children.len
 const again = element('canvas');
 Words.build(doc, again, 'A Name', SECTIONS, {}, ' | ');
 const bare = ['h1 A Name', 'h2 Work', 'h3 Personal', 'h4 One', 'p a one.com | a github.com/one', 'h4 Two', 'h4 Three', 'p a three.org',
-  'h2 Doodles', 'h3 Bubble Bob', 'h2 About', 'p a about.example', 'h2 Contact'];
+  'h2 Doodles', 'h3 Bubble Bob', 'h2 About', 'p a about.example', 'h3 Likes', 'h2 Contact'];
 check('with no text at all: the headings and the links alone', lines(again).join('\n') === bare.join('\n'), lines(again).join('\n') === bare.join('\n') ? '' : '\n' + lines(again).join('\n'));
 
 // --- the page's own ----------------------------------------------------------------
