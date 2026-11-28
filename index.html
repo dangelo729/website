@@ -123,6 +123,7 @@
       placeMute();
       placeHand();
       placeSwitch();
+      placeLinks();
       layout();
     }
 
@@ -538,7 +539,8 @@
     // o is which of the word's o's, from 0, its shut box is: that o is
     // drawn as the box, not as a letter. a section's text and each item's
     // are js/text.js's (readText, below). subs: the sections its box holds
-    // in place of text or items, each written as a section is
+    // in place of text or items, each written as a section is. links: a
+    // section's own, a label and its site each, on a line under its text
     const SECTIONS = [
       { title: 'Work',              photo: false, o: 0, subs: [
         { title: 'Professional',      photo: false, o: 0, items: [
@@ -561,7 +563,7 @@
         { title: 'Bubble Bob', game: true },
         { title: 'Graffiti Wall', wall: true },
       ] },
-      { title: 'About',             photo: true,  o: 0 },
+      { title: 'About',             photo: true,  o: 0, links: [['github.com/dangelo729', 'https://github.com/dangelo729'], ['linkedin.com/in/peter-dangelo', 'https://www.linkedin.com/in/peter-dangelo/']] },
       { title: 'Contact',           photo: false, o: 0 },
     ];
     // every section as it is written, one in another's box straight after
@@ -577,6 +579,12 @@
       ink: null,        // the word's ink box, { x0, y0, x1, y1 }
       off: 0,           // whole world px
       body: [],         // its text, a paragraph each, as type (readText)
+      // its own links, on a line of their own under its text, LINK_SEP
+      // between, as an item's are: linkType is the line, and each link
+      // { label, url } is laid out with its letters, the baseline they
+      // stand on (base) and the box round them (hit)
+      links: (s.links || []).map(([label, url]) => ({ label, url, letters: [], base: 0, hit: null })),
+      linkType: new Type((s.links || []).map((l) => l[0]).join(LINK_SEP), () => document.createElement('canvas'), TAG.FACE),
       box: {
         open: false,  // where it is going: open, or back into the o
         shown: false, // out of the o: from a press until it is back in it
@@ -967,6 +975,7 @@
         s.show = s.photoAt = s.room = null;
         s.ink = s.box.shut = s.box.full = s.box.close = null;
         s.skin = null;
+        for (const k of s.links) { k.letters = []; k.hit = null; }
       }
       const ems = (s) => (s.type.left + s.type.right) / TYPE.EM;
       const laid = name ? tops.filter((s) => s.type.glyphs.length) : [];
@@ -1045,8 +1054,23 @@
         px = ix1 - pw;
         tw = px - BOX.GUTTER * bs - ix0;
       } else if (s.photo && pw < across) capH = capTall(drop = 1);
-      // the text in lines, and how tall they stand
+      // where each link's label starts in the links' line, and the link a
+      // glyph of that line at at is in: none for a separator's
+      let from = 0;
+      const starts = s.links.map((k) => { const at = from; from += k.label.length + LINK_SEP.length; return at; });
+      const linkOf = (at) => s.links.find((k, j) => at >= starts[j] && at < starts[j] + k.label.length);
+      // the text in lines, its links a paragraph on under it, and how tall
+      // they stand: the links on one line where that fits across, else a
+      // line each, with no separators
       const paras = s.body.map((t) => wrapType(t, tw / bk));
+      const linked = s.links.length > 0 && s.linkType.glyphs.length > 0;
+      if (linked) {
+        const whole = wrapType(s.linkType, tw / bk);
+        paras.push(whole.length < 2 ? whole : s.links.map((k) => {
+          const glyphs = s.linkType.glyphs.filter((gl) => linkOf(gl.at) === k);
+          return { glyphs, left: Math.min(...glyphs.map((gl) => gl.x + gl.dx - gl.g.w / 2)), right: Math.max(...glyphs.map((gl) => gl.x + gl.dx + gl.g.w / 2)) };
+        }));
+      }
       const lines = paras.reduce((n, p) => n + p.length, 0);
       const textH = 1.05 * bs + (lines - 1) * BOX.LEAD * bs + (paras.length - 1) * BOX.PARA * bs;
       let inside = top; // the insides' bottom
@@ -1089,15 +1113,26 @@
       }
       let base = ty + 0.75 * bs, last = base, right = ix0;
       paras.forEach((lines, p) => {
+        const own = linked && p === paras.length - 1; // the links': each link's letters its own, the separators' with the text's
         for (const line of lines) {
           right = Math.max(right, ix0 + bk * (line.right - line.left));
-          for (const gl of line.glyphs)
-            s.bodyLetters.push(Letter.make(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, seed + 1000 * p + gl.at, bk, LETTER.WOBBLE));
+          for (const gl of line.glyphs) {
+            const L = Letter.make(gl.g, ix0 + bk * (gl.x + gl.dx - line.left), base + bk * gl.dy, seed + 1000 * p + gl.at, bk, LETTER.WOBBLE);
+            const k = own && linkOf(gl.at);
+            if (k) { k.letters.push(L); k.base = base; }
+            else s.bodyLetters.push(L);
+          }
           last = base;
           base += BOX.LEAD * bs;
         }
         base += BOX.PARA * bs;
       });
+      // each link's box: its label's ink across, the line's down
+      for (const k of s.links) {
+        if (!k.letters.length) continue;
+        const x0 = Math.min(...k.letters.map((L) => L.cx - bk * L.g.w / 2)), x1 = Math.max(...k.letters.map((L) => L.cx + bk * L.g.w / 2));
+        k.hit = { x0, y0: k.base - bk * s.linkType.ascent, x1, y1: k.base + bk * s.linkType.descent };
+      }
       inside = Math.max(inside, last + 0.3 * bs);
       // with the photo it reaches across the window and as far down as
       // the window's bottom is under the first word; without, only as far as its text, and SLACK, or its word
@@ -1566,6 +1601,11 @@
       const lo = Math.max(y0, 0) - BOX.MOST, hi = Math.min(y1, H) + BOX.MOST;
       const near = (L) => L.cy - sy > lo && L.cy - sy < hi && L.cx > x0 - BOX.MOST && L.cx < x1 + BOX.MOST;
       for (const L of s.bodyLetters) if (near(L)) L.draw(t, -sy, into);
+      // its own links, each in the items' hover colour while hover is on it
+      for (const k of s.links) {
+        const v = hover && hover.link === k ? tint(s, 1) : undefined;
+        for (const L of k.letters) if (near(L)) L.draw(t, -sy, into, 0, v);
+      }
       // the slideshow's: the < in the items' hover colour while hover is
       // on it, the > while hover is on it or on the photo
       const f = s.show;
@@ -1790,7 +1830,8 @@
     // finger) or anywhere in the strip across the box's top (short of the
     // photo's frame up there), { s, close }; the slideshow's < or >, a
     // little round it as the x is, or the photo's frame, { s, slide }, -1
-    // for the < and 1 for the rest; the shop's menu, while bubble bob is
+    // for the < and 1 for the rest; one of the box's own links, a little
+    // round it, { s, link }; the shop's menu, while bubble bob is
     // open, { s, shop }, its header with menu, the menu's state, and a
     // button with buy, its key; an item's demo's settings menu (monk
     // mouth's or upright's), as far as its text
@@ -1874,6 +1915,12 @@
             };
             if (near(f.back)) return { s, slide: -1 };
             if (near(f.on) || (x >= f.x && x <= f.x + f.w && py >= f.y && py <= f.y + f.h)) return { s, slide: 1 };
+          }
+          for (const link of s.links) {
+            const k = link.hit;
+            if (!k) continue;
+            const ky = Math.max(3, (16 - (k.y1 - k.y0)) / 2);
+            if (x >= k.x0 - 3 && x <= k.x1 + 3 && py >= k.y0 - ky && py <= k.y1 + ky) return { s, link };
           }
           const sub = hitAt(x, y, s.subs);
           if (sub) return sub;
@@ -1974,8 +2021,10 @@
 
     // a click: the mute button mutes the page or gives it its sound back
     // (muteAt, below), the switch sends the page to its other end, dark or
-    // light (Switch.send, js/switch.js), the x shuts its box, a link opens its site in a new
-    // tab, the slideshow's < shows the slide before and its > or its photo
+    // light (Switch.send, js/switch.js), one of the corner's links opens
+    // its site in a new tab (the corner's links, below), the x shuts its
+    // box, a link opens its site in a new tab, an item's counted
+    // (js/tally.js), the slideshow's < shows the slide before and its > or its photo
     // the one after, an item opens or shuts its text, a word opens its box;
     // a button of the shop's buys a level of its upgrade, the demo's
     // menu's button gives its singer a new voice (Monk.randomize), and
@@ -2014,11 +2063,13 @@
       const p = View.pointer(e);
       if (muteAt(p.x, p.y)) { setMuted(!Mute.on); return; }
       if (switchAt(p.x, p.y)) { Switch.send(Switch.to < 0.5 ? 1 : 0); return; }
+      const out = cornerLinkAt(p.x, p.y);
+      if (out) { window.open(out.url, '_blank', 'noopener'); return; }
       const h = hitAt(p.x, p.y);
       if (!h) return;
       if (h.link) {
         window.open(h.link.url, '_blank', 'noopener');
-        Tally.link(h.it.title);
+        if (h.it) Tally.link(h.it.title);
       }
       else if (h.buy) buy(h.buy);
       else if (h.randomize) Monk.randomize();
@@ -2068,9 +2119,9 @@
     // a colour of the tag's while it is there: a word, and its box's
     // outline while the box is not open, and a menu's button or one of
     // the demo's menu's sliders, its outline and its words, the first
-    // (Inventor's), anything else in a box, its x, its items and the
-    // slideshow's < and > (the > for the photo too), the second (Software
-    // Engineer's), and a link, a menu's header, its outline, caret and
+    // (Inventor's), anything else in a box, its x, its items, its own
+    // links and the slideshow's < and > (the > for the photo too), the
+    // second (Software Engineer's), and an item's link, a menu's header, its outline, caret and
     // words with it, and a demo's ribbon, the third (Musician's); a finger
     // has no hover. in a box inside another's each of them is the next
     // colour on, the first again after the third (tint). where a mouse's
@@ -2089,7 +2140,7 @@
     const tint = (s, n) => HOVERS[(s.depth + n) % HOVERS.length];
     // whether hit, what the pointer is on, is section s's word, or its
     // box's outline while that is not open
-    const onWord = (hit, s) => !!hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide;
+    const onWord = (hit, s) => !!hit && hit.s === s && !hit.it && !hit.close && !hit.shop && !hit.slide && !hit.link;
     Hover.listen(canvas, View);
 
     // --- the name's keys ---------------------------------------------------------
@@ -2147,14 +2198,16 @@
     let iconRows = ICONS; // each icon's rows by name, and the scroll hand's frames (below)
 
     // icons (ICONS, js/icons.js) read again and put in the corner, the
-    // scroll hand's frames beside them and the switch and its ball beside
-    // those, the demo's face (js/moon.js) given its eye and its nose
+    // scroll hand's frames beside them, the switch and its ball beside
+    // those and the corner's links beside the switch, the demo's face
+    // (js/moon.js) given its eye and its nose
     // again, and the chess set's pane its pawn (chess, below)
     function readIcons(icons) {
       iconRows = icons;
       placeMute();
       placeHand();
       placeSwitch();
+      placeLinks();
       Moon.art(iconRows.eye || [], iconRows.nose || []);
       if (chessItem && chessItem.chessAt) chessItem.chessAt.panel.pawn = chessPawn(chessItem.chessAt.panel.shut);
     }
@@ -2208,17 +2261,22 @@
     // of the end the page is nearer, and the tab's icon is that end's: a
     // dot in each of the tag's colours down its diagonal
     const CORNER = {
-      EDGE: 21, // world px the mute button, the scroll hand and the switch keep clear of the window's right and bottom edges, as the tag is of the right
-      GAP: 6,   // world px between the switch and the scroll hand, right of it
+      EDGE: 21, // world px the mute button, the scroll hand, the switch and the corner's links keep clear of the window's right and bottom edges, as the tag is of the right
+      GAP: 6,   // world px between the switch and the scroll hand, right of it, and between the corner's links, left of it
     };
     Switch.load(window, [HOVER, HOVER_ITEM, HOVER_LINK]);
+
+    // the scroll hand's widest frame's left edge
+    function handLeft() {
+      let w = 0;
+      for (const f of handArt) w = Math.max(w, f.ink.w);
+      return handWob.cx - w * HAND.SCALE / 2;
+    }
 
     // the switch, CORNER.GAP clear of the scroll hand's widest frame's
     // left, and its ball
     function placeSwitch() {
-      let w = 0;
-      for (const f of handArt) w = Math.max(w, f.ink.w);
-      Switch.place(iconRows.switch, iconRows.ball, handWob.cx - w * HAND.SCALE / 2 - CORNER.GAP, H - CORNER.EDGE);
+      Switch.place(iconRows.switch, iconRows.ball, handLeft() - CORNER.GAP, H - CORNER.EDGE);
     }
 
     // whether world (x, y) on the screen presses the switch
@@ -2226,14 +2284,57 @@
       return Switch.at(x, y);
     }
 
-    // whether world (x, y) on the screen presses the mute button or the switch
+    // whether world (x, y) on the screen presses the mute button, the
+    // switch or one of the corner's links
     function cornerAt(x, y) {
-      return muteAt(x, y) || switchAt(x, y);
+      return muteAt(x, y) || switchAt(x, y) || !!cornerLinkAt(x, y);
     }
 
     // a primary press on the switch is watched, and the click a press that
     // took its ball ends in presses nothing (grabbed, the drag below)
     Switch.listen(canvas, View, switchAt, () => { grabbed = true; });
+
+    // --- the corner's links ------------------------------------------------------
+    // github and linkedin: two icons left of the switch, along the window's
+    // bottom with it, the scroll hand and the mute button and held there as
+    // they are, CORNER.GAP between them: ICONS.github and ICONS.linkedin
+    // (js/icons.js), each an icon (js/icon.js) drawn as the mute button's
+    // are, wobbling, its paper and then its ink, its ink in the first tag
+    // colour while a mouse is over it. a click on one, or a little round
+    // it, opens its site in a new tab (the click, above), and a press on
+    // it presses nothing under it
+    const CORNER_LINKS = [
+      { icon: 'github', url: 'https://github.com/dangelo729' },
+      { icon: 'linkedin', url: 'https://www.linkedin.com/in/peter-dangelo/' },
+    ];
+    const LINK_ICON = {
+      SCALE: LETTER.SCALE, // of an icon's px, as the mute button's
+      SEED: 99300,         // the first's wobble's, a hundred a link, clear of the switch's
+    };
+    let cornerLinks = []; // each link that has an icon, { url, art }: its site and its icon where it stands (Icon.make)
+
+    // each link's icon, left to right as CORNER_LINKS has them: the last
+    // CORNER.GAP clear of the switch's left, or of the scroll hand's with
+    // no switch, and each one before as far clear of the next; an empty
+    // icon has none, and takes no room
+    function placeLinks() {
+      const sw = Switch.art && Switch.art.ink;
+      let right = (sw ? sw.cx - sw.g.w * sw.scale / 2 : handLeft()) - CORNER.GAP;
+      cornerLinks = [];
+      for (let i = CORNER_LINKS.length - 1; i >= 0; i--) {
+        const k = CORNER_LINKS[i], art = Icon.make(iconRows[k.icon], right, H - CORNER.EDGE, LINK_ICON.SEED + 100 * i, LINK_ICON.SCALE);
+        if (!art) continue;
+        cornerLinks.push({ url: k.url, art });
+        right -= art.ink.g.w * art.ink.scale + CORNER.GAP;
+      }
+    }
+
+    // the corner's link world (x, y) on the screen presses, its box and a
+    // little round it (Icon.at), or null
+    function cornerLinkAt(x, y) {
+      for (const k of cornerLinks) if (Icon.at(k.art, x, y)) return k;
+      return null;
+    }
 
     // --- the demo ----------------------------------------------------------------
     // monk mouth's item, in personal work, holds a small demo of its voice
@@ -5900,7 +6001,7 @@
     // its insides showing through it, the bubble in its box, every other
     // letter over them on its own
     // clock, the tag's bubbles, the
-    // drag's marks, the scroll hand and the mute button, and last the hand on its backing, over
+    // drag's marks, the scroll hand, the corner's links, the switch and the mute button, and last the hand on its backing, over
     // the end of the drag's line, each layer simply writing over the bits of the last. then
     // the whole of it goes to the canvas in one copy, and the system cursor
     // is hidden (drawn, on the root) once there is a hand drawn in its
@@ -6022,7 +6123,8 @@
       // cover them all
       const sy = scrolled();
       const overMute = !!Hover.at && muteAt(Hover.at.x, Hover.at.y), overSwitch = !!Hover.at && !overMute && switchAt(Hover.at.x, Hover.at.y);
-      const hit = Hover.at && !overMute && !overSwitch && hitAt(Hover.at.x, Hover.at.y);
+      const overLink = Hover.at && !overMute && !overSwitch ? cornerLinkAt(Hover.at.x, Hover.at.y) : null;
+      const hit = Hover.at && !overMute && !overSwitch && !overLink && hitAt(Hover.at.x, Hover.at.y);
       for (const s of tops) {
         const v = onWord(hit, s) ? tint(s, 0) : undefined;
         for (const L of s.letters) L.draw(t, s.off - sy, fb, 0, v);
@@ -6037,6 +6139,7 @@
       if (bubble && bubbleHome.room && world.drag) drawDrag(roomView(fb, t, sy - bubbleHome.off, world.drag.blob === bubble ? bubbleAt() : inRoom()), world.drag);
       for (const b of tagBubbles) drawDrag({ line: (x0, y0, x1, y1) => fb.line(x0, y0, x1, y1, b.v) }, b.world.drag);
       drawHand(t);
+      for (const k of cornerLinks) Icon.draw(k.art, fb, t, k === overLink ? HOVER : 1);
       Switch.draw(fb, t, overSwitch);
       Mute.draw(fb, t, overMute ? HOVER : 1);
       cursor.draw(fb);

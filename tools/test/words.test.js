@@ -4,7 +4,8 @@
 // context, and hands it a fake document whose elements keep what is put
 // in them. checks that the words go into the element given and nowhere
 // else: the name a heading first, each section a heading with its text a
-// paragraph each, the sections in its box and its items a level down, an
+// paragraph each and its own links after them, the sections in its box
+// and its items a level down, an
 // item's text after its heading and its links after that, each a real
 // link that opens in a new tab, the separator between them, and an item
 // with no text a heading alone. then builds them from index.html's
@@ -53,7 +54,7 @@ const SECTIONS = [
     ] },
   ] },
   { title: 'Doodles', photo: false, o: 0, items: [{ title: 'Bubble Bob', game: true }] },
-  { title: 'About', photo: true, o: 0 },
+  { title: 'About', photo: true, o: 0, links: [['about.example', 'https://about.example']] },
   { title: 'Contact', photo: false, o: 0 },
 ];
 const TEXT = {
@@ -73,18 +74,18 @@ const want = [
   'h4 Three', 'p a three.org',
   'h2 Doodles',
   'h3 Bubble Bob',
-  'h2 About', 'p First.', 'p Second.',
+  'h2 About', 'p First.', 'p Second.', 'p a about.example',
   'h2 Contact', 'p Write!', 'p me@example.com', 'p +1 555-0100',
 ];
 check('the name, the sections, their boxes\' sections and items, each its text and links, in order', got.join('\n') === want.join('\n'), got.join('\n') === want.join('\n') ? '' : '\n' + got.join('\n'));
 const links = canvas.children.flatMap((c) => c.children.filter((k) => k.tag === 'a'));
-check('each link a real link to its url', links.length === 3 && links.map((a) => a.href).join(' ') === 'https://one.com https://github.com/one https://three.org', links.map((a) => a.href).join(' '));
+check('each link a real link to its url', links.length === 4 && links.map((a) => a.href).join(' ') === 'https://one.com https://github.com/one https://three.org https://about.example', links.map((a) => a.href).join(' '));
 check('each opening in a new tab, as the page\'s do', links.every((a) => a.target === '_blank' && a.rel === 'noopener'));
 check('nothing made that is not in the canvas', doc.made === canvas.children.length + canvas.children.reduce((n, c) => n + c.children.length, 0), doc.made + ' made');
 const again = element('canvas');
 Words.build(doc, again, 'A Name', SECTIONS, {}, ' | ');
 const bare = ['h1 A Name', 'h2 Work', 'h3 Personal', 'h4 One', 'p a one.com | a github.com/one', 'h4 Two', 'h4 Three', 'p a three.org',
-  'h2 Doodles', 'h3 Bubble Bob', 'h2 About', 'h2 Contact'];
+  'h2 Doodles', 'h3 Bubble Bob', 'h2 About', 'p a about.example', 'h2 Contact'];
 check('with no text at all: the headings and the links alone', lines(again).join('\n') === bare.join('\n'), lines(again).join('\n') === bare.join('\n') ? '' : '\n' + lines(again).join('\n'));
 
 // --- the page's own ----------------------------------------------------------------
@@ -123,7 +124,7 @@ if (Array.isArray(page)) {
   const written = Object.values(words).flatMap(all);
   const once = (xs, x) => xs.filter((y) => y === x).length === 1;
   check('every paragraph of TEXT there once', written.length > 0 && written.every((p) => once(paras, p)) && paras.length === written.length, paras.length + ' of ' + written.length);
-  const walk = (s) => [...(s.items || []).flatMap((it) => it.links || []), ...(s.subs || []).flatMap(walk)];
+  const walk = (s) => [...(s.links || []), ...(s.items || []).flatMap((it) => it.links || []), ...(s.subs || []).flatMap(walk)];
   const pageLinks = page.flatMap(walk);
   const realLinks = real.children.flatMap((c) => c.children.filter((k) => k.tag === 'a'));
   check('every link of SECTIONS there once, its label and its url', pageLinks.length > 0 && realLinks.length === pageLinks.length &&

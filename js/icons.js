@@ -1,6 +1,6 @@
 // the mute button's icons, the light and dark switch and its ball, monk
-// mouth's face, the chess set's pawn and the scroll hand's frames
-// (index.html), written by
+// mouth's face, the chess set's pawn, the corner's links and the scroll
+// hand's frames (index.html), written by
 // tools/text/editor.html (python3 tools/text/serve.py): edit there, not
 // here. each is rows of '#' ink, 'o' paper and '.' clear; sound shows
 // while the page plays, muted while it is muted, switch is the light and
@@ -8,6 +8,7 @@
 // from its left end as it is from its top, light, to as far in from its
 // right, dark, eye is the face's left eye and, mirrored, its right, nose
 // is its nose, pawn stands in the porthole in the chess set's corner,
+// github and linkedin stand left of the switch and open those sites,
 // and hand's frames play from pointing down, first, to
 // thumbs up, last, as the page comes to its bottom, every frame the same
 // size.
@@ -92,6 +93,32 @@ const ICONS = {
     ".#######.",
     "#########",
     "#########"
+  ],
+  "github": [
+    "...#####...",
+    "..#ooooo#..",
+    ".#o#ooo#o#.",
+    "#oo#####oo#",
+    "#o#ooooo#o#",
+    "#o#ooooo#o#",
+    "#oo#ooo#oo#",
+    "#ooo#o#ooo#",
+    ".#oo#o#oo#.",
+    "..#o#o#o#..",
+    "...##o##..."
+  ],
+  "linkedin": [
+    ".#########.",
+    "#ooooooooo#",
+    "#o#ooooooo#",
+    "#ooooooooo#",
+    "#o#oo###oo#",
+    "#o#oo#oo#o#",
+    "#o#oo#oo#o#",
+    "#o#oo#oo#o#",
+    "#o#oo#oo#o#",
+    "#ooooooooo#",
+    ".#########."
   ],
   "hand": [
     [
